@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import JSZip from 'jszip';
 import { promises as fs } from 'fs';
@@ -18,6 +23,19 @@ async function createMockResultZip(options: {
   const zip = new JSZip();
 
   // Create manifest
+  const files: Record<string, string> = {
+    manifest: 'manifest.json',
+    chunks: 'chunks.json',
+  };
+
+  if (options.includeFullMarkdown) {
+    files.fullMarkdown = 'full.md';
+  }
+
+  if (options.includeHierarchy) {
+    files.hierarchy = 'hierarchy.json';
+  }
+
   const manifest: Partial<Manifest> = {
     version: '1.0',
     jobId: 'job-test-123',
@@ -31,12 +49,7 @@ async function createMockResultZip(options: {
       tableChunks: options.includeTables ? 1 : 0,
       totalPages: 10,
     },
-    files: {
-      manifest: 'manifest.json',
-      chunks: 'chunks.json',
-      fullMarkdown: options.includeFullMarkdown ? 'full.md' : undefined,
-      hierarchy: options.includeHierarchy ? 'hierarchy.json' : undefined,
-    },
+    files,
   };
 
   zip.file('manifest.json', JSON.stringify(manifest));

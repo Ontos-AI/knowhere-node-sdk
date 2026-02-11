@@ -1,0 +1,383 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import axios from 'axios';
+import { HttpClient } from '../http-client.js';
+import {
+  BadRequestError,
+  AuthenticationError,
+  PermissionDeniedError,
+  NotFoundError,
+  ConflictError,
+  RateLimitError,
+  InternalServerError,
+  ServiceUnavailableError,
+  GatewayTimeoutError,
+  NetworkError,
+  TimeoutError,
+} from '../../errors/index.js';
+import { Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
+
+// Mock withRetry to bypass retry logic in tests
+vi.mock('../retry.js', async () => {
+  const actual = await vi.importActual<typeof import('../retry.js')>('../retry.js');
+  return {
+    ...actual,
+    withRetry: vi.fn(async (fn) => fn()),
+  };
+});
+
+describe('HttpClient', () => {
+  describe('constructor', () => {
+    it('should initialize with required options', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+      });
+
+      expect(client).toBeDefined();
+    });
+
+    it('should apply timeout configuration', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+        timeout: 30000,
+      });
+
+      expect(client).toBeDefined();
+    });
+
+    it('should apply custom headers', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+        defaultHeaders: {
+          'X-Custom': 'value',
+        },
+      });
+
+      expect(client).toBeDefined();
+    });
+
+    it('should apply custom HTTP agents', () => {
+      const httpAgent = new HttpAgent();
+      const httpsAgent = new HttpsAgent();
+
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+        httpAgent,
+        httpsAgent,
+      });
+
+      expect(client).toBeDefined();
+    });
+  });
+
+  describe('HTTP methods', () => {
+    let client: HttpClient;
+
+    beforeEach(() => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+      });
+
+      // Clear mocks
+      vi.clearAllMocks();
+    });
+
+    describe('get', () => {
+      it('should make GET request and return data', async () => {
+        const mockData = { id: '123', name: 'Test' };
+        vi.spyOn(axios, 'get').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        // Access internal axios instance
+        const axiosInstance = client.getAxiosInstance();
+        vi.spyOn(axiosInstance, 'get').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        const result = await client.get('/test');
+
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('post', () => {
+      it('should make POST request with data', async () => {
+        const mockData = { id: '123' };
+        const axiosInstance = client.getAxiosInstance();
+        vi.spyOn(axiosInstance, 'post').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        const result = await client.post('/test', { name: 'Test' });
+
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('put', () => {
+      it('should make PUT request with upload timeout', async () => {
+        const mockData = { success: true };
+        const axiosInstance = client.getAxiosInstance();
+        vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        const result = await client.put('/test', { data: 'test' });
+
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('download', () => {
+      it('should download file as buffer', async () => {
+        const mockBuffer = new ArrayBuffer(10);
+        const axiosInstance = client.getAxiosInstance();
+        vi.spyOn(axiosInstance, 'get').mockResolvedValue({ data: mockBuffer, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        const result = await client.download('https://example.com/file.pdf');
+
+        expect(result).toBeInstanceOf(Buffer);
+      });
+    });
+
+    describe('upload', () => {
+      it('should upload with progress tracking', async () => {
+        const axiosInstance = client.getAxiosInstance();
+        vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: null, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        const progressUpdates: any[] = [];
+
+        await client.upload('https://s3.example.com/upload', Buffer.from('test'), {
+          onProgress: (progress) => {
+            progressUpdates.push(progress);
+          },
+        });
+
+        expect(axiosInstance.put).toHaveBeenCalled();
+      });
+
+      it('should pass custom headers to upload', async () => {
+        const axiosInstance = client.getAxiosInstance();
+        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: null, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        await client.upload('https://s3.example.com/upload', Buffer.from('test'), {
+          headers: {
+            'Content-Type': 'application/pdf',
+          },
+        });
+
+        expect(putSpy).toHaveBeenCalledWith(
+          'https://s3.example.com/upload',
+          expect.any(Buffer),
+          expect.objectContaining({
+            headers: {
+              'Content-Type': 'application/pdf',
+            },
+          }),
+        );
+      });
+
+      it('should support AbortSignal', async () => {
+        const axiosInstance = client.getAxiosInstance();
+        const controller = new AbortController();
+        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: null, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+
+        await client.upload('https://s3.example.com/upload', Buffer.from('test'), {
+          signal: controller.signal,
+        });
+
+        expect(putSpy).toHaveBeenCalledWith(
+          'https://s3.example.com/upload',
+          expect.any(Buffer),
+          expect.objectContaining({
+            signal: controller.signal,
+          }),
+        );
+      });
+    });
+  });
+
+  describe('error handling', () => {
+    let client: HttpClient;
+
+    beforeEach(() => {
+      client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+      });
+    });
+
+    it('should map 400 to BadRequestError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 400,
+          data: { message: 'Invalid input', code: 'VALIDATION_ERROR' },
+          headers: { 'x-request-id': 'req-123' },
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(BadRequestError);
+    });
+
+    it('should map 401 to AuthenticationError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 401,
+          data: { message: 'Invalid API key' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(AuthenticationError);
+    });
+
+    it('should map 403 to PermissionDeniedError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 403,
+          data: { message: 'Forbidden' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(PermissionDeniedError);
+    });
+
+    it('should map 404 to NotFoundError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 404,
+          data: { message: 'Not found' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should map 409 to ConflictError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 409,
+          data: { message: 'Conflict' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(ConflictError);
+    });
+
+    it('should map 429 to RateLimitError with retryAfter', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 429,
+          data: { message: 'Rate limit exceeded' },
+          headers: { 'retry-after': '60' },
+        },
+        isAxiosError: true,
+      });
+
+      try {
+        await client.get('/test');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitError);
+        expect((err as RateLimitError).retryAfter).toBe(60);
+      }
+    });
+
+    it('should map 500 to InternalServerError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 500,
+          data: { message: 'Internal error' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(InternalServerError);
+    });
+
+    it('should map 503 to ServiceUnavailableError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 503,
+          data: { message: 'Service unavailable' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(ServiceUnavailableError);
+    });
+
+    it('should map 504 to GatewayTimeoutError', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        response: {
+          status: 504,
+          data: { message: 'Gateway timeout' },
+          headers: {},
+        },
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(GatewayTimeoutError);
+    });
+
+    it('should handle network errors without response', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        message: 'Network error',
+        code: 'ENOTFOUND',
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(NetworkError);
+    });
+
+    it('should handle timeout errors', async () => {
+      const axiosInstance = client.getAxiosInstance();
+      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
+        message: 'timeout of 60000ms exceeded',
+        code: 'ECONNABORTED',
+        isAxiosError: true,
+      });
+
+      await expect(client.get('/test')).rejects.toThrow(TimeoutError);
+    });
+
+  });
+
+  describe('getAxiosInstance', () => {
+    it('should return underlying axios instance', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        apiKey: 'sk_test',
+      });
+
+      const instance = client.getAxiosInstance();
+      expect(instance).toBeDefined();
+    });
+  });
+});

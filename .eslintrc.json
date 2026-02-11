@@ -22,5 +22,5 @@
     "@typescript-eslint/no-misused-promises": "error",
     "no-console": ["warn", { "allow": ["warn", "error"] }]
   },
-  "ignorePatterns": ["dist", "node_modules", "*.config.ts", "*.config.js"]
+  "ignorePatterns": ["dist", "node_modules", "*.config.ts", "*.config.js", "examples"]
 }
