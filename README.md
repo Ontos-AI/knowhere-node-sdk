@@ -1,0 +1,242 @@
+# Knowhere Node.js SDK
+
+Official Node.js/TypeScript SDK for the [Knowhere](https://knowhereto.ai) document parsing API.
+
+[![npm version](https://badge.fury.io/js/@knowhere-ai%2Fsdk.svg)](https://www.npmjs.com/package/@knowhere-ai/sdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/node/v/@knowhere-ai/sdk)](https://nodejs.org)
+
+## Features
+
+- 🚀 **TypeScript-first** - Full type safety with comprehensive type definitions
+- 📦 **Stream-based uploads** - Efficient handling of large files
+- 🔄 **Automatic retries** - Exponential backoff for transient failures
+- 📊 **Adaptive polling** - Smart waiting for job completion
+- 🎯 **Progressive API** - High-level convenience methods + low-level control
+- ⚡ **Modern JavaScript** - ESM and CommonJS support
+
+## Installation
+
+```bash
+npm install @knowhere-ai/sdk
+```
+
+**Requirements:**
+- Node.js >= 18.0.0
+- TypeScript >= 5.0 (optional, for type checking)
+
+## Quick Start
+
+```typescript
+import Knowhere from '@knowhere-ai/sdk';
+
+// Initialize client
+const client = new Knowhere({
+  apiKey: process.env.KNOWHERE_API_KEY,
+});
+
+// Parse a document from URL
+const result = await client.parse({
+  url: 'https://example.com/document.pdf',
+});
+
+// Access parsed content
+console.log(`Found ${result.textChunks.length} text chunks`);
+console.log(`Found ${result.imageChunks.length} images`);
+console.log(`Found ${result.tableChunks.length} tables`);
+
+// Work with chunks
+result.textChunks.forEach((chunk) => {
+  console.log(chunk.content);
+  console.log(chunk.keywords);
+  console.log(chunk.summary);
+});
+
+// Save results to disk
+await result.save('./output/');
+```
+
+## Configuration
+
+### Environment Variables
+
+```bash
+KNOWHERE_API_KEY=sk_...                       # Required
+KNOWHERE_BASE_URL=https://api.knowhereto.ai   # Optional
+```
+
+### Client Options
+
+```typescript
+const client = new Knowhere({
+  apiKey: 'sk_...',              // API authentication key
+  baseURL: 'https://...',        // API base URL
+  timeout: 60000,                // Request timeout (ms)
+  uploadTimeout: 600000,         // Upload timeout (ms)
+  maxRetries: 5,                 // Max retry attempts
+});
+```
+
+## Usage Examples
+
+### Parse from File
+
+```typescript
+// From file path (recommended)
+const result = await client.parse({
+  file: './document.pdf',
+});
+
+// From Buffer
+const buffer = await fs.readFile('./document.pdf');
+const result = await client.parse({
+  file: buffer,
+  fileName: 'document.pdf',
+});
+
+// From Stream
+const stream = fs.createReadStream('./document.pdf');
+const result = await client.parse({
+  file: stream,
+  fileName: 'document.pdf',
+});
+```
+
+### Advanced Options
+
+```typescript
+const result = await client.parse({
+  url: 'https://example.com/doc.pdf',
+  model: 'advanced',                // 'base' | 'advanced'
+  ocr: true,                        // Enable OCR
+  docType: 'pdf',                   // Document type hint
+  smartTitleParse: true,            // Smart title detection
+  summaryImage: true,               // Generate image summaries
+  summaryTable: true,               // Generate table summaries
+  summaryText: true,                // Generate text summaries
+  pollInterval: 10000,              // Polling interval (ms)
+  pollTimeout: 1800000,             // Max wait time (ms)
+  webhookUrl: 'https://...',        // Webhook for completion
+  onUploadProgress: (progress) => {
+    console.log(`Upload: ${progress.percent}%`);
+  },
+  onPollProgress: (status) => {
+    console.log(`Status: ${status.status}`);
+  },
+});
+```
+
+### Low-Level API
+
+For granular control over the job lifecycle:
+
+```typescript
+// 1. Create job
+const job = await client.jobs.create({
+  sourceType: 'file',
+  fileName: 'document.pdf',
+  parsingParams: { model: 'advanced', ocrEnabled: true },
+});
+
+// 2. Upload file
+await client.jobs.upload(job.jobId, {
+  file: './document.pdf',
+  onProgress: ({ percent }) => console.log(`${percent}%`),
+});
+
+// 3. Wait for completion
+const jobResult = await client.jobs.wait(job.jobId, {
+  pollInterval: 10000,
+});
+
+// 4. Load results
+const result = await client.jobs.load(jobResult.jobId);
+```
+
+### Error Handling
+
+```typescript
+import {
+  BadRequestError,
+  AuthenticationError,
+  RateLimitError,
+  PollingTimeoutError,
+  JobFailedError,
+} from '@knowhere-ai/sdk';
+
+try {
+  const result = await client.parse({ url: '...' });
+} catch (error) {
+  if (error instanceof RateLimitError) {
+    // Wait and retry
+    await sleep(error.retryAfter * 1000);
+  } else if (error instanceof AuthenticationError) {
+    console.error('Invalid API key');
+  } else if (error instanceof PollingTimeoutError) {
+    console.error('Processing timeout');
+  } else if (error instanceof JobFailedError) {
+    console.error('Job failed:', error.jobResult.error);
+  }
+}
+```
+
+## Documentation
+
+For complete documentation, visit [https://knowhereto.ai/docs](https://knowhereto.ai/docs)
+
+## API Reference
+
+See [API.md](./API.md) for detailed API documentation.
+
+## Examples
+
+Check out the [examples](./examples) directory for more usage examples:
+
+- [Basic Usage](./examples/basic.ts)
+- [File Upload](./examples/file-upload.ts)
+- [Error Handling](./examples/error-handling.ts)
+- [Progress Tracking](./examples/progress.ts)
+- [Low-Level API](./examples/low-level.ts)
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:ci
+
+# Lint code
+npm run lint
+
+# Format code
+npm run format
+
+# Type check
+npm run typecheck
+
+# Build
+npm run build
+```
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guide](./CONTRIBUTING.md) for details.
+
+## License
+
+[MIT](./LICENSE)
+
+## Support
+
+- 📧 Email: team@knowhereto.ai
+- 🐛 Issues: [GitHub Issues](https://github.com/Ontos-AI/knowhere-node-sdk/issues)
+- 📚 Documentation: [https://knowhereto.ai/docs](https://knowhereto.ai/docs)
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release history.
