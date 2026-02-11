@@ -34,3 +34,8 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Agent
+.cursor/
+.claude/
+.spec/
