@@ -1,0 +1,159 @@
+import type { ReadStream } from 'fs';
+
+/**
+ * Parsing model options
+ */
+export type ParsingModel = 'base' | 'advanced';
+
+/**
+ * Document type options
+ */
+export type DocType = 'auto' | 'pdf' | 'docx' | 'txt' | 'md';
+
+/**
+ * Parsing configuration parameters
+ */
+export interface ParsingParams {
+  /** Parsing model to use (default: 'base') */
+  model?: ParsingModel;
+  /** Enable OCR for scanned documents (default: false) */
+  ocrEnabled?: boolean;
+  /** Knowledge base directory */
+  kbDir?: string;
+  /** Document type hint (default: 'auto') */
+  docType?: DocType;
+  /** Enable smart title parsing (default: false) */
+  smartTitleParse?: boolean;
+  /** Generate image summaries (default: false) */
+  summaryImage?: boolean;
+  /** Generate table summaries (default: false) */
+  summaryTable?: boolean;
+  /** Generate text summaries (default: false) */
+  summaryTxt?: boolean;
+  /** Additional fragment description */
+  addFragDesc?: string;
+}
+
+/**
+ * Webhook configuration
+ */
+export interface WebhookConfig {
+  /** Webhook URL to notify on job completion */
+  url: string;
+}
+
+/**
+ * Job creation parameters
+ */
+export interface CreateJobParams {
+  /** Source type: 'file' for upload, 'url' for remote document */
+  sourceType: 'file' | 'url';
+  /** Source URL (required if sourceType is 'url') */
+  sourceUrl?: string;
+  /** File name (required if sourceType is 'file') */
+  fileName?: string;
+  /** Optional custom data identifier */
+  dataId?: string;
+  /** Parsing configuration */
+  parsingParams?: ParsingParams;
+  /** Webhook configuration */
+  webhook?: WebhookConfig;
+}
+
+/**
+ * File upload parameters
+ */
+export interface UploadParams {
+  /** File to upload (path, Buffer, Stream, or Uint8Array) */
+  file: string | Buffer | ReadStream | Uint8Array;
+  /** Upload progress callback */
+  onProgress?: (progress: UploadProgress) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
+}
+
+/**
+ * Wait options for polling
+ */
+export interface WaitOptions {
+  /** Polling interval in milliseconds (default: 10000) */
+  pollInterval?: number;
+  /** Maximum wait time in milliseconds (default: 1800000 = 30 minutes) */
+  pollTimeout?: number;
+  /** Progress callback */
+  onProgress?: (status: PollProgress) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
+}
+
+/**
+ * Load options for result parsing
+ */
+export interface LoadOptions {
+  /** Whether to verify ZIP checksum (default: true) */
+  verifyChecksum?: boolean;
+}
+
+/**
+ * High-level parse parameters
+ */
+export interface ParseParams {
+  /** Source URL (mutually exclusive with file) */
+  url?: string;
+  /** File to parse (path, Buffer, Stream, or Uint8Array) */
+  file?: string | Buffer | ReadStream | Uint8Array;
+  /** File name (required if file is Buffer/Stream) */
+  fileName?: string;
+  /** Parsing model (default: 'base') */
+  model?: ParsingModel;
+  /** Enable OCR (default: false) */
+  ocr?: boolean;
+  /** Document type hint */
+  docType?: DocType;
+  /** Enable smart title parsing */
+  smartTitleParse?: boolean;
+  /** Generate image summaries */
+  summaryImage?: boolean;
+  /** Generate table summaries */
+  summaryTable?: boolean;
+  /** Generate text summaries */
+  summaryText?: boolean;
+  /** Custom data identifier */
+  dataId?: string;
+  /** Polling interval in milliseconds */
+  pollInterval?: number;
+  /** Maximum wait time in milliseconds */
+  pollTimeout?: number;
+  /** Webhook URL */
+  webhookUrl?: string;
+  /** Upload progress callback */
+  onUploadProgress?: (progress: UploadProgress) => void;
+  /** Poll progress callback */
+  onPollProgress?: (status: PollProgress) => void;
+  /** Abort signal */
+  signal?: AbortSignal;
+}
+
+/**
+ * Upload progress information
+ */
+export interface UploadProgress {
+  /** Bytes uploaded */
+  loaded: number;
+  /** Total bytes (may be undefined for streams) */
+  total?: number;
+  /** Upload percentage (0-100) */
+  percent: number;
+}
+
+/**
+ * Polling progress information
+ */
+export interface PollProgress {
+  /** Current job status */
+  status: import('./job.js').JobStatus;
+  /** Elapsed time in seconds */
+  elapsedSeconds: number;
+  /** Current job result */
+  jobResult: import('./job.js').JobResult;
+}
