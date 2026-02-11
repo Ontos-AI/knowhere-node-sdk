@@ -6,8 +6,15 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: ['node_modules/', 'dist/', '**/*.test.ts', '**/*.config.ts', 'src/index.ts'],
+      reporter: ['text', 'json', 'html', 'json-summary'],
+      exclude: [
+        'node_modules/',
+        'dist/',
+        '**/*.test.ts',
+        '**/*.config.ts',
+        'src/index.ts',
+        'examples/**/*',
+      ],
       thresholds: {
         statements: 80,
         branches: 75,
