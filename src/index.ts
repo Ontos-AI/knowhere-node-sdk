@@ -1,0 +1,65 @@
+// Main client
+export { Knowhere, Knowhere as default } from './client.js';
+
+// Version
+export { VERSION } from './version.js';
+
+// Types
+export type {
+  // Client types
+  KnowhereOptions,
+  // Job types
+  Job,
+  JobResult,
+  JobStatus,
+  JobError,
+  // Parameter types
+  ParsingParams,
+  ParsingModel,
+  DocType,
+  WebhookConfig,
+  CreateJobParams,
+  UploadParams,
+  WaitOptions,
+  LoadOptions,
+  ParseParams,
+  UploadProgress,
+  PollProgress,
+  // Result types
+  ParseResult,
+  Manifest,
+  Statistics,
+  FileIndex,
+  Chunk,
+  BaseChunk,
+  TextChunk,
+  ImageChunk,
+  TableChunk,
+} from './types/index.js';
+
+// Errors
+export {
+  // Base errors
+  KnowhereError,
+  NetworkError,
+  TimeoutError,
+  PollingTimeoutError,
+  ChecksumError,
+  // API errors
+  APIError,
+  BadRequestError,
+  AuthenticationError,
+  PaymentRequiredError,
+  PermissionDeniedError,
+  NotFoundError,
+  ConflictError,
+  RateLimitError,
+  InternalServerError,
+  ServiceUnavailableError,
+  GatewayTimeoutError,
+  // Job errors
+  JobFailedError,
+} from './errors/index.js';
+
+// Resources (for advanced usage)
+export { Jobs } from './resources/index.js';
