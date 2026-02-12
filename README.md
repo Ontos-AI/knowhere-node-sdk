@@ -22,7 +22,8 @@ npm install @knowhere-ai/sdk
 ```
 
 **Requirements:**
-- Node.js >= 18.0.0
+- Node.js >= 20.19.0
+- npm >= 10.0.0
 - TypeScript >= 5.0 (optional, for type checking)
 
 ## Quick Start
