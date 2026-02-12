@@ -72,13 +72,9 @@ describe('Polling', () => {
         isFailed: true,
       });
 
-      await expect(
-        pollJobStatus(mockHttpClient, 'job-123'),
-      ).rejects.toThrow(JobFailedError);
+      await expect(pollJobStatus(mockHttpClient, 'job-123')).rejects.toThrow(JobFailedError);
 
-      await expect(
-        pollJobStatus(mockHttpClient, 'job-123'),
-      ).rejects.toThrow('Failed to parse');
+      await expect(pollJobStatus(mockHttpClient, 'job-123')).rejects.toThrow('Failed to parse');
     });
 
     it('should throw error when job fails without error details', async () => {
@@ -92,13 +88,9 @@ describe('Polling', () => {
         isFailed: true,
       });
 
-      await expect(
-        pollJobStatus(mockHttpClient, 'job-123'),
-      ).rejects.toThrow(JobFailedError);
+      await expect(pollJobStatus(mockHttpClient, 'job-123')).rejects.toThrow(JobFailedError);
 
-      await expect(
-        pollJobStatus(mockHttpClient, 'job-123'),
-      ).rejects.toThrow('Job job-123 failed');
+      await expect(pollJobStatus(mockHttpClient, 'job-123')).rejects.toThrow('Job job-123 failed');
     });
 
     it('should timeout if poll timeout exceeded', async () => {

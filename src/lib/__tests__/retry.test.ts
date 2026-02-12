@@ -1,13 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  shouldRetry,
-  calculateRetryDelay,
-  getRetryAfter,
-} from '../retry.js';
-import {
-  INITIAL_RETRY_DELAY,
-  MAX_RETRY_DELAY,
-} from '../../constants.js';
+import { shouldRetry, calculateRetryDelay, getRetryAfter } from '../retry.js';
+import { INITIAL_RETRY_DELAY, MAX_RETRY_DELAY } from '../../constants.js';
 
 describe('retry', () => {
   describe('shouldRetry', () => {

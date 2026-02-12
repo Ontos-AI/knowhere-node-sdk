@@ -1,11 +1,6 @@
 import { BaseResource } from './base.js';
 import type { Job, JobResult } from '../types/job.js';
-import type {
-  CreateJobParams,
-  UploadParams,
-  WaitOptions,
-  LoadOptions,
-} from '../types/params.js';
+import type { CreateJobParams, UploadParams, WaitOptions, LoadOptions } from '../types/params.js';
 import type { ParseResult } from '../types/result.js';
 import { uploadFile } from '../lib/upload.js';
 import { pollJobStatus } from '../lib/polling.js';

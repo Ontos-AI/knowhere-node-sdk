@@ -1,13 +1,7 @@
 /**
  * Job status
  */
-export type JobStatus =
-  | 'pending'
-  | 'waiting-file'
-  | 'running'
-  | 'converting'
-  | 'done'
-  | 'failed';
+export type JobStatus = 'pending' | 'waiting-file' | 'running' | 'converting' | 'done' | 'failed';
 
 /**
  * Job creation response

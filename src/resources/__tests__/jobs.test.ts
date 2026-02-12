@@ -528,9 +528,7 @@ describe('Jobs Resource', () => {
       });
 
       await expect(jobs.load('job-123')).rejects.toThrow(NotFoundError);
-      await expect(jobs.load('job-123')).rejects.toThrow(
-        'Result URL not available',
-      );
+      await expect(jobs.load('job-123')).rejects.toThrow('Result URL not available');
     });
 
     it('should pass load options to parseResult', async () => {

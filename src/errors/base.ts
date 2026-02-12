@@ -14,7 +14,10 @@ export class KnowhereError extends Error {
  * Network-related errors
  */
 export class NetworkError extends KnowhereError {
-  constructor(message: string, public readonly cause?: Error) {
+  constructor(
+    message: string,
+    public readonly cause?: Error,
+  ) {
     super(message);
     this.name = 'NetworkError';
   }

@@ -116,16 +116,10 @@ export async function parseResult(
       await fs.mkdir(directory, { recursive: true });
 
       // Save manifest
-      await fs.writeFile(
-        join(directory, 'manifest.json'),
-        JSON.stringify(manifest, null, 2),
-      );
+      await fs.writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
       // Save chunks
-      await fs.writeFile(
-        join(directory, 'chunks.json'),
-        JSON.stringify(chunks, null, 2),
-      );
+      await fs.writeFile(join(directory, 'chunks.json'), JSON.stringify(chunks, null, 2));
 
       // Save full markdown
       if (fullMarkdown) {
@@ -134,10 +128,7 @@ export async function parseResult(
 
       // Save hierarchy
       if (hierarchy) {
-        await fs.writeFile(
-          join(directory, 'hierarchy.json'),
-          JSON.stringify(hierarchy, null, 2),
-        );
+        await fs.writeFile(join(directory, 'hierarchy.json'), JSON.stringify(hierarchy, null, 2));
       }
 
       // Save images

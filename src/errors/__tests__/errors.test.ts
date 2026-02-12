@@ -142,12 +142,10 @@ describe('Error Classes', () => {
 
   describe('BadRequestError', () => {
     it('should create 400 error', () => {
-      const error = new BadRequestError(
-        'Invalid input',
-        'VALIDATION_ERROR',
-        'req-123',
-        { field: 'email', issue: 'invalid format' },
-      );
+      const error = new BadRequestError('Invalid input', 'VALIDATION_ERROR', 'req-123', {
+        field: 'email',
+        issue: 'invalid format',
+      });
 
       expect(error.statusCode).toBe(400);
       expect(error.name).toBe('BadRequestError');
@@ -164,11 +162,7 @@ describe('Error Classes', () => {
 
   describe('AuthenticationError', () => {
     it('should create 401 error', () => {
-      const error = new AuthenticationError(
-        'Invalid API key',
-        'INVALID_API_KEY',
-        'req-123',
-      );
+      const error = new AuthenticationError('Invalid API key', 'INVALID_API_KEY', 'req-123');
 
       expect(error.statusCode).toBe(401);
       expect(error.name).toBe('AuthenticationError');
@@ -184,11 +178,7 @@ describe('Error Classes', () => {
 
   describe('PaymentRequiredError', () => {
     it('should create 402 error', () => {
-      const error = new PaymentRequiredError(
-        'Payment required',
-        'INSUFFICIENT_CREDITS',
-        'req-123',
-      );
+      const error = new PaymentRequiredError('Payment required', 'INSUFFICIENT_CREDITS', 'req-123');
 
       expect(error.statusCode).toBe(402);
       expect(error.name).toBe('PaymentRequiredError');
@@ -204,11 +194,7 @@ describe('Error Classes', () => {
 
   describe('PermissionDeniedError', () => {
     it('should create 403 error', () => {
-      const error = new PermissionDeniedError(
-        'Access denied',
-        'FORBIDDEN',
-        'req-123',
-      );
+      const error = new PermissionDeniedError('Access denied', 'FORBIDDEN', 'req-123');
 
       expect(error.statusCode).toBe(403);
       expect(error.name).toBe('PermissionDeniedError');
@@ -224,11 +210,7 @@ describe('Error Classes', () => {
 
   describe('NotFoundError', () => {
     it('should create 404 error', () => {
-      const error = new NotFoundError(
-        'Resource not found',
-        'NOT_FOUND',
-        'req-123',
-      );
+      const error = new NotFoundError('Resource not found', 'NOT_FOUND', 'req-123');
 
       expect(error.statusCode).toBe(404);
       expect(error.name).toBe('NotFoundError');
@@ -284,11 +266,7 @@ describe('Error Classes', () => {
 
   describe('InternalServerError', () => {
     it('should create 500 error', () => {
-      const error = new InternalServerError(
-        'Server error',
-        'INTERNAL_ERROR',
-        'req-123',
-      );
+      const error = new InternalServerError('Server error', 'INTERNAL_ERROR', 'req-123');
 
       expect(error.statusCode).toBe(500);
       expect(error.name).toBe('InternalServerError');
@@ -318,12 +296,7 @@ describe('Error Classes', () => {
     });
 
     it('should support 502 status code', () => {
-      const error = new ServiceUnavailableError(
-        'Bad gateway',
-        502,
-        'BAD_GATEWAY',
-        'req-123',
-      );
+      const error = new ServiceUnavailableError('Bad gateway', 502, 'BAD_GATEWAY', 'req-123');
 
       expect(error.statusCode).toBe(502);
     });
@@ -337,11 +310,7 @@ describe('Error Classes', () => {
 
   describe('GatewayTimeoutError', () => {
     it('should create 504 error', () => {
-      const error = new GatewayTimeoutError(
-        'Gateway timeout',
-        'GATEWAY_TIMEOUT',
-        'req-123',
-      );
+      const error = new GatewayTimeoutError('Gateway timeout', 'GATEWAY_TIMEOUT', 'req-123');
 
       expect(error.statusCode).toBe(504);
       expect(error.name).toBe('GatewayTimeoutError');
@@ -372,11 +341,7 @@ describe('Error Classes', () => {
         isFailed: true,
       };
 
-      const error = new JobFailedError(
-        'Job failed',
-        'PARSING_ERROR',
-        jobResult,
-      );
+      const error = new JobFailedError('Job failed', 'PARSING_ERROR', jobResult);
 
       expect(error.message).toBe('Job failed');
       expect(error.name).toBe('JobFailedError');

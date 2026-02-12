@@ -14,12 +14,14 @@ import type { Manifest, Chunk } from '../../types/result.js';
 import { createHash } from 'crypto';
 
 // Test helper: Create mock result ZIP
-async function createMockResultZip(options: {
-  includeImages?: boolean;
-  includeTables?: boolean;
-  includeFullMarkdown?: boolean;
-  includeHierarchy?: boolean;
-} = {}): Promise<Buffer> {
+async function createMockResultZip(
+  options: {
+    includeImages?: boolean;
+    includeTables?: boolean;
+    includeFullMarkdown?: boolean;
+    includeHierarchy?: boolean;
+  } = {},
+): Promise<Buffer> {
   const zip = new JSZip();
 
   // Create manifest
@@ -94,10 +96,7 @@ async function createMockResultZip(options: {
       summary: 'Test table',
     });
     // Add actual table file
-    zip.file(
-      'tables/table-001.html',
-      '<table><tr><td>Test Data</td></tr></table>',
-    );
+    zip.file('tables/table-001.html', '<table><tr><td>Test Data</td></tr></table>');
   }
 
   zip.file('chunks.json', JSON.stringify(chunks));
@@ -182,10 +181,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result).toBeDefined();
       expect(result.manifest).toBeDefined();
@@ -197,10 +193,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.manifest.jobId).toBe('job-test-123');
       expect(result.manifest.version).toBe('1.0');
@@ -212,10 +205,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.chunks.length).toBeGreaterThan(0);
       expect(result.chunks[0].chunkId).toBe('chunk-001');
@@ -229,10 +219,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.imageChunks.length).toBeGreaterThan(0);
       expect(result.imageChunks[0].data).toBeInstanceOf(Buffer);
@@ -245,10 +232,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.tableChunks.length).toBeGreaterThan(0);
       expect(result.tableChunks[0].html).toBeDefined();
@@ -261,10 +245,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.fullMarkdown).toBeDefined();
       expect(typeof result.fullMarkdown).toBe('string');
@@ -277,10 +258,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.hierarchy).toBeDefined();
       expect(result.hierarchy).toHaveProperty('type', 'document');
@@ -292,10 +270,7 @@ describe('Result Parser', () => {
 
       // The parser should sanitize the malicious path '../../../etc/passwd' to 'etc/passwd'
       // Since the ZIP has a file at 'etc/passwd', it should find it successfully
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result).toBeDefined();
       expect(result.imageChunks.length).toBe(1);
@@ -382,10 +357,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.rawZip).toBeInstanceOf(Buffer);
       expect(result.rawZip.length).toBe(mockZipBuffer.length);
@@ -417,10 +389,7 @@ describe('Result Parser', () => {
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
       mockHttpClient.download.mockResolvedValue(zipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.manifest.jobId).toBe('test-123');
       expect(result.manifest.sourceFileName).toBe('test.pdf');
@@ -441,10 +410,7 @@ describe('Result Parser', () => {
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
       mockHttpClient.download.mockResolvedValue(zipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.manifest.processingDate).toBeInstanceOf(Date);
     });
@@ -455,10 +421,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       const chunk = result.getChunk('chunk-001');
       expect(chunk).toBeDefined();
@@ -469,10 +432,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       const chunk = result.getChunk('non-existent');
       expect(chunk).toBeUndefined();
@@ -487,10 +447,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       const savedPath = await result.save(testOutputDir);
 
@@ -538,10 +495,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.jobId).toBe('job-test-123');
     });
@@ -550,10 +504,7 @@ describe('Result Parser', () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.statistics).toBeDefined();
       expect(result.statistics.totalChunks).toBe(3);
@@ -567,10 +518,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.textChunks.length).toBe(1);
       expect(result.textChunks[0].type).toBe('text');
@@ -583,10 +531,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.imageChunks.length).toBe(1);
       expect(result.imageChunks[0].type).toBe('image');
@@ -599,10 +544,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.tableChunks.length).toBe(1);
       expect(result.tableChunks[0].type).toBe('table');
@@ -616,10 +558,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       const imagePath = await result.imageChunks[0].save(testOutputDir);
 
@@ -638,10 +577,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       expect(result.imageChunks[0].format).toBe('jpg');
     });
@@ -654,10 +590,7 @@ describe('Result Parser', () => {
       });
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);
 
-      const result = await parseResult(
-        mockHttpClient,
-        'https://s3.example.com/result.zip',
-      );
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
       const tablePath = await result.tableChunks[0].save(testOutputDir);
 
@@ -687,9 +620,7 @@ describe('Result Parser', () => {
       const invalidHash = 'invalid-checksum-hash';
 
       expect(() => verifyChecksum(data, invalidHash)).toThrow(ChecksumError);
-      expect(() => verifyChecksum(data, invalidHash)).toThrow(
-        'Checksum verification failed',
-      );
+      expect(() => verifyChecksum(data, invalidHash)).toThrow('Checksum verification failed');
     });
 
     it('should include expected and actual checksums in error', () => {

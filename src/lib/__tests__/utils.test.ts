@@ -73,14 +73,8 @@ describe('utils', () => {
     });
 
     it('should handle arrays', () => {
-      const input = [
-        { first_name: 'John' },
-        { first_name: 'Jane' },
-      ];
-      const expected = [
-        { firstName: 'John' },
-        { firstName: 'Jane' },
-      ];
+      const input = [{ first_name: 'John' }, { first_name: 'Jane' }];
+      const expected = [{ firstName: 'John' }, { firstName: 'Jane' }];
       expect(keysToCamel(input)).toEqual(expected);
     });
 
@@ -152,10 +146,7 @@ describe('utils', () => {
     });
 
     it('should handle arrays', () => {
-      const input = [
-        { createdAt: '2024-01-15T10:30:00Z' },
-        { createdAt: '2024-01-16T12:45:00Z' },
-      ];
+      const input = [{ createdAt: '2024-01-15T10:30:00Z' }, { createdAt: '2024-01-16T12:45:00Z' }];
       const result = parseDates(input);
       expect(result[0].createdAt).toBeInstanceOf(Date);
       expect(result[1].createdAt).toBeInstanceOf(Date);

@@ -57,11 +57,7 @@ export async function pollJobStatus(
         return jobResult;
       }
       if (jobResult.isFailed && jobResult.error) {
-        throw new JobFailedError(
-          jobResult.error.message,
-          jobResult.error.code,
-          jobResult,
-        );
+        throw new JobFailedError(jobResult.error.message, jobResult.error.code, jobResult);
       }
       // Should not reach here, but handle gracefully
       throw new JobFailedError(
@@ -73,18 +69,12 @@ export async function pollJobStatus(
 
     // Check timeout
     if (elapsed >= pollTimeout) {
-      throw new PollingTimeoutError(
-        `Polling timeout after ${elapsedSeconds} seconds`,
-        elapsed,
-      );
+      throw new PollingTimeoutError(`Polling timeout after ${elapsedSeconds} seconds`, elapsed);
     }
 
     // Adaptive backoff: increase interval after threshold
     if (elapsed > POLL_INTERVAL_INCREASE_THRESHOLD) {
-      currentInterval = Math.min(
-        currentInterval * POLL_INTERVAL_MULTIPLIER,
-        MAX_POLL_INTERVAL,
-      );
+      currentInterval = Math.min(currentInterval * POLL_INTERVAL_MULTIPLIER, MAX_POLL_INTERVAL);
     }
 
     // Wait before next poll

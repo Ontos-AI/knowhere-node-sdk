@@ -99,11 +99,23 @@ describe('HttpClient', () => {
     describe('get', () => {
       it('should make GET request and return data', async () => {
         const mockData = { id: '123', name: 'Test' };
-        vi.spyOn(axios, 'get').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        vi.spyOn(axios, 'get').mockResolvedValue({
+          data: mockData,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         // Access internal axios instance
         const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'get').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        vi.spyOn(axiosInstance, 'get').mockResolvedValue({
+          data: mockData,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         const result = await client.get('/test');
 
@@ -115,7 +127,13 @@ describe('HttpClient', () => {
       it('should make POST request with data', async () => {
         const mockData = { id: '123' };
         const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'post').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        vi.spyOn(axiosInstance, 'post').mockResolvedValue({
+          data: mockData,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         const result = await client.post('/test', { name: 'Test' });
 
@@ -127,7 +145,13 @@ describe('HttpClient', () => {
       it('should make PUT request with upload timeout', async () => {
         const mockData = { success: true };
         const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: mockData, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+          data: mockData,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         const result = await client.put('/test', { data: 'test' });
 
@@ -139,7 +163,13 @@ describe('HttpClient', () => {
       it('should download file as buffer', async () => {
         const mockBuffer = new ArrayBuffer(10);
         const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'get').mockResolvedValue({ data: mockBuffer, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        vi.spyOn(axiosInstance, 'get').mockResolvedValue({
+          data: mockBuffer,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         const result = await client.download('https://example.com/file.pdf');
 
@@ -150,7 +180,13 @@ describe('HttpClient', () => {
     describe('upload', () => {
       it('should upload with progress tracking', async () => {
         const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: null, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+          data: null,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         const progressUpdates: any[] = [];
 
@@ -165,7 +201,13 @@ describe('HttpClient', () => {
 
       it('should pass custom headers to upload', async () => {
         const axiosInstance = client.getAxiosInstance();
-        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: null, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+          data: null,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         await client.upload('https://s3.example.com/upload', Buffer.from('test'), {
           headers: {
@@ -187,7 +229,13 @@ describe('HttpClient', () => {
       it('should support AbortSignal', async () => {
         const axiosInstance = client.getAxiosInstance();
         const controller = new AbortController();
-        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({ data: null, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+          data: null,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        });
 
         await client.upload('https://s3.example.com/upload', Buffer.from('test'), {
           signal: controller.signal,
@@ -234,15 +282,16 @@ describe('HttpClient', () => {
           data,
           headers,
           config: {} as any,
-        }
+        },
       );
       return error;
     };
 
     it('should map 400 to BadRequestError', async () => {
-      const error = createAxiosError(400,
+      const error = createAxiosError(
+        400,
         { message: 'Invalid input', code: 'VALIDATION_ERROR' },
-        { 'x-request-id': 'req-123' }
+        { 'x-request-id': 'req-123' },
       );
       mockAxiosAdapter(error);
 
@@ -250,49 +299,38 @@ describe('HttpClient', () => {
     });
 
     it('should map 401 to AuthenticationError', async () => {
-      const error = createAxiosError(401,
-        { message: 'Invalid API key' },
-        {}
-      );
+      const error = createAxiosError(401, { message: 'Invalid API key' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(AuthenticationError);
     });
 
     it('should map 403 to PermissionDeniedError', async () => {
-      const error = createAxiosError(403,
-        { message: 'Forbidden' },
-        {}
-      );
+      const error = createAxiosError(403, { message: 'Forbidden' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(PermissionDeniedError);
     });
 
     it('should map 404 to NotFoundError', async () => {
-      const error = createAxiosError(404,
-        { message: 'Not found' },
-        {}
-      );
+      const error = createAxiosError(404, { message: 'Not found' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(NotFoundError);
     });
 
     it('should map 409 to ConflictError', async () => {
-      const error = createAxiosError(409,
-        { message: 'Conflict' },
-        {}
-      );
+      const error = createAxiosError(409, { message: 'Conflict' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(ConflictError);
     });
 
     it('should map 429 to RateLimitError with retryAfter', async () => {
-      const error = createAxiosError(429,
+      const error = createAxiosError(
+        429,
         { message: 'Rate limit exceeded' },
-        { 'retry-after': '60' }
+        { 'retry-after': '60' },
       );
       mockAxiosAdapter(error);
 
@@ -305,30 +343,21 @@ describe('HttpClient', () => {
     });
 
     it('should map 500 to InternalServerError', async () => {
-      const error = createAxiosError(500,
-        { message: 'Internal error' },
-        {}
-      );
+      const error = createAxiosError(500, { message: 'Internal error' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(InternalServerError);
     });
 
     it('should map 503 to ServiceUnavailableError', async () => {
-      const error = createAxiosError(503,
-        { message: 'Service unavailable' },
-        {}
-      );
+      const error = createAxiosError(503, { message: 'Service unavailable' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(ServiceUnavailableError);
     });
 
     it('should map 504 to GatewayTimeoutError', async () => {
-      const error = createAxiosError(504,
-        { message: 'Gateway timeout' },
-        {}
-      );
+      const error = createAxiosError(504, { message: 'Gateway timeout' }, {});
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(GatewayTimeoutError);
@@ -340,7 +369,7 @@ describe('HttpClient', () => {
         'ENOTFOUND',
         {} as any,
         {} as any,
-        undefined // No response
+        undefined, // No response
       );
       mockAxiosAdapter(error);
 
@@ -353,13 +382,12 @@ describe('HttpClient', () => {
         'ECONNABORTED',
         {} as any,
         {} as any,
-        undefined // No response
+        undefined, // No response
       );
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(TimeoutError);
     });
-
   });
 
   describe('getAxiosInstance', () => {

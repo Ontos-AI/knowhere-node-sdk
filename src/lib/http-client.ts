@@ -90,11 +90,12 @@ export class HttpClient {
     // API errors
     const { status, data, headers } = error.response;
     const errorData = data as Record<string, unknown>;
-    const message = typeof errorData?.message === 'string'
-      ? errorData.message
-      : typeof errorData?.error === 'string'
-      ? errorData.error
-      : `HTTP ${status} error`;
+    const message =
+      typeof errorData?.message === 'string'
+        ? errorData.message
+        : typeof errorData?.error === 'string'
+          ? errorData.error
+          : `HTTP ${status} error`;
     const code = typeof errorData?.code === 'string' ? errorData.code : undefined;
     const requestId = headers['x-request-id'] as string | undefined;
     const details = errorData?.details as Record<string, unknown> | undefined;
@@ -128,11 +129,7 @@ export class HttpClient {
   /**
    * POST request
    */
-  async post<T = unknown>(
-    url: string,
-    data?: unknown,
-    config?: AxiosRequestConfig,
-  ): Promise<T> {
+  async post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     return withRetry(
       async () => {
         const response = await this.axios.post<T>(url, data, config);
