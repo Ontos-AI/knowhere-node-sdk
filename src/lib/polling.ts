@@ -27,7 +27,7 @@ export async function pollJobStatus(
   const startTime = Date.now();
   let currentInterval = pollInterval;
 
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     // Check for abort
     if (signal?.aborted) {
