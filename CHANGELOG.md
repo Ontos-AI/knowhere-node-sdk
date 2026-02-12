@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-02-12
+
+### Fixed
+- Corrected documentation links from `https://knowhereto.ai/docs` to `https://docs.knowhereto.ai`
+- Removed references to non-existent files:
+  - API.md (API reference)
+  - examples/progress.ts (progress tracking example)
+  - CONTRIBUTING.md (contributing guide)
+
 ## [0.1.0] - 2026-02-12
 
 ### Added

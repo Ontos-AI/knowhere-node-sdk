@@ -194,11 +194,7 @@ try {
 
 ## Documentation
 
-For complete documentation, visit [https://knowhereto.ai/docs](https://knowhereto.ai/docs)
-
-## API Reference
-
-See [API.md](./API.md) for detailed API documentation.
+For complete documentation, visit [https://docs.knowhereto.ai](https://docs.knowhereto.ai)
 
 ## Examples
 
@@ -207,7 +203,6 @@ Check out the [examples](./examples) directory for more usage examples:
 - [Basic Usage](./examples/basic.ts)
 - [File Upload](./examples/file-upload.ts)
 - [Error Handling](./examples/error-handling.ts)
-- [Progress Tracking](./examples/progress.ts)
 - [Low-Level API](./examples/low-level.ts)
 
 ## Development
@@ -235,10 +230,6 @@ npm run typecheck
 npm run build
 ```
 
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](./CONTRIBUTING.md) for details.
-
 ## License
 
 [MIT](./LICENSE)
@@ -247,7 +238,7 @@ Contributions are welcome! Please read our [Contributing Guide](./CONTRIBUTING.m
 
 - 📧 Email: team@knowhereto.ai
 - 🐛 Issues: [GitHub Issues](https://github.com/Ontos-AI/knowhere-node-sdk/issues)
-- 📚 Documentation: [https://knowhereto.ai/docs](https://knowhereto.ai/docs)
+- 📚 Documentation: [https://docs.knowhereto.ai](https://docs.knowhereto.ai)
 
 ## Changelog
 
