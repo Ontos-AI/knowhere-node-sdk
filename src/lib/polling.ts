@@ -27,7 +27,6 @@ export async function pollJobStatus(
   const startTime = Date.now();
   let currentInterval = pollInterval;
 
-   
   while (true) {
     // Check for abort
     if (signal?.aborted) {

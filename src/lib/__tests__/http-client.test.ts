@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/unbound-method */
 /* eslint-disable @typescript-eslint/require-await */
- 
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import axios, { AxiosError } from 'axios';
 import { HttpClient } from '../http-client.js';
@@ -265,7 +265,7 @@ describe('HttpClient', () => {
     // Helper to mock axios adapter to trigger interceptors
     const mockAxiosAdapter = (error: AxiosError): void => {
       const axiosInstance = client.getAxiosInstance();
-       
+
       (axiosInstance.defaults as any).adapter = (): Promise<never> => Promise.reject(error);
     };
 
