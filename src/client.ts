@@ -4,7 +4,7 @@ import type { ParseResult } from './types/result.js';
 import { HttpClient } from './lib/http-client.js';
 import { Jobs } from './resources/jobs.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
-import { KnowhereError } from './errors/index.js';
+import { ValidationError } from './errors/index.js';
 
 /**
  * Main Knowhere SDK client
@@ -22,7 +22,7 @@ export class Knowhere {
     // Resolve API key
     const apiKey = options.apiKey ?? process.env[ENV.API_KEY];
     if (!apiKey) {
-      throw new KnowhereError(
+      throw new ValidationError(
         `API key is required. Provide it via options.apiKey or ${ENV.API_KEY} environment variable.`,
       );
     }
@@ -69,11 +69,11 @@ export class Knowhere {
   async parse(params: ParseParams): Promise<ParseResult> {
     // Validate params
     if (!params.url && !params.file) {
-      throw new KnowhereError('Either url or file must be provided');
+      throw new ValidationError('Either url or file must be provided');
     }
 
     if (params.url && params.file) {
-      throw new KnowhereError('Only one of url or file can be provided');
+      throw new ValidationError('Only one of url or file can be provided');
     }
 
     // Determine source type
@@ -88,6 +88,8 @@ export class Knowhere {
       summaryImage: params.summaryImage,
       summaryTable: params.summaryTable,
       summaryTxt: params.summaryText,
+      addFragDesc: params.addFragDesc,
+      kbDir: params.kbDir,
     };
 
     // Remove undefined values
@@ -98,7 +100,7 @@ export class Knowhere {
     });
 
     // Build webhook config
-    const webhook = params.webhookUrl ? { url: params.webhookUrl } : undefined;
+    const webhook = params.webhook;
 
     // Create job
     const job = await this.jobs.create({
@@ -128,7 +130,9 @@ export class Knowhere {
     });
 
     // Load result
-    const result = await this.jobs.load(jobResult.jobId);
+    const result = await this.jobs.load(jobResult.jobId, {
+      verifyChecksum: params.verifyChecksum,
+    });
 
     return result;
   }

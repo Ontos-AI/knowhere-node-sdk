@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Knowhere } from '../client.js';
-import { KnowhereError } from '../errors/base.js';
+import { ValidationError } from '../errors/base.js';
 import { Agent as HttpAgent } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import type { ParseResult, TextChunk } from '../types/result.js';
@@ -41,7 +41,7 @@ describe('Knowhere Client', () => {
 
     it('should throw error when API key is missing', () => {
       delete process.env.KNOWHERE_API_KEY;
-      expect(() => new Knowhere()).toThrow(KnowhereError);
+      expect(() => new Knowhere()).toThrow(ValidationError);
       expect(() => new Knowhere()).toThrow('API key is required');
     });
 
@@ -226,7 +226,7 @@ describe('Knowhere Client', () => {
     });
 
     it('should throw error if both url and file are missing', async () => {
-      await expect(client.parse({})).rejects.toThrow(KnowhereError);
+      await expect(client.parse({})).rejects.toThrow(ValidationError);
       await expect(client.parse({})).rejects.toThrow('Either url or file must be provided');
     });
 
@@ -236,7 +236,7 @@ describe('Knowhere Client', () => {
           url: 'https://example.com/doc.pdf',
           file: './test.pdf',
         }),
-      ).rejects.toThrow(KnowhereError);
+      ).rejects.toThrow(ValidationError);
       await expect(
         client.parse({
           url: 'https://example.com/doc.pdf',
@@ -351,21 +351,6 @@ describe('Knowhere Client', () => {
       await expect(promise).rejects.toThrow();
     });
 
-    it('should handle webhook configuration', async () => {
-      await client.parse({
-        url: 'https://example.com/doc.pdf',
-        webhookUrl: 'https://myapp.com/webhook',
-      });
-
-      expect(client.jobs.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          webhook: {
-            url: 'https://myapp.com/webhook',
-          },
-        }),
-      );
-    });
-
     it('should handle dataId parameter', async () => {
       await client.parse({
         url: 'https://example.com/doc.pdf',
@@ -375,6 +360,63 @@ describe('Knowhere Client', () => {
       expect(client.jobs.create).toHaveBeenCalledWith(
         expect.objectContaining({
           dataId: 'custom-id-123',
+        }),
+      );
+    });
+
+    it('should pass addFragDesc to parsing params', async () => {
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        addFragDesc: 'Custom context',
+      });
+
+      expect(client.jobs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parsingParams: expect.objectContaining({
+            addFragDesc: 'Custom context',
+          }),
+        }),
+      );
+    });
+
+    it('should pass kbDir to parsing params', async () => {
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        kbDir: 'project_docs',
+      });
+
+      expect(client.jobs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parsingParams: expect.objectContaining({
+            kbDir: 'project_docs',
+          }),
+        }),
+      );
+    });
+
+    it('should pass verifyChecksum to load', async () => {
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        verifyChecksum: false,
+      });
+
+      expect(client.jobs.load).toHaveBeenCalledWith(
+        'job-123',
+        expect.objectContaining({
+          verifyChecksum: false,
+        }),
+      );
+    });
+
+    it('should use webhook object', async () => {
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        webhook: { url: 'https://webhook.example.com' },
+      });
+
+      expect(client.jobs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          webhook: { url: 'https://webhook.example.com' },
         }),
       );
     });

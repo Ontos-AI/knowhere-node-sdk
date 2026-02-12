@@ -7,6 +7,8 @@ import {
   TimeoutError,
   PollingTimeoutError,
   ChecksumError,
+  ValidationError,
+  InvalidStateError,
 } from '../base.js';
 import {
   APIError,
@@ -93,6 +95,26 @@ describe('Error Classes', () => {
     it('should use default message', () => {
       const error = new ChecksumError();
       expect(error.message).toBe('Checksum verification failed');
+    });
+  });
+
+  describe('ValidationError', () => {
+    it('should create ValidationError with message', () => {
+      const error = new ValidationError('Invalid parameter');
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error).toBeInstanceOf(KnowhereError);
+      expect(error.name).toBe('ValidationError');
+      expect(error.message).toBe('Invalid parameter');
+    });
+  });
+
+  describe('InvalidStateError', () => {
+    it('should create InvalidStateError with message', () => {
+      const error = new InvalidStateError('Invalid state');
+      expect(error).toBeInstanceOf(InvalidStateError);
+      expect(error).toBeInstanceOf(KnowhereError);
+      expect(error.name).toBe('InvalidStateError');
+      expect(error.message).toBe('Invalid state');
     });
   });
 

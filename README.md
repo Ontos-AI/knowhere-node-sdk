@@ -114,9 +114,14 @@ const result = await client.parse({
   summaryImage: true,               // Generate image summaries
   summaryTable: true,               // Generate table summaries
   summaryText: true,                // Generate text summaries
+  addFragDesc: 'Custom context',    // Additional fragment description
+  kbDir: 'project_docs',            // Knowledge base directory
   pollInterval: 10000,              // Polling interval (ms)
   pollTimeout: 1800000,             // Max wait time (ms)
-  webhookUrl: 'https://...',        // Webhook for completion
+  verifyChecksum: true,             // Verify ZIP checksum (default: true)
+  webhook: {                        // Webhook for completion
+    url: 'https://...',
+  },
   onUploadProgress: (progress) => {
     console.log(`Upload: ${progress.percent}%`);
   },
@@ -162,12 +167,16 @@ import {
   RateLimitError,
   PollingTimeoutError,
   JobFailedError,
+  ValidationError,
+  InvalidStateError,
 } from '@knowhere-ai/sdk';
 
 try {
   const result = await client.parse({ url: '...' });
 } catch (error) {
-  if (error instanceof RateLimitError) {
+  if (error instanceof ValidationError) {
+    console.error('Invalid parameters:', error.message);
+  } else if (error instanceof RateLimitError) {
     // Wait and retry
     await sleep(error.retryAfter * 1000);
   } else if (error instanceof AuthenticationError) {
@@ -176,6 +185,8 @@ try {
     console.error('Processing timeout');
   } else if (error instanceof JobFailedError) {
     console.error('Job failed:', error.jobResult.error);
+  } else if (error instanceof InvalidStateError) {
+    console.error('Invalid state:', error.message);
   }
 }
 ```

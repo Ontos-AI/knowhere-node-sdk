@@ -45,6 +45,8 @@ export {
   TimeoutError,
   PollingTimeoutError,
   ChecksumError,
+  ValidationError,
+  InvalidStateError,
   // API errors
   APIError,
   BadRequestError,

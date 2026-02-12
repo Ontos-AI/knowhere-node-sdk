@@ -2,7 +2,7 @@ import { createReadStream, promises as fs } from 'fs';
 import type { ReadStream } from 'fs';
 import type { HttpClient } from './http-client.js';
 import type { UploadProgress } from '../types/params.js';
-import { KnowhereError } from '../errors/index.js';
+import { ValidationError } from '../errors/index.js';
 
 /**
  * Upload file to presigned URL
@@ -41,7 +41,7 @@ export async function uploadFile(
     contentLength = file.length;
     data = Buffer.from(file);
   } else {
-    throw new KnowhereError('Unsupported file type');
+    throw new ValidationError('Unsupported file type');
   }
 
   // Upload with progress tracking

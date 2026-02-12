@@ -120,12 +120,18 @@ export interface ParseParams {
   summaryText?: boolean;
   /** Custom data identifier */
   dataId?: string;
+  /** Additional fragment description */
+  addFragDesc?: string;
+  /** Knowledge base directory */
+  kbDir?: string;
   /** Polling interval in milliseconds */
   pollInterval?: number;
   /** Maximum wait time in milliseconds */
   pollTimeout?: number;
-  /** Webhook URL */
-  webhookUrl?: string;
+  /** Whether to verify ZIP checksum (default: true) */
+  verifyChecksum?: boolean;
+  /** Webhook configuration */
+  webhook?: WebhookConfig;
   /** Upload progress callback */
   onUploadProgress?: (progress: UploadProgress) => void;
   /** Poll progress callback */

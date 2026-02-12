@@ -56,3 +56,23 @@ export class ChecksumError extends KnowhereError {
     this.name = 'ChecksumError';
   }
 }
+
+/**
+ * Raised when the caller provides invalid arguments
+ */
+export class ValidationError extends KnowhereError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+/**
+ * Raised when an object is in an unexpected state for the operation
+ */
+export class InvalidStateError extends KnowhereError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidStateError';
+  }
+}
