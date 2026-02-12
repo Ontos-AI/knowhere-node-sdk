@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Knowhere } from '../client.js';
 import { KnowhereError } from '../errors/base.js';
@@ -323,11 +325,27 @@ describe('Knowhere Client', () => {
     it('should support AbortSignal for cancellation', async () => {
       const controller = new AbortController();
 
+      // Mock jobs.wait to check for abort signal
+      vi.spyOn(client.jobs, 'wait').mockImplementation(async (_jobId, options) => {
+        // Check if signal is already aborted
+        if (options?.signal?.aborted) {
+          throw new Error('Aborted');
+        }
+
+        // Listen for abort event
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            reject(new Error('Aborted'));
+          });
+        });
+      });
+
       const promise = client.parse({
         url: 'https://example.com/doc.pdf',
         signal: controller.signal,
       });
 
+      // Abort immediately
       controller.abort();
 
       await expect(promise).rejects.toThrow();

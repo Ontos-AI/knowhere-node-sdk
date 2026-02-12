@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { HttpClient } from '../http-client.js';
 import {
   BadRequestError,
@@ -214,86 +214,87 @@ describe('HttpClient', () => {
       });
     });
 
-    it('should map 400 to BadRequestError', async () => {
+    // Helper to mock axios adapter to trigger interceptors
+    const mockAxiosAdapter = (error: AxiosError): void => {
       const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 400,
-          data: { message: 'Invalid input', code: 'VALIDATION_ERROR' },
-          headers: { 'x-request-id': 'req-123' },
-        },
-        isAxiosError: true,
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (axiosInstance.defaults as any).adapter = (): Promise<never> => Promise.reject(error);
+    };
+
+    // Helper function to create proper AxiosError instances
+    const createAxiosError = (status: number, data: any, headers: any = {}): AxiosError => {
+      const error = new AxiosError(
+        `Request failed with status code ${status}`,
+        status.toString(),
+        {} as any,
+        {} as any,
+        {
+          status,
+          statusText: 'Error',
+          data,
+          headers,
+          config: {} as any,
+        }
+      );
+      return error;
+    };
+
+    it('should map 400 to BadRequestError', async () => {
+      const error = createAxiosError(400,
+        { message: 'Invalid input', code: 'VALIDATION_ERROR' },
+        { 'x-request-id': 'req-123' }
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(BadRequestError);
     });
 
     it('should map 401 to AuthenticationError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 401,
-          data: { message: 'Invalid API key' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(401,
+        { message: 'Invalid API key' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(AuthenticationError);
     });
 
     it('should map 403 to PermissionDeniedError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 403,
-          data: { message: 'Forbidden' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(403,
+        { message: 'Forbidden' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(PermissionDeniedError);
     });
 
     it('should map 404 to NotFoundError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 404,
-          data: { message: 'Not found' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(404,
+        { message: 'Not found' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(NotFoundError);
     });
 
     it('should map 409 to ConflictError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 409,
-          data: { message: 'Conflict' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(409,
+        { message: 'Conflict' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(ConflictError);
     });
 
     it('should map 429 to RateLimitError with retryAfter', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 429,
-          data: { message: 'Rate limit exceeded' },
-          headers: { 'retry-after': '60' },
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(429,
+        { message: 'Rate limit exceeded' },
+        { 'retry-after': '60' }
+      );
+      mockAxiosAdapter(error);
 
       try {
         await client.get('/test');
@@ -304,65 +305,57 @@ describe('HttpClient', () => {
     });
 
     it('should map 500 to InternalServerError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 500,
-          data: { message: 'Internal error' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(500,
+        { message: 'Internal error' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(InternalServerError);
     });
 
     it('should map 503 to ServiceUnavailableError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 503,
-          data: { message: 'Service unavailable' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(503,
+        { message: 'Service unavailable' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(ServiceUnavailableError);
     });
 
     it('should map 504 to GatewayTimeoutError', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        response: {
-          status: 504,
-          data: { message: 'Gateway timeout' },
-          headers: {},
-        },
-        isAxiosError: true,
-      });
+      const error = createAxiosError(504,
+        { message: 'Gateway timeout' },
+        {}
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(GatewayTimeoutError);
     });
 
     it('should handle network errors without response', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        message: 'Network error',
-        code: 'ENOTFOUND',
-        isAxiosError: true,
-      });
+      const error = new AxiosError(
+        'Network error',
+        'ENOTFOUND',
+        {} as any,
+        {} as any,
+        undefined // No response
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(NetworkError);
     });
 
     it('should handle timeout errors', async () => {
-      const axiosInstance = client.getAxiosInstance();
-      vi.spyOn(axiosInstance, 'get').mockRejectedValue({
-        message: 'timeout of 60000ms exceeded',
-        code: 'ECONNABORTED',
-        isAxiosError: true,
-      });
+      const error = new AxiosError(
+        'timeout of 60000ms exceeded',
+        'ECONNABORTED',
+        {} as any,
+        {} as any,
+        undefined // No response
+      );
+      mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(TimeoutError);
     });

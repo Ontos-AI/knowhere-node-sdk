@@ -116,18 +116,16 @@ describe('File Upload', () => {
       const progressUpdates: number[] = [];
 
       // Mock upload to simulate progress
-      mockHttpClient.upload.mockImplementation(
-        (url: string, data: unknown, options: any) => {
-          // Simulate progress updates
-          if (options?.onProgress) {
-            options.onProgress({ loaded: 25, total: 100, percent: 25 });
-            options.onProgress({ loaded: 50, total: 100, percent: 50 });
-            options.onProgress({ loaded: 75, total: 100, percent: 75 });
-            options.onProgress({ loaded: 100, total: 100, percent: 100 });
-          }
-          return Promise.resolve();
-        },
-      );
+      mockHttpClient.upload.mockImplementation((_url: string, _data: unknown, options: any) => {
+        // Simulate progress updates
+        if (options?.onProgress) {
+          options.onProgress({ loaded: 25, total: 100, percent: 25 });
+          options.onProgress({ loaded: 50, total: 100, percent: 50 });
+          options.onProgress({ loaded: 75, total: 100, percent: 75 });
+          options.onProgress({ loaded: 100, total: 100, percent: 100 });
+        }
+        return Promise.resolve();
+      });
 
       await uploadFile(mockHttpClient, uploadUrl, Buffer.from('content'), {
         onProgress: ({ percent }) => {
@@ -149,14 +147,9 @@ describe('File Upload', () => {
         return Promise.reject(new Error('Upload aborted'));
       });
 
-      const promise = uploadFile(
-        mockHttpClient,
-        uploadUrl,
-        Buffer.from('content'),
-        {
-          signal: controller.signal,
-        },
-      );
+      const promise = uploadFile(mockHttpClient, uploadUrl, Buffer.from('content'), {
+        signal: controller.signal,
+      });
 
       await expect(promise).rejects.toThrow('Upload aborted');
 
@@ -196,22 +189,20 @@ describe('File Upload', () => {
       const uploadUrl = 'https://s3.amazonaws.com/presigned-url';
       const unsupportedFile = { invalid: 'type' } as any;
 
-      await expect(
-        uploadFile(mockHttpClient, uploadUrl, unsupportedFile),
-      ).rejects.toThrow(KnowhereError);
+      await expect(uploadFile(mockHttpClient, uploadUrl, unsupportedFile)).rejects.toThrow(
+        KnowhereError,
+      );
 
-      await expect(
-        uploadFile(mockHttpClient, uploadUrl, unsupportedFile),
-      ).rejects.toThrow('Unsupported file type');
+      await expect(uploadFile(mockHttpClient, uploadUrl, unsupportedFile)).rejects.toThrow(
+        'Unsupported file type',
+      );
     });
 
     it('should handle file path that does not exist', async () => {
       const uploadUrl = 'https://s3.amazonaws.com/presigned-url';
       const nonExistentPath = './non-existent-file.pdf';
 
-      await expect(
-        uploadFile(mockHttpClient, uploadUrl, nonExistentPath),
-      ).rejects.toThrow();
+      await expect(uploadFile(mockHttpClient, uploadUrl, nonExistentPath)).rejects.toThrow();
     });
 
     it('should include Content-Length for Buffer uploads', async () => {
@@ -268,9 +259,9 @@ describe('File Upload', () => {
 
       mockHttpClient.upload.mockRejectedValue(new Error(errorMessage));
 
-      await expect(
-        uploadFile(mockHttpClient, uploadUrl, Buffer.from('content')),
-      ).rejects.toThrow(errorMessage);
+      await expect(uploadFile(mockHttpClient, uploadUrl, Buffer.from('content'))).rejects.toThrow(
+        errorMessage,
+      );
     });
 
     it('should pass all options to HttpClient.upload', async () => {
