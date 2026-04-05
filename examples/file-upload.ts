@@ -2,7 +2,7 @@
  * File upload example - Parse local file
  */
 
-import Knowhere from '@knowhere-ai/sdk';
+import Knowhere, { type PollProgress, type UploadProgress } from '@knowhere-ai/sdk';
 import { createReadStream } from 'fs';
 
 async function main() {
@@ -15,10 +15,10 @@ async function main() {
     console.log('📤 Uploading from file path...');
     const result1 = await client.parse({
       file: './sample.pdf',
-      onUploadProgress: (progress) => {
+      onUploadProgress: (progress: UploadProgress) => {
         console.log(`Upload progress: ${progress.percent}%`);
       },
-      onPollProgress: (status) => {
+      onPollProgress: (status: PollProgress) => {
         console.log(`Job status: ${status.status}`);
       },
     });

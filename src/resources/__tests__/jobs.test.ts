@@ -5,8 +5,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Jobs } from '../jobs.js';
-import { NotFoundError } from '../../errors/index.js';
+import { InvalidStateError, NotFoundError } from '../../errors/index.js';
 import type { HttpClient } from '../../lib/http-client.js';
+import type { Job } from '../../types/job.js';
 
 // Mock the dependencies
 vi.mock('../../lib/upload.js', () => ({
@@ -243,18 +244,20 @@ describe('Jobs Resource', () => {
   });
 
   describe('upload', () => {
-    it('should upload file from path', async () => {
-      mockHttpClient.get.mockResolvedValue({
+    it('should upload file from Job object', async () => {
+      const job: Job = {
         jobId: 'job-123',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date(),
         uploadUrl: 'https://s3.amazonaws.com/presigned-url',
         uploadHeaders: { 'Content-Type': 'application/pdf' },
-      });
+      };
 
-      await jobs.upload('job-123', {
+      await jobs.upload(job, {
         file: './test.pdf',
       });
 
-      expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/jobs/job-123');
       expect(uploadFile).toHaveBeenCalledWith(
         mockHttpClient,
         'https://s3.amazonaws.com/presigned-url',
@@ -265,15 +268,60 @@ describe('Jobs Resource', () => {
       );
     });
 
-    it('should upload Buffer', async () => {
-      mockHttpClient.get.mockResolvedValue({
+    it('should upload file from cached job id', async () => {
+      mockHttpClient.post.mockResolvedValue({
         jobId: 'job-123',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date(),
         uploadUrl: 'https://s3.amazonaws.com/presigned-url',
       });
 
+      const job = await jobs.create({
+        sourceType: 'file',
+        fileName: 'test.pdf',
+      });
+
+      await jobs.upload(job.jobId, {
+        file: './test.pdf',
+      });
+
+      expect(uploadFile).toHaveBeenCalledWith(
+        mockHttpClient,
+        'https://s3.amazonaws.com/presigned-url',
+        './test.pdf',
+        expect.any(Object),
+      );
+    });
+
+    it('should upload using a direct upload URL string', async () => {
+      const uploadUrl = 'https://s3.amazonaws.com/presigned-url?token=abc';
       const buffer = Buffer.from('mock pdf content');
 
-      await jobs.upload('job-123', {
+      await jobs.upload(uploadUrl, {
+        file: buffer,
+      });
+
+      expect(uploadFile).toHaveBeenCalledWith(
+        mockHttpClient,
+        uploadUrl,
+        buffer,
+        expect.any(Object),
+      );
+    });
+
+    it('should upload Buffer from Job object', async () => {
+      const job: Job = {
+        jobId: 'job-123',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date(),
+        uploadUrl: 'https://s3.amazonaws.com/presigned-url',
+      };
+
+      const buffer = Buffer.from('mock pdf content');
+
+      await jobs.upload(job, {
         file: buffer,
       });
 
@@ -285,17 +333,12 @@ describe('Jobs Resource', () => {
       );
     });
 
-    it('should throw error if upload URL not available', async () => {
-      mockHttpClient.get.mockResolvedValue({
-        jobId: 'job-123',
-        // uploadUrl missing
-      });
-
+    it('should throw error if upload URL not available from cached job id', async () => {
       await expect(
         jobs.upload('job-123', {
           file: './test.pdf',
         }),
-      ).rejects.toThrow(NotFoundError);
+      ).rejects.toThrow(InvalidStateError);
       await expect(
         jobs.upload('job-123', {
           file: './test.pdf',
@@ -304,14 +347,17 @@ describe('Jobs Resource', () => {
     });
 
     it('should pass progress callback to uploadFile', async () => {
-      mockHttpClient.get.mockResolvedValue({
+      const job: Job = {
         jobId: 'job-123',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date(),
         uploadUrl: 'https://s3.amazonaws.com/presigned-url',
-      });
+      };
 
       const onProgress = vi.fn();
 
-      await jobs.upload('job-123', {
+      await jobs.upload(job, {
         file: './test.pdf',
         onProgress,
       });
@@ -327,14 +373,17 @@ describe('Jobs Resource', () => {
     });
 
     it('should pass abort signal to uploadFile', async () => {
-      mockHttpClient.get.mockResolvedValue({
+      const job: Job = {
         jobId: 'job-123',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date(),
         uploadUrl: 'https://s3.amazonaws.com/presigned-url',
-      });
+      };
 
       const controller = new AbortController();
 
-      await jobs.upload('job-123', {
+      await jobs.upload(job, {
         file: './test.pdf',
         signal: controller.signal,
       });
@@ -441,7 +490,7 @@ describe('Jobs Resource', () => {
   });
 
   describe('load', () => {
-    it('should download and parse result ZIP', async () => {
+    it('should download and parse result ZIP from job id', async () => {
       mockHttpClient.get.mockResolvedValue({
         jobId: 'job-123',
         status: 'done',
@@ -497,6 +546,71 @@ describe('Jobs Resource', () => {
         'https://s3.amazonaws.com/result.zip',
         undefined,
       );
+    });
+
+    it('should load result directly from JobResult', async () => {
+      const jobResult = {
+        jobId: 'job-123',
+        status: 'done',
+        sourceType: 'url',
+        createdAt: new Date(),
+        resultUrl: 'https://s3.amazonaws.com/result.zip',
+      };
+
+      const mockParseResult = {
+        jobId: 'job-123',
+        manifest: {} as any,
+        chunks: [],
+        textChunks: [],
+        imageChunks: [],
+        tableChunks: [],
+        statistics: {
+          totalChunks: 0,
+          textChunks: 0,
+          imageChunks: 0,
+          tableChunks: 0,
+        },
+        getChunk: vi.fn(),
+        save: vi.fn(),
+      };
+
+      (parseResult as any).mockResolvedValue(mockParseResult);
+
+      await jobs.load(jobResult as any);
+
+      expect(mockHttpClient.get).not.toHaveBeenCalled();
+      expect(parseResult).toHaveBeenCalledWith(
+        mockHttpClient,
+        'https://s3.amazonaws.com/result.zip',
+        undefined,
+      );
+    });
+
+    it('should load result directly from result URL string', async () => {
+      const resultUrl = 'https://storage.example.com/result.zip?token=abc';
+      const mockParseResult = {
+        jobId: 'job-123',
+        manifest: {} as any,
+        chunks: [],
+        textChunks: [],
+        imageChunks: [],
+        tableChunks: [],
+        statistics: {
+          totalChunks: 0,
+          textChunks: 0,
+          imageChunks: 0,
+          tableChunks: 0,
+        },
+        getChunk: vi.fn(),
+        save: vi.fn(),
+      };
+
+      (parseResult as any).mockResolvedValue(mockParseResult);
+
+      await jobs.load(resultUrl);
+
+      expect(mockHttpClient.get).not.toHaveBeenCalled();
+      expect(parseResult).toHaveBeenCalledWith(mockHttpClient, resultUrl, undefined);
     });
 
     it('should throw error if job is not done', async () => {

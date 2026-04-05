@@ -1,3 +1,6 @@
+import path from 'path';
+import type { ReadStream } from 'fs';
+
 import type { KnowhereOptions } from './types/client.js';
 import type { ParseParams } from './types/params.js';
 import type { ParseResult } from './types/result.js';
@@ -5,6 +8,26 @@ import { HttpClient } from './lib/http-client.js';
 import { Jobs } from './resources/jobs.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
+
+function inferFileName(file: ParseParams['file'], explicitFileName?: string): string | undefined {
+  if (explicitFileName) {
+    return explicitFileName;
+  }
+
+  if (typeof file === 'string') {
+    return path.basename(file);
+  }
+
+  if (isReadStream(file) && typeof file.path === 'string') {
+    return path.basename(file.path);
+  }
+
+  return undefined;
+}
+
+function isReadStream(file: ParseParams['file']): file is ReadStream {
+  return typeof file === 'object' && file !== null && 'pipe' in file && typeof file.pipe === 'function';
+}
 
 /**
  * Main Knowhere SDK client
@@ -78,6 +101,13 @@ export class Knowhere {
 
     // Determine source type
     const sourceType = params.url ? 'url' : 'file';
+    const resolvedFileName = inferFileName(params.file, params.fileName);
+
+    if (params.file && !resolvedFileName) {
+      throw new ValidationError(
+        'fileName is required when file is a Buffer, Uint8Array, or stream without a path.',
+      );
+    }
 
     // Build parsing params
     const parsingParams = {
@@ -106,7 +136,7 @@ export class Knowhere {
     const job = await this.jobs.create({
       sourceType,
       sourceUrl: params.url,
-      fileName: params.fileName,
+      fileName: resolvedFileName,
       dataId: params.dataId,
       parsingParams: Object.keys(parsingParams).length > 0 ? parsingParams : undefined,
       webhook,
@@ -114,7 +144,7 @@ export class Knowhere {
 
     // Upload file if needed
     if (params.file) {
-      await this.jobs.upload(job.jobId, {
+      await this.jobs.upload(job, {
         file: params.file,
         onProgress: params.onUploadProgress,
         signal: params.signal,
@@ -130,7 +160,7 @@ export class Knowhere {
     });
 
     // Load result
-    const result = await this.jobs.load(jobResult.jobId, {
+    const result = await this.jobs.load(jobResult, {
       verifyChecksum: params.verifyChecksum,
     });
 

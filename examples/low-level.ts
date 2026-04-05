@@ -2,7 +2,7 @@
  * Low-level API example - Granular control over job lifecycle
  */
 
-import Knowhere from '@knowhere-ai/sdk';
+import Knowhere, { type PollProgress, type UploadProgress } from '@knowhere-ai/sdk';
 
 async function main() {
   const client = new Knowhere({
@@ -26,9 +26,9 @@ async function main() {
 
     // Step 2: Upload file
     console.log('\n2️⃣  Uploading file...');
-    await client.jobs.upload(job.jobId, {
+    await client.jobs.upload(job, {
       file: './document.pdf',
-      onProgress: (progress) => {
+      onProgress: (progress: UploadProgress) => {
         console.log(`   Progress: ${progress.percent}%`);
       },
     });
@@ -38,7 +38,7 @@ async function main() {
     console.log('\n3️⃣  Waiting for processing...');
     const jobResult = await client.jobs.wait(job.jobId, {
       pollInterval: 5000,
-      onProgress: (status) => {
+      onProgress: (status: PollProgress) => {
         console.log(`   Status: ${status.status} (${status.elapsedSeconds}s)`);
       },
     });
@@ -46,7 +46,7 @@ async function main() {
 
     // Step 4: Load results
     console.log('\n4️⃣  Loading results...');
-    const result = await client.jobs.load(jobResult.jobId);
+    const result = await client.jobs.load(jobResult);
     console.log('✅ Results loaded');
     console.log(`   Text chunks: ${result.textChunks.length}`);
     console.log(`   Image chunks: ${result.imageChunks.length}`);

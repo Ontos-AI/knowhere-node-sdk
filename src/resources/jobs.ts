@@ -6,17 +6,22 @@ import { uploadFile } from '../lib/upload.js';
 import { pollJobStatus } from '../lib/polling.js';
 import { parseResult } from '../lib/result-parser.js';
 import { enrichJobResult } from '../lib/utils.js';
-import { NotFoundError } from '../errors/index.js';
+import { InvalidStateError, NotFoundError } from '../errors/index.js';
 
 /**
  * Jobs resource for managing parsing jobs
  */
 export class Jobs extends BaseResource {
+  private pendingUploadJobs = new Map<string, Job>();
+
   /**
    * Create a new parsing job
    */
   async create(params: CreateJobParams): Promise<Job> {
     const job = await this.httpClient.post<Job>('/v1/jobs', params);
+    if (job.uploadUrl) {
+      this.pendingUploadJobs.set(job.jobId, job);
+    }
     return job;
   }
 
@@ -32,14 +37,13 @@ export class Jobs extends BaseResource {
   /**
    * Upload file for a job
    */
-  async upload(jobId: string, params: UploadParams): Promise<void> {
-    // Get job details - note: need to fetch job (not jobResult) to get upload URL
-    // In practice, the upload URL is only available immediately after job creation
-    // So this method should be called with the Job object from create()
-    const response = await this.httpClient.get<Job>(`/v1/jobs/${jobId}`);
+  async upload(jobOrId: string | Job, params: UploadParams): Promise<void> {
+    const response = this.resolveUploadJob(jobOrId);
 
     if (!response.uploadUrl) {
-      throw new NotFoundError('Upload URL not available for this job');
+      throw new NotFoundError(
+        'Upload URL not available for this job. Pass the Job object returned from create() or a direct upload URL string.',
+      );
     }
 
     // Upload file to presigned URL
@@ -48,6 +52,8 @@ export class Jobs extends BaseResource {
       onProgress: params.onProgress,
       signal: params.signal,
     });
+
+    this.pendingUploadJobs.delete(response.jobId);
   }
 
   /**
@@ -60,13 +66,12 @@ export class Jobs extends BaseResource {
   /**
    * Load parse result from completed job
    */
-  async load(jobId: string, options?: LoadOptions): Promise<ParseResult> {
-    // Get job result
-    const jobResult = await this.get(jobId);
+  async load(jobResultOrIdOrUrl: JobResult | string, options?: LoadOptions): Promise<ParseResult> {
+    const jobResult = await this.resolveLoadJobResult(jobResultOrIdOrUrl);
 
     // Check if job is done
     if (!jobResult.isDone) {
-      throw new Error(`Job ${jobId} is not done yet (status: ${jobResult.status})`);
+      throw new Error(`Job ${jobResult.jobId} is not done yet (status: ${jobResult.status})`);
     }
 
     // Check if result URL is available
@@ -76,5 +81,60 @@ export class Jobs extends BaseResource {
 
     // Parse result
     return parseResult(this.httpClient, jobResult.resultUrl, options);
+  }
+
+  private isHttpUrl(value: string): boolean {
+    return /^https?:\/\//i.test(value);
+  }
+
+  private resolveUploadJob(jobOrId: string | Job): Job {
+    if (typeof jobOrId !== 'string') {
+      if (jobOrId.uploadUrl) {
+        this.pendingUploadJobs.set(jobOrId.jobId, jobOrId);
+      }
+      return jobOrId;
+    }
+
+    if (this.isHttpUrl(jobOrId)) {
+      return {
+        jobId: 'direct-upload-url',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date(0),
+        uploadUrl: jobOrId,
+      };
+    }
+
+    const cachedJob = this.pendingUploadJobs.get(jobOrId);
+    if (cachedJob) {
+      return cachedJob;
+    }
+
+    throw new InvalidStateError(
+      `Upload URL not available for job ${jobOrId}. Pass the Job object returned from create() or a direct upload URL string.`,
+    );
+  }
+
+  private async resolveLoadJobResult(jobResultOrIdOrUrl: JobResult | string): Promise<JobResult> {
+    if (typeof jobResultOrIdOrUrl !== 'string') {
+      enrichJobResult(jobResultOrIdOrUrl);
+      return jobResultOrIdOrUrl;
+    }
+
+    if (this.isHttpUrl(jobResultOrIdOrUrl)) {
+      return {
+        jobId: 'direct-result-url',
+        status: 'done',
+        sourceType: 'file',
+        createdAt: new Date(0),
+        resultUrl: jobResultOrIdOrUrl,
+        resultUrlExpiresAt: new Date(0),
+        isTerminal: true,
+        isDone: true,
+        isFailed: false,
+      };
+    }
+
+    return this.get(jobResultOrIdOrUrl);
   }
 }

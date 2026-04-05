@@ -1,7 +1,11 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@knowhere-ai/sdk": ["../src/index.ts"]
+    },
+    "rootDir": "..",
     "outDir": "../dist/examples",
     "noEmit": true
   },

@@ -102,7 +102,7 @@ export interface ParseParams {
   url?: string;
   /** File to parse (path, Buffer, Stream, or Uint8Array) */
   file?: string | Buffer | ReadStream | Uint8Array;
-  /** File name (required if file is Buffer/Stream) */
+  /** File name (auto-inferred for file paths and fs.ReadStream with a path) */
   fileName?: string;
   /** Parsing model (default: 'base') */
   model?: ParsingModel;

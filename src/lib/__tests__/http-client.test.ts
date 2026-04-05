@@ -4,7 +4,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/unbound-method */
 /* eslint-disable @typescript-eslint/require-await */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -162,8 +161,7 @@ describe('HttpClient', () => {
     describe('download', () => {
       it('should download file as buffer', async () => {
         const mockBuffer = new ArrayBuffer(10);
-        const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'get').mockResolvedValue({
+        vi.spyOn(axios, 'get').mockResolvedValue({
           data: mockBuffer,
           status: 200,
           statusText: 'OK',
@@ -179,8 +177,7 @@ describe('HttpClient', () => {
 
     describe('upload', () => {
       it('should upload with progress tracking', async () => {
-        const axiosInstance = client.getAxiosInstance();
-        vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+        const putSpy = vi.spyOn(axios, 'put').mockResolvedValue({
           data: null,
           status: 200,
           statusText: 'OK',
@@ -196,12 +193,11 @@ describe('HttpClient', () => {
           },
         });
 
-        expect(axiosInstance.put).toHaveBeenCalled();
+        expect(putSpy).toHaveBeenCalled();
       });
 
       it('should pass custom headers to upload', async () => {
-        const axiosInstance = client.getAxiosInstance();
-        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+        const putSpy = vi.spyOn(axios, 'put').mockResolvedValue({
           data: null,
           status: 200,
           statusText: 'OK',
@@ -227,9 +223,8 @@ describe('HttpClient', () => {
       });
 
       it('should support AbortSignal', async () => {
-        const axiosInstance = client.getAxiosInstance();
         const controller = new AbortController();
-        const putSpy = vi.spyOn(axiosInstance, 'put').mockResolvedValue({
+        const putSpy = vi.spyOn(axios, 'put').mockResolvedValue({
           data: null,
           status: 200,
           statusText: 'OK',
@@ -387,6 +382,31 @@ describe('HttpClient', () => {
       mockAxiosAdapter(error);
 
       await expect(client.get('/test')).rejects.toThrow(TimeoutError);
+    });
+
+    it('should extract XML error messages from external downloads', async () => {
+      const xmlError = Buffer.from(
+        '<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>',
+      );
+      const axiosError = new AxiosError(
+        'Request failed with status code 400',
+        '400',
+        {} as any,
+        {} as any,
+        {
+          status: 400,
+          statusText: 'Bad Request',
+          data: xmlError,
+          headers: {},
+          config: {} as any,
+        },
+      );
+
+      vi.spyOn(axios, 'get').mockRejectedValue(axiosError);
+
+      await expect(client.download('https://storage.example.com/result.zip')).rejects.toThrow(
+        'AccessDenied: Request has expired',
+      );
     });
   });
 

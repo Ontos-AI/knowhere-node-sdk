@@ -25,10 +25,14 @@ export class HttpClient {
   private axios: AxiosInstance;
   private maxRetries: number;
   private uploadTimeout: number;
+  private httpAgent?: HttpAgent;
+  private httpsAgent?: HttpsAgent;
 
   constructor(options: HttpClientOptions) {
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.uploadTimeout = options.uploadTimeout ?? 600000;
+    this.httpAgent = options.httpAgent;
+    this.httpsAgent = options.httpsAgent;
 
     this.axios = axios.create({
       baseURL: options.baseURL,
@@ -89,14 +93,9 @@ export class HttpClient {
 
     // API errors
     const { status, data, headers } = error.response;
-    const errorData = data as Record<string, unknown>;
-    const message =
-      typeof errorData?.message === 'string'
-        ? errorData.message
-        : typeof errorData?.error === 'string'
-          ? errorData.error
-          : `HTTP ${status} error`;
-    const code = typeof errorData?.code === 'string' ? errorData.code : undefined;
+    const errorData = this.normalizeErrorData(data);
+    const message = this.getErrorMessage(errorData, status);
+    const code = this.getErrorCode(errorData);
     const requestId = headers['x-request-id'] as string | undefined;
     const details = errorData?.details as Record<string, unknown> | undefined;
 
@@ -108,6 +107,91 @@ export class HttpClient {
     }
 
     return createAPIError(status, message, code, requestId, details, data, retryAfter);
+  }
+
+  private normalizeErrorData(data: unknown): Record<string, unknown> | undefined {
+    if (data && typeof data === 'object' && data.constructor === Object) {
+      return data as Record<string, unknown>;
+    }
+
+    const decoded = this.decodeErrorPayload(data);
+    if (!decoded) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(decoded) as unknown;
+      if (parsed && typeof parsed === 'object' && parsed.constructor === Object) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Non-JSON payloads are handled below.
+    }
+
+    const xmlCode = decoded.match(/<Code>([^<]+)<\/Code>/i)?.[1];
+    const xmlMessage = decoded.match(/<Message>([^<]+)<\/Message>/i)?.[1];
+    if (xmlCode || xmlMessage) {
+      return {
+        code: xmlCode,
+        message: [xmlCode, xmlMessage].filter(Boolean).join(': '),
+      };
+    }
+
+    return {
+      message: decoded.slice(0, 300),
+    };
+  }
+
+  private decodeErrorPayload(data: unknown): string | undefined {
+    if (typeof data === 'string') {
+      return data.trim();
+    }
+
+    if (data instanceof ArrayBuffer) {
+      return Buffer.from(data).toString('utf8').trim();
+    }
+
+    if (ArrayBuffer.isView(data)) {
+      return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8').trim();
+    }
+
+    if (Buffer.isBuffer(data)) {
+      return data.toString('utf8').trim();
+    }
+
+    return undefined;
+  }
+
+  private getErrorMessage(errorData: Record<string, unknown> | undefined, status: number): string {
+    if (!errorData) {
+      return `HTTP ${status} error`;
+    }
+
+    return typeof errorData.message === 'string'
+      ? errorData.message
+      : typeof errorData.error === 'string'
+        ? errorData.error
+        : `HTTP ${status} error`;
+  }
+
+  private getErrorCode(errorData: Record<string, unknown> | undefined): string | undefined {
+    if (!errorData) {
+      return undefined;
+    }
+
+    return typeof errorData.code === 'string' ? errorData.code : undefined;
+  }
+
+  private async requestExternal<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await request();
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        throw this.handleError(error);
+      }
+
+      throw error;
+    }
   }
 
   /**
@@ -159,11 +243,16 @@ export class HttpClient {
   async download(url: string, config?: AxiosRequestConfig): Promise<Buffer> {
     return withRetry(
       async () => {
-        const response = await this.axios.get<ArrayBuffer>(url, {
-          ...config,
-          responseType: 'arraybuffer',
+        return this.requestExternal(async () => {
+          const response = await axios.get<ArrayBuffer>(url, {
+            ...config,
+            responseType: 'arraybuffer',
+            timeout: config?.timeout ?? this.uploadTimeout,
+            httpAgent: this.httpAgent,
+            httpsAgent: this.httpsAgent,
+          });
+          return Buffer.from(response.data);
         });
-        return Buffer.from(response.data);
       },
       this.maxRetries,
       (attempt, error) => {
@@ -184,20 +273,24 @@ export class HttpClient {
       signal?: AbortSignal;
     },
   ): Promise<void> {
-    await this.axios.put(url, data, {
-      headers: {
-        ...options?.headers,
-      },
-      timeout: this.uploadTimeout,
-      signal: options?.signal,
-      onUploadProgress: (progressEvent) => {
-        if (options?.onProgress) {
-          const loaded = progressEvent.loaded;
-          const total = progressEvent.total;
-          const percent = total ? Math.round((loaded / total) * 100) : 0;
-          options.onProgress({ loaded, total, percent });
-        }
-      },
+    await this.requestExternal(async () => {
+      await axios.put(url, data, {
+        headers: {
+          ...options?.headers,
+        },
+        timeout: this.uploadTimeout,
+        signal: options?.signal,
+        httpAgent: this.httpAgent,
+        httpsAgent: this.httpsAgent,
+        onUploadProgress: (progressEvent) => {
+          if (options?.onProgress) {
+            const loaded = progressEvent.loaded;
+            const total = progressEvent.total;
+            const percent = total ? Math.round((loaded / total) * 100) : 0;
+            options.onProgress({ loaded, total, percent });
+          }
+        },
+      });
     });
   }
 

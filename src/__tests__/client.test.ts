@@ -199,10 +199,13 @@ describe('Knowhere Client', () => {
       expect(client.jobs.create).toHaveBeenCalledWith(
         expect.objectContaining({
           sourceType: 'file',
+          fileName: 'test.pdf',
         }),
       );
       expect(client.jobs.upload).toHaveBeenCalledWith(
-        'job-123',
+        expect.objectContaining({
+          jobId: 'job-123',
+        }),
         expect.objectContaining({
           file: './test.pdf',
         }),
@@ -218,11 +221,28 @@ describe('Knowhere Client', () => {
 
       expect(result).toBeDefined();
       expect(client.jobs.upload).toHaveBeenCalledWith(
-        'job-123',
+        expect.objectContaining({
+          jobId: 'job-123',
+        }),
         expect.objectContaining({
           file: buffer,
         }),
       );
+    });
+
+    it('should throw error when Buffer fileName is missing', async () => {
+      const buffer = Buffer.from('mock pdf content');
+
+      await expect(
+        client.parse({
+          file: buffer,
+        }),
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        client.parse({
+          file: buffer,
+        }),
+      ).rejects.toThrow('fileName is required');
     });
 
     it('should throw error if both url and file are missing', async () => {
@@ -283,7 +303,9 @@ describe('Knowhere Client', () => {
       });
 
       expect(client.jobs.upload).toHaveBeenCalledWith(
-        'job-123',
+        expect.objectContaining({
+          jobId: 'job-123',
+        }),
         expect.objectContaining({
           onProgress: expect.any(Function),
         }),
@@ -401,7 +423,9 @@ describe('Knowhere Client', () => {
       });
 
       expect(client.jobs.load).toHaveBeenCalledWith(
-        'job-123',
+        expect.objectContaining({
+          jobId: 'job-123',
+        }),
         expect.objectContaining({
           verifyChecksum: false,
         }),

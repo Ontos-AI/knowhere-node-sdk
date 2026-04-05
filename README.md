@@ -103,6 +103,8 @@ const result = await client.parse({
 });
 ```
 
+`fileName` 会在 `file` 是本地文件路径时自动推断；当 `file` 是 `Buffer`、`Uint8Array` 或不带路径信息的流时必须显式提供。
+
 ### Advanced Options
 
 ```typescript
@@ -145,7 +147,7 @@ const job = await client.jobs.create({
 });
 
 // 2. Upload file
-await client.jobs.upload(job.jobId, {
+await client.jobs.upload(job, {
   file: './document.pdf',
   onProgress: ({ percent }) => console.log(`${percent}%`),
 });
@@ -156,7 +158,7 @@ const jobResult = await client.jobs.wait(job.jobId, {
 });
 
 // 4. Load results
-const result = await client.jobs.load(jobResult.jobId);
+const result = await client.jobs.load(jobResult);
 ```
 
 ### Error Handling
