@@ -20,6 +20,8 @@ async function createMockResultZip(
     includeTables?: boolean;
     includeFullMarkdown?: boolean;
     includeHierarchy?: boolean;
+    wrapChunks?: boolean;
+    useMetadata?: boolean;
   } = {},
 ): Promise<Buffer> {
   const zip = new JSZip();
@@ -58,48 +60,91 @@ async function createMockResultZip(
 
   // Create chunks
   const chunks: Partial<Chunk>[] = [
-    {
-      chunkId: 'chunk-001',
-      type: 'text',
-      content: 'This is sample text content for testing.',
-      path: 'page-1',
-      length: 250,
-      tokens: 45,
-      keywords: ['test', 'sample'],
-      summary: 'Sample text chunk',
-    },
+    options.useMetadata
+      ? ({
+          chunkId: 'chunk-001',
+          type: 'text',
+          content: 'This is sample text content for testing.',
+          path: 'page-1',
+          metadata: {
+            length: 250,
+            tokens: ['token-a', 'token-b'],
+            keywords: ['test', 'sample'],
+            summary: 'Sample text chunk',
+            relationships: ['chunk-002'],
+          },
+        } as Partial<Chunk>)
+      : {
+          chunkId: 'chunk-001',
+          type: 'text',
+          content: 'This is sample text content for testing.',
+          path: 'page-1',
+          length: 250,
+          tokens: 45,
+          keywords: ['test', 'sample'],
+          summary: 'Sample text chunk',
+        },
   ];
 
   if (options.includeImages) {
-    chunks.push({
-      chunkId: 'chunk-002',
-      type: 'image',
-      content: 'Image description',
-      path: 'page-2',
-      length: 1,
-      filePath: 'images/image-001.jpg',
-      summary: 'Test image',
-    });
+    chunks.push(
+      options.useMetadata
+        ? ({
+            chunkId: 'chunk-002',
+            type: 'image',
+            content: 'Image description',
+            path: 'page-2',
+            metadata: {
+              length: 1,
+              filePath: 'images/image-001.jpg',
+              summary: 'Test image',
+            },
+          } as Partial<Chunk>)
+        : {
+            chunkId: 'chunk-002',
+            type: 'image',
+            content: 'Image description',
+            path: 'page-2',
+            length: 1,
+            filePath: 'images/image-001.jpg',
+            summary: 'Test image',
+          },
+    );
     // Add actual image file
     zip.file('images/image-001.jpg', Buffer.from('fake-jpg-data'));
   }
 
   if (options.includeTables) {
-    chunks.push({
-      chunkId: 'chunk-003',
-      type: 'table',
-      content: 'Table content as text',
-      path: 'page-3',
-      length: 1,
-      filePath: 'tables/table-001.html',
-      tableType: 'data',
-      summary: 'Test table',
-    });
+    chunks.push(
+      options.useMetadata
+        ? ({
+            chunkId: 'chunk-003',
+            type: 'table',
+            content: 'Table content as text',
+            path: 'page-3',
+            metadata: {
+              length: 1,
+              filePath: 'tables/table-001.html',
+              tableType: 'data',
+              summary: 'Test table',
+            },
+          } as Partial<Chunk>)
+        : {
+            chunkId: 'chunk-003',
+            type: 'table',
+            content: 'Table content as text',
+            path: 'page-3',
+            length: 1,
+            filePath: 'tables/table-001.html',
+            tableType: 'data',
+            summary: 'Test table',
+          },
+    );
     // Add actual table file
     zip.file('tables/table-001.html', '<table><tr><td>Test Data</td></tr></table>');
   }
 
-  zip.file('chunks.json', JSON.stringify(chunks));
+  zip.file('chunks.json', JSON.stringify(options.wrapChunks ? { chunks } : chunks));
 
   // Add optional files
   if (options.includeFullMarkdown) {
@@ -211,6 +256,39 @@ describe('Result Parser', () => {
       expect(result.chunks[0].chunkId).toBe('chunk-001');
       expect(result.chunks[0].type).toBe('text');
       expect(result.chunks[0].content).toBeDefined();
+    });
+
+    it('should extract wrapped chunks.json payloads', async () => {
+      const mockZipBuffer = await createMockResultZip({
+        wrapChunks: true,
+      });
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0].chunkId).toBe('chunk-001');
+    });
+
+    it('should extract chunk metadata fields from nested metadata', async () => {
+      const mockZipBuffer = await createMockResultZip({
+        includeImages: true,
+        includeTables: true,
+        useMetadata: true,
+        wrapChunks: true,
+      });
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.textChunks[0].summary).toBe('Sample text chunk');
+      expect(result.textChunks[0].tokens).toEqual(['token-a', 'token-b']);
+      expect(result.textChunks[0].relationships).toEqual(['chunk-002']);
+      expect(result.imageChunks[0].filePath).toBe('images/image-001.jpg');
+      expect(result.imageChunks[0].summary).toBe('Test image');
+      expect(result.tableChunks[0].filePath).toBe('tables/table-001.html');
+      expect(result.tableChunks[0].tableType).toBe('data');
+      expect(result.tableChunks[0].summary).toBe('Test table');
     });
 
     it('should extract image chunks with data', async () => {

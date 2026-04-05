@@ -16,6 +16,33 @@ import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
 import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils.js';
 
+type ChunkMetadata = {
+  length?: number;
+  tokens?: number | string[];
+  keywords?: string[];
+  summary?: string;
+  relationships?: string[];
+  filePath?: string;
+  tableType?: string;
+};
+
+type RawChunk = {
+  chunkId?: string;
+  type?: string;
+  content?: string;
+  path?: string;
+  length?: number;
+  tokens?: number | string[];
+  keywords?: string[];
+  summary?: string;
+  relationships?: string[];
+  filePath?: string;
+  tableType?: string;
+  metadata?: ChunkMetadata;
+};
+
+type ChunkPayload = RawChunk[] | { chunks?: RawChunk[] };
+
 /**
  * Parse result ZIP from URL
  */
@@ -54,13 +81,14 @@ export async function parseResult(
   }
 
   const chunksContent = await chunksFile.async('string');
-  let chunksData = JSON.parse(chunksContent) as Chunk[];
+  let chunksData = JSON.parse(chunksContent) as ChunkPayload;
   chunksData = keysToCamel(chunksData);
+  const rawChunks = extractChunks(chunksData);
 
   // Process chunks and load associated files
   const chunks: Chunk[] = [];
 
-  for (const chunkData of chunksData) {
+  for (const chunkData of rawChunks) {
     const chunk = await processChunk(zip, chunkData);
     chunks.push(chunk);
   }
@@ -151,29 +179,78 @@ export async function parseResult(
   return result;
 }
 
-/**
- * Process individual chunk and load associated files
- */
-async function processChunk(zip: JSZip, chunkData: Chunk): Promise<Chunk> {
+function extractChunks(payload: ChunkPayload): RawChunk[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload.chunks)) {
+    return payload.chunks;
+  }
+
+  return [];
+}
+
+function getChunkMetadata(chunkData: RawChunk): ChunkMetadata {
+  if (!chunkData.metadata) {
+    return {};
+  }
+
+  return chunkData.metadata;
+}
+
+function getChunkFilePath(chunkData: RawChunk): string | undefined {
+  const metadata = getChunkMetadata(chunkData);
+  return chunkData.filePath ?? metadata.filePath ?? chunkData.path;
+}
+
+function normalizeTextChunk(chunkData: RawChunk): TextChunk {
+  const metadata = getChunkMetadata(chunkData);
+
+  return {
+    chunkId: chunkData.chunkId ?? '',
+    type: 'text',
+    content: chunkData.content ?? '',
+    path: chunkData.path ?? '',
+    length: metadata.length ?? chunkData.length ?? 0,
+    tokens: metadata.tokens ?? chunkData.tokens,
+    keywords: metadata.keywords ?? chunkData.keywords,
+    summary: metadata.summary ?? chunkData.summary,
+    relationships: metadata.relationships ?? chunkData.relationships,
+  };
+}
+
+async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
   if (chunkData.type === 'text') {
-    return chunkData;
+    return normalizeTextChunk(chunkData);
   }
 
   if (chunkData.type === 'image') {
-    const imageChunk = chunkData;
+    const metadata = getChunkMetadata(chunkData);
+    const filePath = getChunkFilePath(chunkData);
+
+    if (!filePath) {
+      throw new KnowhereError(`Image chunk missing file path: ${chunkData.chunkId ?? 'unknown'}`);
+    }
 
     // Load image data
-    const sanitized = sanitizePath(imageChunk.filePath);
+    const sanitized = sanitizePath(filePath);
     const imageFile = zip.file(sanitized);
     if (!imageFile) {
-      throw new KnowhereError(`Image file not found: ${imageChunk.filePath}`);
+      throw new KnowhereError(`Image file not found: ${filePath}`);
     }
 
     const imageBuffer = await imageFile.async('nodebuffer');
 
     // Add data and methods
     const enrichedChunk: ImageChunk = {
-      ...imageChunk,
+      chunkId: chunkData.chunkId ?? '',
+      type: 'image',
+      content: chunkData.content ?? '',
+      path: chunkData.path ?? '',
+      length: metadata.length ?? chunkData.length ?? 0,
+      filePath,
+      summary: metadata.summary ?? chunkData.summary,
       data: imageBuffer,
 
       get format(): string {
@@ -193,20 +270,32 @@ async function processChunk(zip: JSZip, chunkData: Chunk): Promise<Chunk> {
   }
 
   if (chunkData.type === 'table') {
-    const tableChunk = chunkData;
+    const metadata = getChunkMetadata(chunkData);
+    const filePath = getChunkFilePath(chunkData);
+
+    if (!filePath) {
+      throw new KnowhereError(`Table chunk missing file path: ${chunkData.chunkId ?? 'unknown'}`);
+    }
 
     // Load HTML data
-    const sanitized = sanitizePath(tableChunk.filePath);
+    const sanitized = sanitizePath(filePath);
     const htmlFile = zip.file(sanitized);
     if (!htmlFile) {
-      throw new KnowhereError(`Table file not found: ${tableChunk.filePath}`);
+      throw new KnowhereError(`Table file not found: ${filePath}`);
     }
 
     const html = await htmlFile.async('string');
 
     // Add html and methods
     const enrichedChunk: TableChunk = {
-      ...tableChunk,
+      chunkId: chunkData.chunkId ?? '',
+      type: 'table',
+      content: chunkData.content ?? '',
+      path: chunkData.path ?? '',
+      length: metadata.length ?? chunkData.length ?? 0,
+      filePath,
+      tableType: metadata.tableType ?? chunkData.tableType,
+      summary: metadata.summary ?? chunkData.summary,
       html,
 
       async save(directory: string): Promise<string> {
@@ -221,7 +310,7 @@ async function processChunk(zip: JSZip, chunkData: Chunk): Promise<Chunk> {
     return enrichedChunk;
   }
 
-  throw new KnowhereError(`Unknown chunk type: ${(chunkData as Chunk).type}`);
+  return normalizeTextChunk(chunkData);
 }
 
 /**
