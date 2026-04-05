@@ -11,6 +11,7 @@ import {
   getFileExtension,
   jitter,
 } from '../utils.js';
+import type { JobResult } from '../../types/job.js';
 
 describe('utils', () => {
   describe('sleep', () => {
@@ -161,7 +162,7 @@ describe('utils', () => {
         status: 'done' as const,
         sourceType: 'file',
         createdAt: new Date(),
-      } as any;
+      } as unknown as JobResult;
 
       enrichJobResult(jobResult);
       expect(jobResult.isTerminal).toBe(true);

@@ -115,7 +115,7 @@ export function enrichJobResult(jobResult: JobResult): JobResult {
 
   if (!Object.getOwnPropertyDescriptor(jobResult, 'isTerminal')) {
     computedProperties.isTerminal = {
-      get(this: JobResult) {
+      get(this: JobResult): boolean {
         return isTerminalStatus(this.status);
       },
       enumerable: true,
@@ -125,7 +125,7 @@ export function enrichJobResult(jobResult: JobResult): JobResult {
 
   if (!Object.getOwnPropertyDescriptor(jobResult, 'isDone')) {
     computedProperties.isDone = {
-      get(this: JobResult) {
+      get(this: JobResult): boolean {
         return this.status === 'done';
       },
       enumerable: true,
@@ -135,7 +135,7 @@ export function enrichJobResult(jobResult: JobResult): JobResult {
 
   if (!Object.getOwnPropertyDescriptor(jobResult, 'isFailed')) {
     computedProperties.isFailed = {
-      get(this: JobResult) {
+      get(this: JobResult): boolean {
         return this.status === 'failed';
       },
       enumerable: true,
