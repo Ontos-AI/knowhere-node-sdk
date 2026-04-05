@@ -111,26 +111,42 @@ export function isTerminalStatus(status: JobStatus): boolean {
  * Add readonly getters to JobResult
  */
 export function enrichJobResult(jobResult: JobResult): JobResult {
-  Object.defineProperties(jobResult, {
-    isTerminal: {
+  const computedProperties: PropertyDescriptorMap = {};
+
+  if (!Object.getOwnPropertyDescriptor(jobResult, 'isTerminal')) {
+    computedProperties.isTerminal = {
       get(this: JobResult) {
         return isTerminalStatus(this.status);
       },
       enumerable: true,
-    },
-    isDone: {
+      configurable: true,
+    };
+  }
+
+  if (!Object.getOwnPropertyDescriptor(jobResult, 'isDone')) {
+    computedProperties.isDone = {
       get(this: JobResult) {
         return this.status === 'done';
       },
       enumerable: true,
-    },
-    isFailed: {
+      configurable: true,
+    };
+  }
+
+  if (!Object.getOwnPropertyDescriptor(jobResult, 'isFailed')) {
+    computedProperties.isFailed = {
       get(this: JobResult) {
         return this.status === 'failed';
       },
       enumerable: true,
-    },
-  });
+      configurable: true,
+    };
+  }
+
+  if (Object.keys(computedProperties).length > 0) {
+    Object.defineProperties(jobResult, computedProperties);
+  }
+
   return jobResult;
 }
 

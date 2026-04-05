@@ -6,6 +6,7 @@ import {
   keysToCamel,
   keysToSnake,
   parseDates,
+  enrichJobResult,
   sanitizePath,
   getFileExtension,
   jitter,
@@ -150,6 +151,27 @@ describe('utils', () => {
       const result = parseDates(input);
       expect(result[0].createdAt).toBeInstanceOf(Date);
       expect(result[1].createdAt).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('enrichJobResult', () => {
+    it('should be idempotent when called multiple times', () => {
+      const jobResult = {
+        jobId: 'job-123',
+        status: 'done' as const,
+        sourceType: 'file',
+        createdAt: new Date(),
+      } as any;
+
+      enrichJobResult(jobResult);
+      expect(jobResult.isTerminal).toBe(true);
+      expect(jobResult.isDone).toBe(true);
+      expect(jobResult.isFailed).toBe(false);
+
+      expect(() => enrichJobResult(jobResult)).not.toThrow();
+      expect(jobResult.isTerminal).toBe(true);
+      expect(jobResult.isDone).toBe(true);
+      expect(jobResult.isFailed).toBe(false);
     });
   });
 
