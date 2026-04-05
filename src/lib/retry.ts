@@ -19,6 +19,7 @@ interface ErrorWithResponse {
   };
   statusCode?: number;
   code?: string;
+  retryAfter?: unknown;
 }
 
 /**
@@ -60,7 +61,7 @@ function isRetryableError(error: unknown): boolean {
     // For 429, only retry if there's a retry-after header or it's not a quota error
     if (statusCode === 429) {
       const code = errorWithResponse?.response?.data?.code ?? errorWithResponse?.code;
-      const retryAfter = errorWithResponse?.response?.headers?.['retry-after'];
+      const retryAfter = getRetryAfter(error);
       // Don't retry quota errors without retry-after
       if (code === 'QUOTA_EXCEEDED' && !retryAfter) {
         return false;
@@ -95,6 +96,18 @@ export function calculateRetryDelay(attempt: number): number {
  */
 export function getRetryAfter(error: unknown): number | undefined {
   const errorWithResponse = error as ErrorWithResponse;
+
+  // Transformed SDK errors (for example RateLimitError) already carry a parsed
+  // retryAfter value in seconds. Preserve that instead of forcing callers to
+  // depend on the original transport-layer response object.
+  if (
+    typeof errorWithResponse?.retryAfter === 'number' &&
+    Number.isFinite(errorWithResponse.retryAfter) &&
+    errorWithResponse.retryAfter > 0
+  ) {
+    return errorWithResponse.retryAfter * 1000;
+  }
+
   const retryAfter = errorWithResponse?.response?.headers?.['retry-after'];
   if (!retryAfter || typeof retryAfter !== 'string') {
     return undefined;
