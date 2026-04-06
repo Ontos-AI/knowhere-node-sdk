@@ -66,7 +66,7 @@ export const RETRY_JITTER = 0.2;
 /**
  * HTTP status codes that should be retried
  */
-export const RETRYABLE_STATUS_CODES = new Set([409, 429, 503, 504]);
+export const RETRYABLE_STATUS_CODES = new Set([409, 429, 502, 503, 504]);
 
 /**
  * Terminal job statuses

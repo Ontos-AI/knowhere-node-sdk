@@ -337,6 +337,31 @@ describe('HttpClient', () => {
       }
     });
 
+    it('should map nested 429 error bodies and preserve body retry_after hints', async () => {
+      const error = createAxiosError(429, {
+        success: false,
+        error: {
+          code: 'RESOURCE_EXHAUSTED',
+          message: 'Too many concurrent requests. Please retry later.',
+          request_id: 'req-body-429',
+          details: {
+            retry_after: 0,
+          },
+        },
+      });
+      mockAxiosAdapter(error);
+
+      try {
+        await client.get('/test');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitError);
+        expect((err as RateLimitError).code).toBe('RESOURCE_EXHAUSTED');
+        expect((err as RateLimitError).message).toContain('Too many concurrent requests');
+        expect((err as RateLimitError).requestId).toBe('req-body-429');
+        expect((err as RateLimitError).retryAfter).toBe(0);
+      }
+    });
+
     it('should map 500 to InternalServerError', async () => {
       const error = createAxiosError(500, { message: 'Internal error' }, {});
       mockAxiosAdapter(error);

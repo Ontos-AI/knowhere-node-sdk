@@ -26,7 +26,9 @@ function inferFileName(file: ParseParams['file'], explicitFileName?: string): st
 }
 
 function isReadStream(file: ParseParams['file']): file is ReadStream {
-  return typeof file === 'object' && file !== null && 'pipe' in file && typeof file.pipe === 'function';
+  return (
+    typeof file === 'object' && file !== null && 'pipe' in file && typeof file.pipe === 'function'
+  );
 }
 
 /**

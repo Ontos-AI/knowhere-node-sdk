@@ -14,11 +14,57 @@ interface ErrorWithResponse {
     status?: number;
     data?: {
       code?: string;
+      details?: Record<string, unknown>;
+      error?: {
+        code?: string;
+        details?: Record<string, unknown>;
+      };
     };
     headers?: Record<string, string>;
   };
   statusCode?: number;
   code?: string;
+  details?: Record<string, unknown>;
+  retryAfter?: unknown;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  const errorWithResponse = error as ErrorWithResponse;
+  return (
+    errorWithResponse?.response?.data?.error?.code ??
+    errorWithResponse?.response?.data?.code ??
+    errorWithResponse?.code
+  );
+}
+
+function getErrorDetails(error: unknown): Record<string, unknown> | undefined {
+  const errorWithResponse = error as ErrorWithResponse;
+  return (
+    errorWithResponse?.response?.data?.error?.details ??
+    errorWithResponse?.response?.data?.details ??
+    errorWithResponse?.details
+  );
+}
+
+function getBodyRetryAfter(error: unknown): number | undefined {
+  const details = getErrorDetails(error);
+  if (!details) {
+    return undefined;
+  }
+
+  const rawRetryAfter = details.retry_after ?? details.retryAfter;
+  if (typeof rawRetryAfter === 'number' && Number.isFinite(rawRetryAfter) && rawRetryAfter >= 0) {
+    return rawRetryAfter * 1000;
+  }
+
+  if (typeof rawRetryAfter === 'string') {
+    const parsed = Number.parseFloat(rawRetryAfter);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed * 1000;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -57,20 +103,16 @@ function isRetryableError(error: unknown): boolean {
   const errorWithResponse = error as ErrorWithResponse;
   const statusCode = errorWithResponse?.response?.status ?? errorWithResponse?.statusCode;
   if (statusCode && typeof statusCode === 'number' && RETRYABLE_STATUS_CODES.has(statusCode)) {
-    // For 429, only retry if there's a retry-after header or it's not a quota error
+    const code = getErrorCode(error);
+
+    // For 429, only retry when the server provides an explicit retry hint.
     if (statusCode === 429) {
-      const code = errorWithResponse?.response?.data?.code ?? errorWithResponse?.code;
-      const retryAfter = errorWithResponse?.response?.headers?.['retry-after'];
-      // Don't retry quota errors without retry-after
-      if (code === 'QUOTA_EXCEEDED' && !retryAfter) {
-        return false;
-      }
-      return true;
+      const retryAfter = getRetryAfter(error);
+      return retryAfter !== undefined;
     }
 
     // For 409, only retry if it's an ABORTED error
     if (statusCode === 409) {
-      const code = errorWithResponse?.response?.data?.code ?? errorWithResponse?.code;
       return code === 'ABORTED';
     }
 
@@ -95,14 +137,33 @@ export function calculateRetryDelay(attempt: number): number {
  */
 export function getRetryAfter(error: unknown): number | undefined {
   const errorWithResponse = error as ErrorWithResponse;
+
+  // Transformed SDK errors (for example RateLimitError) already carry a parsed
+  // retryAfter value in seconds. Preserve that instead of forcing callers to
+  // depend on the original transport-layer response object.
+  if (
+    typeof errorWithResponse?.retryAfter === 'number' &&
+    Number.isFinite(errorWithResponse.retryAfter) &&
+    errorWithResponse.retryAfter >= 0
+  ) {
+    return errorWithResponse.retryAfter * 1000;
+  }
+
+  // Match the Python SDK by preferring structured body hints from
+  // error.details.retry_after before falling back to transport headers.
+  const bodyRetryAfter = getBodyRetryAfter(error);
+  if (bodyRetryAfter !== undefined) {
+    return bodyRetryAfter;
+  }
+
   const retryAfter = errorWithResponse?.response?.headers?.['retry-after'];
   if (!retryAfter || typeof retryAfter !== 'string') {
     return undefined;
   }
 
   // Try parsing as number (seconds)
-  const seconds = parseInt(retryAfter, 10);
-  if (!isNaN(seconds)) {
+  const seconds = Number.parseFloat(retryAfter);
+  if (!Number.isNaN(seconds)) {
     return seconds * 1000; // Convert to milliseconds
   }
 

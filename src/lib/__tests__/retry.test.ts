@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { shouldRetry, calculateRetryDelay, getRetryAfter } from '../retry.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { shouldRetry, calculateRetryDelay, getRetryAfter, withRetry } from '../retry.js';
 import { INITIAL_RETRY_DELAY, MAX_RETRY_DELAY } from '../../constants.js';
 
 describe('retry', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   describe('shouldRetry', () => {
     it('should return false if max retries exceeded', () => {
       const error = new Error('test');
@@ -27,6 +32,8 @@ describe('retry', () => {
       const retryableErrors = [
         { response: { status: 409, data: { code: 'ABORTED' } } },
         { response: { status: 429, headers: { 'retry-after': '60' } } },
+        { response: { status: 429, data: { error: { details: { retry_after: 30 } } } } },
+        { response: { status: 502 } },
         { response: { status: 503 } },
         { response: { status: 504 } },
       ];
@@ -50,11 +57,11 @@ describe('retry', () => {
       }
     });
 
-    it('should not retry 429 with QUOTA_EXCEEDED and no retry-after', () => {
+    it('should not retry 429 without a retry hint', () => {
       const error = {
         response: {
           status: 429,
-          data: { code: 'QUOTA_EXCEEDED' },
+          data: { error: { code: 'RESOURCE_EXHAUSTED' } },
         },
       };
       expect(shouldRetry(error, 0, 3)).toBe(false);
@@ -75,6 +82,27 @@ describe('retry', () => {
       };
       expect(shouldRetry(abortedError, 0, 3)).toBe(true);
       expect(shouldRetry(otherError, 0, 3)).toBe(false);
+    });
+
+    it('should retry 409 with nested ABORTED error codes', () => {
+      const error = {
+        response: {
+          status: 409,
+          data: { error: { code: 'ABORTED' } },
+        },
+      };
+
+      expect(shouldRetry(error, 0, 3)).toBe(true);
+    });
+
+    it('should retry transformed 429 quota errors when retryAfter is already parsed', () => {
+      const error = {
+        statusCode: 429,
+        code: 'QUOTA_EXCEEDED',
+        retryAfter: 30,
+      };
+
+      expect(shouldRetry(error, 0, 3)).toBe(true);
     });
   });
 
@@ -104,6 +132,51 @@ describe('retry', () => {
   });
 
   describe('getRetryAfter', () => {
+    it('should use parsed retryAfter from transformed SDK errors', () => {
+      const error = {
+        retryAfter: 30,
+      };
+
+      expect(getRetryAfter(error)).toBe(30000);
+    });
+
+    it('should prefer retry_after from error details in the response body', () => {
+      const error = {
+        response: {
+          data: {
+            error: {
+              details: {
+                retry_after: 30,
+              },
+            },
+          },
+          headers: {
+            'retry-after': '60',
+          },
+        },
+      };
+
+      expect(getRetryAfter(error)).toBe(30000);
+    });
+
+    it('should treat retry_after=0 in the response body as a valid hint', () => {
+      const error = {
+        response: {
+          status: 429,
+          data: {
+            error: {
+              details: {
+                retry_after: 0,
+              },
+            },
+          },
+        },
+      };
+
+      expect(getRetryAfter(error)).toBe(0);
+      expect(shouldRetry(error, 0, 3)).toBe(true);
+    });
+
     it('should parse numeric retry-after (seconds)', () => {
       const error = {
         response: {
@@ -153,6 +226,32 @@ describe('retry', () => {
     it('should handle error without response', () => {
       const error = new Error('test');
       expect(getRetryAfter(error)).toBeUndefined();
+    });
+  });
+
+  describe('withRetry', () => {
+    it('should honor parsed retryAfter on transformed errors', async () => {
+      vi.useFakeTimers();
+
+      const fn = vi
+        .fn<() => Promise<string>>()
+        .mockRejectedValueOnce({
+          statusCode: 429,
+          code: 'RESOURCE_EXHAUSTED',
+          retryAfter: 30,
+        })
+        .mockResolvedValueOnce('ok');
+
+      const promise = withRetry(fn, 1);
+
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(29999);
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(promise).resolves.toBe('ok');
+      expect(fn).toHaveBeenCalledTimes(2);
     });
   });
 });
