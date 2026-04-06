@@ -32,6 +32,8 @@ describe('retry', () => {
       const retryableErrors = [
         { response: { status: 409, data: { code: 'ABORTED' } } },
         { response: { status: 429, headers: { 'retry-after': '60' } } },
+        { response: { status: 429, data: { error: { details: { retry_after: 30 } } } } },
+        { response: { status: 502 } },
         { response: { status: 503 } },
         { response: { status: 504 } },
       ];
@@ -55,11 +57,11 @@ describe('retry', () => {
       }
     });
 
-    it('should not retry 429 with QUOTA_EXCEEDED and no retry-after', () => {
+    it('should not retry 429 without a retry hint', () => {
       const error = {
         response: {
           status: 429,
-          data: { code: 'QUOTA_EXCEEDED' },
+          data: { error: { code: 'RESOURCE_EXHAUSTED' } },
         },
       };
       expect(shouldRetry(error, 0, 3)).toBe(false);
@@ -80,6 +82,17 @@ describe('retry', () => {
       };
       expect(shouldRetry(abortedError, 0, 3)).toBe(true);
       expect(shouldRetry(otherError, 0, 3)).toBe(false);
+    });
+
+    it('should retry 409 with nested ABORTED error codes', () => {
+      const error = {
+        response: {
+          status: 409,
+          data: { error: { code: 'ABORTED' } },
+        },
+      };
+
+      expect(shouldRetry(error, 0, 3)).toBe(true);
     });
 
     it('should retry transformed 429 quota errors when retryAfter is already parsed', () => {
@@ -125,6 +138,43 @@ describe('retry', () => {
       };
 
       expect(getRetryAfter(error)).toBe(30000);
+    });
+
+    it('should prefer retry_after from error details in the response body', () => {
+      const error = {
+        response: {
+          data: {
+            error: {
+              details: {
+                retry_after: 30,
+              },
+            },
+          },
+          headers: {
+            'retry-after': '60',
+          },
+        },
+      };
+
+      expect(getRetryAfter(error)).toBe(30000);
+    });
+
+    it('should treat retry_after=0 in the response body as a valid hint', () => {
+      const error = {
+        response: {
+          status: 429,
+          data: {
+            error: {
+              details: {
+                retry_after: 0,
+              },
+            },
+          },
+        },
+      };
+
+      expect(getRetryAfter(error)).toBe(0);
+      expect(shouldRetry(error, 0, 3)).toBe(true);
     });
 
     it('should parse numeric retry-after (seconds)', () => {

@@ -94,19 +94,40 @@ export class HttpClient {
     // API errors
     const { status, data, headers } = error.response;
     const errorData = this.normalizeErrorData(data);
-    const message = this.getErrorMessage(errorData, status);
-    const code = this.getErrorCode(errorData);
-    const requestId = headers['x-request-id'] as string | undefined;
-    const details = errorData?.details as Record<string, unknown> | undefined;
+    const errorObject = this.getErrorObject(errorData);
+    const message = this.getErrorMessage(errorObject, status);
+    const code = this.getErrorCode(errorObject);
+    const requestId =
+      (headers['x-request-id'] as string | undefined) ??
+      (typeof errorObject?.request_id === 'string' ? errorObject.request_id : undefined);
+    const details =
+      errorObject?.details &&
+      typeof errorObject.details === 'object' &&
+      errorObject.details.constructor === Object
+        ? (errorObject.details as Record<string, unknown>)
+        : undefined;
 
     // Extract retry-after for rate limits
     let retryAfter: number | undefined;
     if (status === 429) {
       const retryAfterMs = getRetryAfter(error);
-      retryAfter = retryAfterMs ? Math.ceil(retryAfterMs / 1000) : undefined;
+      retryAfter = retryAfterMs !== undefined ? Math.ceil(retryAfterMs / 1000) : undefined;
     }
 
     return createAPIError(status, message, code, requestId, details, data, retryAfter);
+  }
+
+  private getErrorObject(errorData: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+    if (!errorData) {
+      return undefined;
+    }
+
+    const nestedError = errorData.error;
+    if (nestedError && typeof nestedError === 'object' && nestedError.constructor === Object) {
+      return nestedError as Record<string, unknown>;
+    }
+
+    return errorData;
   }
 
   private normalizeErrorData(data: unknown): Record<string, unknown> | undefined {
