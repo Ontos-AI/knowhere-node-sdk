@@ -117,7 +117,9 @@ export class HttpClient {
     return createAPIError(status, message, code, requestId, details, data, retryAfter);
   }
 
-  private getErrorObject(errorData: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  private getErrorObject(
+    errorData: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined {
     if (!errorData) {
       return undefined;
     }

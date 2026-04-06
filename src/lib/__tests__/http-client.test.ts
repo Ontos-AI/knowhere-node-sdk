@@ -338,20 +338,17 @@ describe('HttpClient', () => {
     });
 
     it('should map nested 429 error bodies and preserve body retry_after hints', async () => {
-      const error = createAxiosError(
-        429,
-        {
-          success: false,
-          error: {
-            code: 'RESOURCE_EXHAUSTED',
-            message: 'Too many concurrent requests. Please retry later.',
-            request_id: 'req-body-429',
-            details: {
-              retry_after: 0,
-            },
+      const error = createAxiosError(429, {
+        success: false,
+        error: {
+          code: 'RESOURCE_EXHAUSTED',
+          message: 'Too many concurrent requests. Please retry later.',
+          request_id: 'req-body-429',
+          details: {
+            retry_after: 0,
           },
         },
-      );
+      });
       mockAxiosAdapter(error);
 
       try {
