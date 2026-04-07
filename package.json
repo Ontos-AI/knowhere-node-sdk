@@ -52,6 +52,7 @@
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
+    "release:check-changeset": "node ./scripts/require-changeset.mjs",
     "release:beta": "node ./scripts/publish-beta-release.mjs",
     "release:publish": "node ./scripts/publish-release.mjs",
     "release:version": "node ./scripts/release-version.mjs",
