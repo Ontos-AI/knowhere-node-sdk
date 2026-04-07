@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-07
+
+### Fixed
+- Preserve and honor parsed `retryAfter` values after HTTP 429 errors are transformed into SDK errors
+- Align retry hint handling with the Python SDK by checking `details.retry_after` before header fallback
+- Retry HTTP `502` responses and require a real retry hint before retrying `429`
+- Unwrap nested API error envelopes consistently so retry metadata is preserved
+- Restore Prettier formatting in the affected SDK files
+
 ## [0.1.1] - 2026-02-12
 
 ### Fixed

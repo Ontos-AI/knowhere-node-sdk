@@ -1,6 +1,6 @@
 {
   "name": "@knowhere-ai/sdk",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Official Node.js SDK for Knowhere document parsing API",
   "keywords": [
     "knowhere",
