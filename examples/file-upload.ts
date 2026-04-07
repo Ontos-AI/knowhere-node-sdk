@@ -2,7 +2,7 @@
  * File upload example - Parse local file
  */
 
-import Knowhere, { type PollProgress, type UploadProgress } from '@knowhere-ai/sdk';
+import Knowhere, { type PollProgress, type UploadProgress } from '@ontos-ai/knowhere-sdk';
 import { createReadStream } from 'fs';
 
 async function main() {

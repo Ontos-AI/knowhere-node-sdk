@@ -9,7 +9,7 @@ import Knowhere, {
   PollingTimeoutError,
   JobFailedError,
   NetworkError,
-} from '@knowhere-ai/sdk';
+} from '@ontos-ai/knowhere-sdk';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

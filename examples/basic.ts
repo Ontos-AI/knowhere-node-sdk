@@ -2,7 +2,7 @@
  * Basic usage example - Parse document from URL
  */
 
-import Knowhere from '@knowhere-ai/sdk';
+import Knowhere from '@ontos-ai/knowhere-sdk';
 
 async function main() {
   // Initialize client with API key

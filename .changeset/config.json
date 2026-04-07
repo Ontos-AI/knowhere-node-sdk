@@ -1,0 +1,15 @@
+{
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "Ontos-AI/knowhere-node-sdk"
+    }
+  ],
+  "commit": false,
+  "access": "public",
+  "baseBranch": "main",
+  "snapshot": {
+    "useCalculatedVersion": true,
+    "prereleaseTemplate": "{tag}.{datetime}"
+  }
+}

@@ -2,7 +2,7 @@
  * Low-level API example - Granular control over job lifecycle
  */
 
-import Knowhere, { type PollProgress, type UploadProgress } from '@knowhere-ai/sdk';
+import Knowhere, { type PollProgress, type UploadProgress } from '@ontos-ai/knowhere-sdk';
 
 async function main() {
   const client = new Knowhere({
