@@ -19,7 +19,7 @@ import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils
 
 type ChunkMetadata = {
   length?: number;
-  tokens?: number | string[];
+  tokens?: unknown;
   keywords?: string[];
   summary?: string;
   /** schema v2.1: primary relationship field */
@@ -36,7 +36,7 @@ type RawChunk = {
   content?: string;
   path?: string;
   length?: number;
-  tokens?: number | string[];
+  tokens?: unknown;
   keywords?: string[];
   summary?: string;
   /** schema v2.1: primary relationship field (camelCased from connect_to) */
@@ -211,6 +211,18 @@ function getChunkFilePath(chunkData: RawChunk): string | undefined {
   return chunkData.filePath ?? metadata.filePath ?? chunkData.path;
 }
 
+function normalizeTokens(tokens: unknown): string[] | undefined {
+  if (!Array.isArray(tokens)) {
+    return undefined;
+  }
+
+  if (!tokens.every((token) => typeof token === 'string')) {
+    return undefined;
+  }
+
+  return tokens;
+}
+
 function normalizeTextChunk(chunkData: RawChunk): TextChunk {
   const metadata = getChunkMetadata(chunkData);
 
@@ -225,7 +237,7 @@ function normalizeTextChunk(chunkData: RawChunk): TextChunk {
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     length: metadata.length ?? chunkData.length ?? 0,
-    tokens: metadata.tokens ?? chunkData.tokens,
+    tokens: normalizeTokens(metadata.tokens ?? chunkData.tokens),
     keywords: metadata.keywords ?? chunkData.keywords,
     summary: metadata.summary ?? chunkData.summary,
     ...(connectTo !== undefined && { connectTo }),

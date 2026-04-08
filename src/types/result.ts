@@ -79,8 +79,8 @@ export interface TextChunk extends BaseChunk {
   type: 'text';
   /** Content length */
   length: number;
-  /** Tokens or token count, depending on backend payload */
-  tokens?: number | string[];
+  /** Extracted tokens from the current backend payload */
+  tokens?: string[];
   /** Extracted keywords */
   keywords?: string[];
   /** Generated summary */

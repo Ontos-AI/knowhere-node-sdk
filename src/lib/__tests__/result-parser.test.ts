@@ -10,7 +10,7 @@ import { join } from 'path';
 import { parseResult, verifyChecksum } from '../result-parser.js';
 import { ChecksumError, KnowhereError } from '../../errors/index.js';
 import type { HttpClient } from '../http-client.js';
-import type { Manifest, Chunk } from '../../types/result.js';
+import type { Manifest } from '../../types/result.js';
 import { createHash } from 'crypto';
 
 // Test helper: Create mock result ZIP
@@ -22,6 +22,7 @@ async function createMockResultZip(
     includeHierarchy?: boolean;
     wrapChunks?: boolean;
     useMetadata?: boolean;
+    useLegacyNumericTokens?: boolean;
   } = {},
 ): Promise<Buffer> {
   const zip = new JSZip();
@@ -59,7 +60,7 @@ async function createMockResultZip(
   zip.file('manifest.json', JSON.stringify(manifest));
 
   // Create chunks
-  const chunks: Partial<Chunk>[] = [
+  const chunks: Array<Record<string, unknown>> = [
     options.useMetadata
       ? ({
           chunkId: 'chunk-001',
@@ -73,14 +74,14 @@ async function createMockResultZip(
             summary: 'Sample text chunk',
             relationships: ['chunk-002'],
           },
-        } as Partial<Chunk>)
+        } as Record<string, unknown>)
       : {
           chunkId: 'chunk-001',
           type: 'text',
           content: 'This is sample text content for testing.',
           path: 'page-1',
           length: 250,
-          tokens: 45,
+          tokens: options.useLegacyNumericTokens ? 45 : ['token-a', 'token-b'],
           keywords: ['test', 'sample'],
           summary: 'Sample text chunk',
         },
@@ -99,7 +100,7 @@ async function createMockResultZip(
               filePath: 'images/image-001.jpg',
               summary: 'Test image',
             },
-          } as Partial<Chunk>)
+          } as Record<string, unknown>)
         : {
             chunkId: 'chunk-002',
             type: 'image',
@@ -128,7 +129,7 @@ async function createMockResultZip(
               tableType: 'data',
               summary: 'Test table',
             },
-          } as Partial<Chunk>)
+          } as Record<string, unknown>)
         : {
             chunkId: 'chunk-003',
             type: 'table',
@@ -289,6 +290,26 @@ describe('Result Parser', () => {
       expect(result.tableChunks[0].filePath).toBe('tables/table-001.html');
       expect(result.tableChunks[0].tableType).toBe('data');
       expect(result.tableChunks[0].summary).toBe('Test table');
+    });
+
+    it('should parse text chunk tokens as string arrays from the current payload shape', async () => {
+      const mockZipBuffer = await createMockResultZip();
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.textChunks[0].tokens).toEqual(['token-a', 'token-b']);
+    });
+
+    it('should drop legacy numeric text chunk tokens instead of leaking the wrong runtime type', async () => {
+      const mockZipBuffer = await createMockResultZip({
+        useLegacyNumericTokens: true,
+      });
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.textChunks[0].tokens).toBeUndefined();
     });
 
     it('should extract image chunks with data', async () => {

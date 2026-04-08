@@ -130,7 +130,7 @@ describe('Knowhere Client', () => {
         content: 'Sample content',
         path: 'page-1',
         length: 100,
-        tokens: 20,
+        tokens: ['Sample', 'content'],
       };
 
       const mockParseResult: ParseResult = {
