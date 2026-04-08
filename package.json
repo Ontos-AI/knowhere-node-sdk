@@ -1,5 +1,5 @@
 {
-  "name": "@knowhere-ai/sdk",
+  "name": "@ontos-ai/knowhere-sdk",
   "version": "0.1.4",
   "description": "Official Node.js SDK for Knowhere document parsing API",
   "keywords": [
@@ -14,10 +14,13 @@
   "homepage": "https://knowhereto.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ontos-AI/knowhere-node-sdk.git"
+    "url": "git+https://github.com/Ontos-AI/knowhere-node-sdk.git"
   },
   "bugs": {
     "url": "https://github.com/Ontos-AI/knowhere-node-sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -40,6 +43,8 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "changeset": "changeset",
+    "changeset:publish": "changeset publish",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest",
     "test:ci": "vitest run --coverage",
@@ -47,6 +52,10 @@
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
+    "release:check-changeset": "node ./scripts/require-changeset.mjs",
+    "release:beta": "node ./scripts/publish-beta-release.mjs",
+    "release:publish": "node ./scripts/publish-release.mjs",
+    "release:version": "node ./scripts/release-version.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test:ci && npm run build"
   },
@@ -55,6 +64,8 @@
     "jszip": "^3.10.0"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
     "@types/node": "^25.2.3",
     "@typescript-eslint/eslint-plugin": "^8.55.0",
     "@typescript-eslint/parser": "^8.55.0",

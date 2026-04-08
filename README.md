@@ -2,9 +2,9 @@
 
 Official Node.js/TypeScript SDK for the [Knowhere](https://knowhereto.ai) document parsing API.
 
-[![npm version](https://badge.fury.io/js/@knowhere-ai%2Fsdk.svg)](https://www.npmjs.com/package/@knowhere-ai/sdk)
+[![npm version](https://badge.fury.io/js/@ontos-ai%2Fknowhere-sdk.svg)](https://www.npmjs.com/package/@ontos-ai/knowhere-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/node/v/@knowhere-ai/sdk)](https://nodejs.org)
+[![Node.js Version](https://img.shields.io/node/v/@ontos-ai/knowhere-sdk)](https://nodejs.org)
 
 ## Features
 
@@ -18,10 +18,11 @@ Official Node.js/TypeScript SDK for the [Knowhere](https://knowhereto.ai) docume
 ## Installation
 
 ```bash
-npm install @knowhere-ai/sdk
+npm install @ontos-ai/knowhere-sdk
 ```
 
 **Requirements:**
+
 - Node.js >= 20.19.0
 - npm >= 10.0.0
 - TypeScript >= 5.0 (optional, for type checking)
@@ -29,7 +30,7 @@ npm install @knowhere-ai/sdk
 ## Quick Start
 
 ```typescript
-import Knowhere from '@knowhere-ai/sdk';
+import Knowhere from '@ontos-ai/knowhere-sdk';
 
 // Initialize client
 const client = new Knowhere({
@@ -70,11 +71,11 @@ KNOWHERE_BASE_URL=https://api.knowhereto.ai   # Optional
 
 ```typescript
 const client = new Knowhere({
-  apiKey: 'sk_...',              // API authentication key
-  baseURL: 'https://...',        // API base URL
-  timeout: 60000,                // Request timeout (ms)
-  uploadTimeout: 600000,         // Upload timeout (ms)
-  maxRetries: 5,                 // Max retry attempts
+  apiKey: 'sk_...', // API authentication key
+  baseURL: 'https://...', // API base URL
+  timeout: 60000, // Request timeout (ms)
+  uploadTimeout: 600000, // Upload timeout (ms)
+  maxRetries: 5, // Max retry attempts
 });
 ```
 
@@ -110,19 +111,20 @@ const result = await client.parse({
 ```typescript
 const result = await client.parse({
   url: 'https://example.com/doc.pdf',
-  model: 'advanced',                // 'base' | 'advanced'
-  ocr: true,                        // Enable OCR
-  docType: 'pdf',                   // Document type hint
-  smartTitleParse: true,            // Smart title detection
-  summaryImage: true,               // Generate image summaries
-  summaryTable: true,               // Generate table summaries
-  summaryText: true,                // Generate text summaries
-  addFragDesc: 'Custom context',    // Additional fragment description
-  kbDir: 'project_docs',            // Knowledge base directory
-  pollInterval: 10000,              // Polling interval (ms)
-  pollTimeout: 1800000,             // Max wait time (ms)
-  verifyChecksum: true,             // Verify ZIP checksum (default: true)
-  webhook: {                        // Webhook for completion
+  model: 'advanced', // 'base' | 'advanced'
+  ocr: true, // Enable OCR
+  docType: 'pdf', // Document type hint
+  smartTitleParse: true, // Smart title detection
+  summaryImage: true, // Generate image summaries
+  summaryTable: true, // Generate table summaries
+  summaryText: true, // Generate text summaries
+  addFragDesc: 'Custom context', // Additional fragment description
+  kbDir: 'project_docs', // Knowledge base directory
+  pollInterval: 10000, // Polling interval (ms)
+  pollTimeout: 1800000, // Max wait time (ms)
+  verifyChecksum: true, // Verify ZIP checksum (default: true)
+  webhook: {
+    // Webhook for completion
     url: 'https://...',
   },
   onUploadProgress: (progress) => {
@@ -172,7 +174,7 @@ import {
   JobFailedError,
   ValidationError,
   InvalidStateError,
-} from '@knowhere-ai/sdk';
+} from '@ontos-ai/knowhere-sdk';
 
 try {
   const result = await client.parse({ url: '...' });
@@ -231,6 +233,11 @@ npm run typecheck
 # Build
 npm run build
 ```
+
+## Release Workflow
+
+See [docs/release-workflow.md](./docs/release-workflow.md) for the
+Changesets-based stable and beta release process.
 
 ## License
 

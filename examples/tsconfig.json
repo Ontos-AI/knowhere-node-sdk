@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@knowhere-ai/sdk": ["../src/index.ts"]
+      "@ontos-ai/knowhere-sdk": ["../src/index.ts"]
     },
     "rootDir": "..",
     "outDir": "../dist/examples",
