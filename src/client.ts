@@ -119,7 +119,7 @@ export class Knowhere {
       smartTitleParse: params.smartTitleParse,
       summaryImage: params.summaryImage,
       summaryTable: params.summaryTable,
-      summaryTxt: params.summaryText,
+      summaryTxt: params.summaryTxt,
       addFragDesc: params.addFragDesc,
       kbDir: params.kbDir,
     };

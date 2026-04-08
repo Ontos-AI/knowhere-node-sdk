@@ -11,6 +11,7 @@ import type {
   ImageChunk,
   TableChunk,
   Statistics,
+  ConnectTo,
 } from '../types/result.js';
 import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
@@ -21,6 +22,9 @@ type ChunkMetadata = {
   tokens?: number | string[];
   keywords?: string[];
   summary?: string;
+  /** schema v2.1: primary relationship field */
+  connectTo?: ConnectTo[];
+  /** @deprecated legacy field, no longer emitted by API */
   relationships?: string[];
   filePath?: string;
   tableType?: string;
@@ -35,6 +39,9 @@ type RawChunk = {
   tokens?: number | string[];
   keywords?: string[];
   summary?: string;
+  /** schema v2.1: primary relationship field (camelCased from connect_to) */
+  connectTo?: ConnectTo[];
+  /** @deprecated legacy field */
   relationships?: string[];
   filePath?: string;
   tableType?: string;
@@ -207,6 +214,11 @@ function getChunkFilePath(chunkData: RawChunk): string | undefined {
 function normalizeTextChunk(chunkData: RawChunk): TextChunk {
   const metadata = getChunkMetadata(chunkData);
 
+  // schema v2.1: prefer connect_to (camelCased to connectTo after keysToCamel)
+  // Fall back to legacy relationships for backward compatibility
+  const connectTo = metadata.connectTo ?? chunkData.connectTo;
+  const relationships = metadata.relationships ?? chunkData.relationships;
+
   return {
     chunkId: chunkData.chunkId ?? '',
     type: 'text',
@@ -216,7 +228,8 @@ function normalizeTextChunk(chunkData: RawChunk): TextChunk {
     tokens: metadata.tokens ?? chunkData.tokens,
     keywords: metadata.keywords ?? chunkData.keywords,
     summary: metadata.summary ?? chunkData.summary,
-    relationships: metadata.relationships ?? chunkData.relationships,
+    ...(connectTo !== undefined && { connectTo }),
+    ...(relationships !== undefined && { relationships }),
   };
 }
 

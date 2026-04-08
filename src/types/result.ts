@@ -34,11 +34,28 @@ export interface Manifest {
   /** Original source file name */
   sourceFileName: string;
   /** Processing completion date */
-  processingDate: Date;
+  /** Processing completion date (optional: only present if emitted by the worker) */
+  processingDate?: Date;
   /** Statistics */
   statistics: Statistics;
   /** File index */
   files: FileIndex;
+}
+
+/**
+ * Chunk relationship entry (metadata.connect_to per schema v2.1)
+ */
+export interface ConnectTo {
+  /** Target chunk_id */
+  target: string;
+  /** Relationship type */
+  relation: 'embeds' | 'related';
+  /** Placeholder ref in content, e.g. '[images/a.png]' (embeds only) */
+  ref?: string;
+  /** Semantic similarity score (related only) */
+  score?: number;
+  /** Shared keywords (related only) */
+  keywords?: string[];
 }
 
 /**
@@ -68,7 +85,12 @@ export interface TextChunk extends BaseChunk {
   keywords?: string[];
   /** Generated summary */
   summary?: string;
-  /** Related chunk IDs */
+  /** Chunk relationships (schema v2.1: metadata.connect_to) */
+  connectTo?: ConnectTo[];
+  /**
+   * @deprecated Use connectTo instead. Retained for backward compatibility.
+   * Previously populated from metadata.relationships which is no longer emitted by the API.
+   */
   relationships?: string[];
 }
 

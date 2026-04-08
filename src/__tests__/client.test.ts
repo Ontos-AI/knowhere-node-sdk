@@ -274,7 +274,7 @@ describe('Knowhere Client', () => {
         smartTitleParse: true,
         summaryImage: true,
         summaryTable: true,
-        summaryText: true,
+        summaryTxt: true,
       });
 
       expect(client.jobs.create).toHaveBeenCalledWith(

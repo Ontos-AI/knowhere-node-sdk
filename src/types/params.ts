@@ -117,7 +117,7 @@ export interface ParseParams {
   /** Generate table summaries */
   summaryTable?: boolean;
   /** Generate text summaries */
-  summaryText?: boolean;
+  summaryTxt?: boolean;
   /** Custom data identifier */
   dataId?: string;
   /** Additional fragment description */
