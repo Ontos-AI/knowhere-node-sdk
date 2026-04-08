@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- [#44](https://github.com/Ontos-AI/knowhere-node-sdk/pull/44) [`74f9a79`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/74f9a794f0cdc11fa286d711710cbf9296497304) Thanks [@suguanYang](https://github.com/suguanYang)! - Rename the published SDK package to `@ontos-ai/knowhere-sdk` and move releases to a Changesets-managed release PR workflow with manual beta snapshot publishes.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -10,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.1] - 2026-02-12
 
 ### Fixed
+
 - Corrected documentation links from `https://knowhereto.ai/docs` to `https://docs.knowhereto.ai`
 - Removed references to non-existent files:
   - API.md (API reference)
@@ -19,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-02-12
 
 ### Added
+
 - Initial release
 - Core SDK functionality for Knowhere document parsing API
 - Jobs resource API with full CRUD operations
@@ -40,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full support for CommonJS and ES Modules
 
 ### Changed
+
 - Updated Node.js requirement to >=20.19.0 (for Vitest 4 compatibility)
 - Migrated from ESLint 8 to ESLint 9 with flat config format
 - Upgraded TypeScript ESLint from v7 to v8
@@ -47,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded @types/node to v25.2.3
 
 ### Infrastructure
+
 - Added package-lock.json to git for CI dependency caching
 - Configured comprehensive pre-publish checks (lint, typecheck, test, build)
 - Set up dual-format builds (CJS + ESM) with TypeScript declarations
