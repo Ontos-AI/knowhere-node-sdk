@@ -22,6 +22,33 @@ export interface FileIndex {
 }
 
 /**
+ * Processing cost details emitted by manifest v2
+ */
+export interface ProcessingCost {
+  microDollars?: number;
+  credits?: number;
+}
+
+/**
+ * Processing timing details emitted by manifest v2
+ */
+export interface ProcessingTiming {
+  startedAt?: Date;
+  completedAt?: Date;
+  durationMs?: number;
+}
+
+/**
+ * Processing metadata emitted by manifest v2
+ */
+export interface ProcessingMetadata {
+  pageCount?: number;
+  billingStatus?: string;
+  cost?: ProcessingCost;
+  timing?: ProcessingTiming;
+}
+
+/**
  * Manifest containing metadata about the parse result
  */
 export interface Manifest {
@@ -36,10 +63,12 @@ export interface Manifest {
   /** Processing completion date */
   /** Processing completion date (optional: only present if emitted by the worker) */
   processingDate?: Date;
+  /** Worker-side processing metadata emitted by manifest v2 */
+  processing?: ProcessingMetadata;
   /** Statistics */
   statistics: Statistics;
-  /** File index */
-  files: FileIndex;
+  /** Legacy file index from earlier ZIP manifests */
+  files?: FileIndex;
 }
 
 /**
@@ -70,6 +99,18 @@ export interface BaseChunk {
   content: string;
   /** Relative path in ZIP */
   path: string;
+  /** Page numbers spanned by this chunk when provided by the backend */
+  pageNums?: number[];
+}
+
+/**
+ * Minimal chunk representation emitted in chunks_slim.json
+ */
+export interface SlimChunk {
+  type: 'text' | 'image' | 'table';
+  path: string;
+  content: string;
+  summary?: string;
 }
 
 /**
@@ -79,8 +120,8 @@ export interface TextChunk extends BaseChunk {
   type: 'text';
   /** Content length */
   length: number;
-  /** Tokens or token count, depending on backend payload */
-  tokens?: number | string[];
+  /** Extracted tokens from the current backend payload */
+  tokens?: string[];
   /** Extracted keywords */
   keywords?: string[];
   /** Generated summary */
@@ -145,10 +186,18 @@ export interface ParseResult {
   manifest: Manifest;
   /** All chunks */
   chunks: Chunk[];
+  /** Minimal chunk projection from chunks_slim.json (if available) */
+  chunksSlim?: SlimChunk[];
   /** Full document as Markdown (if available) */
   fullMarkdown?: string;
   /** Document hierarchy (if available) */
   hierarchy?: unknown;
+  /** Table-of-contents hierarchy hints (if available) */
+  tocHierarchies?: unknown;
+  /** Knowledge-base CSV export (if available) */
+  kbCsv?: string;
+  /** Pre-rendered hierarchy HTML view (if available) */
+  hierarchyViewHtml?: string;
   /** Raw ZIP buffer */
   rawZip: Buffer;
 

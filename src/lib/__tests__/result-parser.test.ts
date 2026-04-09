@@ -10,7 +10,7 @@ import { join } from 'path';
 import { parseResult, verifyChecksum } from '../result-parser.js';
 import { ChecksumError, KnowhereError } from '../../errors/index.js';
 import type { HttpClient } from '../http-client.js';
-import type { Manifest, Chunk } from '../../types/result.js';
+import type { Manifest } from '../../types/result.js';
 import { createHash } from 'crypto';
 
 // Test helper: Create mock result ZIP
@@ -22,6 +22,7 @@ async function createMockResultZip(
     includeHierarchy?: boolean;
     wrapChunks?: boolean;
     useMetadata?: boolean;
+    useLegacyNumericTokens?: boolean;
   } = {},
 ): Promise<Buffer> {
   const zip = new JSZip();
@@ -59,7 +60,7 @@ async function createMockResultZip(
   zip.file('manifest.json', JSON.stringify(manifest));
 
   // Create chunks
-  const chunks: Partial<Chunk>[] = [
+  const chunks: Array<Record<string, unknown>> = [
     options.useMetadata
       ? ({
           chunkId: 'chunk-001',
@@ -73,14 +74,14 @@ async function createMockResultZip(
             summary: 'Sample text chunk',
             relationships: ['chunk-002'],
           },
-        } as Partial<Chunk>)
+        } as Record<string, unknown>)
       : {
           chunkId: 'chunk-001',
           type: 'text',
           content: 'This is sample text content for testing.',
           path: 'page-1',
           length: 250,
-          tokens: 45,
+          tokens: options.useLegacyNumericTokens ? 45 : ['token-a', 'token-b'],
           keywords: ['test', 'sample'],
           summary: 'Sample text chunk',
         },
@@ -99,7 +100,7 @@ async function createMockResultZip(
               filePath: 'images/image-001.jpg',
               summary: 'Test image',
             },
-          } as Partial<Chunk>)
+          } as Record<string, unknown>)
         : {
             chunkId: 'chunk-002',
             type: 'image',
@@ -128,7 +129,7 @@ async function createMockResultZip(
               tableType: 'data',
               summary: 'Test table',
             },
-          } as Partial<Chunk>)
+          } as Record<string, unknown>)
         : {
             chunkId: 'chunk-003',
             type: 'table',
@@ -160,6 +161,119 @@ async function createMockResultZip(
       }),
     );
   }
+
+  return await zip.generateAsync({ type: 'nodebuffer' });
+}
+
+async function createOptimizedResultZip(): Promise<Buffer> {
+  const zip = new JSZip();
+
+  zip.file(
+    'manifest.json',
+    JSON.stringify({
+      version: '2.0',
+      job_id: 'job-optimized-123',
+      source_file_name: 'optimized.pdf',
+      processing_date: '2026-04-09T06:28:02.673039Z',
+      processing: {
+        page_count: 12,
+        billing_status: 'charged',
+        cost: {
+          micro_dollars: 60000,
+          credits: 0.06,
+        },
+        timing: {
+          started_at: '2026-04-09T06:27:15.589286Z',
+          completed_at: '2026-04-09T06:28:02.621594Z',
+          duration_ms: 47032,
+        },
+      },
+      statistics: {
+        total_chunks: 3,
+        text_chunks: 1,
+        image_chunks: 1,
+        table_chunks: 1,
+        total_pages: null,
+      },
+    }),
+  );
+
+  zip.file(
+    'chunks.json',
+    JSON.stringify({
+      chunks: [
+        {
+          chunk_id: 'chunk-text-001',
+          type: 'text',
+          content: 'Text chunk with embedded resources.',
+          path: 'Default_Root/optimized.pdf-->Section 1',
+          metadata: {
+            length: 35,
+            summary: '',
+            page_nums: [1, 2],
+            tokens: ['Text', 'chunk'],
+            keywords: ['optimized'],
+            connect_to: [
+              {
+                target: 'chunk-image-001',
+                relation: 'embeds',
+                ref: '[images/image-001.jpg]',
+              },
+            ],
+          },
+        },
+        {
+          chunk_id: 'chunk-image-001',
+          type: 'image',
+          content: '[images/image-001.jpg]',
+          path: 'images/image-001.jpg',
+          metadata: {
+            length: 1,
+            summary: 'Optimized image chunk',
+            page_nums: [2],
+            file_path: 'images/image-001.jpg',
+            keywords: [],
+            tokens: [],
+          },
+        },
+        {
+          chunk_id: 'chunk-table-001',
+          type: 'table',
+          content: '<table><tr><td>Optimized</td></tr></table>',
+          path: 'tables/table-001.html',
+          metadata: {
+            length: 1,
+            summary: 'Optimized table chunk',
+            page_nums: [3],
+            file_path: 'tables/table-001.html',
+            keywords: ['optimized'],
+            tokens: [],
+          },
+        },
+      ],
+    }),
+  );
+
+  zip.file(
+    'chunks_slim.json',
+    JSON.stringify({
+      chunks: [
+        {
+          type: 'text',
+          path: 'Default_Root/optimized.pdf-->Section 1',
+          content: 'Text chunk with embedded resources.',
+          summary: '',
+        },
+      ],
+    }),
+  );
+  zip.file('full.md', '# Optimized Result\n\nBody');
+  zip.file('hierarchy.json', JSON.stringify({ Default_Root: { 'optimized.pdf': {} } }));
+  zip.file('toc_hierarchies.json', JSON.stringify([{ toc_range: [1, 3], scan_range: [1, 10] }]));
+  zip.file('kb.csv', 'chunk_id,type\nchunk-text-001,text\n');
+  zip.file('hierarchy_view.html', '<html><body>Optimized hierarchy view</body></html>');
+  zip.file('images/image-001.jpg', Buffer.from('fake-jpg-data'));
+  zip.file('tables/table-001.html', '<table><tr><td>Optimized</td></tr></table>');
 
   return await zip.generateAsync({ type: 'nodebuffer' });
 }
@@ -289,6 +403,26 @@ describe('Result Parser', () => {
       expect(result.tableChunks[0].filePath).toBe('tables/table-001.html');
       expect(result.tableChunks[0].tableType).toBe('data');
       expect(result.tableChunks[0].summary).toBe('Test table');
+    });
+
+    it('should parse text chunk tokens as string arrays from the current payload shape', async () => {
+      const mockZipBuffer = await createMockResultZip();
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.textChunks[0].tokens).toEqual(['token-a', 'token-b']);
+    });
+
+    it('should drop legacy numeric text chunk tokens instead of leaking the wrong runtime type', async () => {
+      const mockZipBuffer = await createMockResultZip({
+        useLegacyNumericTokens: true,
+      });
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.textChunks[0].tokens).toBeUndefined();
     });
 
     it('should extract image chunks with data', async () => {
@@ -492,6 +626,31 @@ describe('Result Parser', () => {
 
       expect(result.manifest.processingDate).toBeInstanceOf(Date);
     });
+
+    it('should expose optimized payload metadata and sidecar assets from the current worker ZIP', async () => {
+      const optimizedZipBuffer = await createOptimizedResultZip();
+      mockHttpClient.download.mockResolvedValue(optimizedZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.manifest.version).toBe('2.0');
+      expect(result.manifest.processing?.pageCount).toBe(12);
+      expect(result.manifest.processing?.timing?.startedAt).toBeInstanceOf(Date);
+      expect(result.textChunks[0].pageNums).toEqual([1, 2]);
+      expect(result.imageChunks[0].pageNums).toEqual([2]);
+      expect(result.tableChunks[0].pageNums).toEqual([3]);
+      expect(result.chunksSlim).toEqual([
+        {
+          type: 'text',
+          path: 'Default_Root/optimized.pdf-->Section 1',
+          content: 'Text chunk with embedded resources.',
+          summary: '',
+        },
+      ]);
+      expect(result.kbCsv).toContain('chunk_id,type');
+      expect(result.tocHierarchies).toEqual([{ tocRange: [1, 3], scanRange: [1, 10] }]);
+      expect(result.hierarchyViewHtml).toContain('Optimized hierarchy view');
+    });
   });
 
   describe('ParseResult methods', () => {
@@ -567,6 +726,39 @@ describe('Result Parser', () => {
         .then(() => true)
         .catch(() => false);
       expect(tableExists).toBe(true);
+    });
+
+    it('should save optimized sidecar result files when present', async () => {
+      const optimizedZipBuffer = await createOptimizedResultZip();
+      mockHttpClient.download.mockResolvedValue(optimizedZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      await result.save(testOutputDir);
+
+      const chunksSlimExists = await fs
+        .access(join(testOutputDir, 'chunks_slim.json'))
+        .then(() => true)
+        .catch(() => false);
+      expect(chunksSlimExists).toBe(true);
+
+      const kbCsvExists = await fs
+        .access(join(testOutputDir, 'kb.csv'))
+        .then(() => true)
+        .catch(() => false);
+      expect(kbCsvExists).toBe(true);
+
+      const tocHierarchiesExists = await fs
+        .access(join(testOutputDir, 'toc_hierarchies.json'))
+        .then(() => true)
+        .catch(() => false);
+      expect(tocHierarchiesExists).toBe(true);
+
+      const hierarchyViewExists = await fs
+        .access(join(testOutputDir, 'hierarchy_view.html'))
+        .then(() => true)
+        .catch(() => false);
+      expect(hierarchyViewExists).toBe(true);
     });
 
     it('should expose jobId property', async () => {
