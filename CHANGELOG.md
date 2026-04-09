@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- [#53](https://github.com/Ontos-AI/knowhere-node-sdk/pull/53) [`765204b`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/765204b5354cd2cdc052e532113751dbf242d324) Thanks [@suguanYang](https://github.com/suguanYang)! - Update `TextChunk.tokens` to match the current API payload shape of `string[]`, and normalize legacy numeric token values out of parsed results so the runtime contract matches the published TypeScript types.
+
 ## 0.2.0
 
 ### Minor Changes
