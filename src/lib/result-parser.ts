@@ -12,6 +12,7 @@ import type {
   TableChunk,
   Statistics,
   ConnectTo,
+  SlimChunk,
 } from '../types/result.js';
 import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
@@ -19,6 +20,7 @@ import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils
 
 type ChunkMetadata = {
   length?: number;
+  pageNums?: unknown;
   tokens?: unknown;
   keywords?: string[];
   summary?: string;
@@ -36,6 +38,7 @@ type RawChunk = {
   content?: string;
   path?: string;
   length?: number;
+  pageNums?: unknown;
   tokens?: unknown;
   keywords?: string[];
   summary?: string;
@@ -49,6 +52,7 @@ type RawChunk = {
 };
 
 type ChunkPayload = RawChunk[] | { chunks?: RawChunk[] };
+type SlimChunkPayload = SlimChunk[] | { chunks?: SlimChunk[] };
 
 /**
  * Parse result ZIP from URL
@@ -114,12 +118,44 @@ export async function parseResult(
     hierarchy = JSON.parse(hierarchyContent);
   }
 
+  let chunksSlim: SlimChunk[] | undefined;
+  const chunksSlimFile = zip.file('chunks_slim.json');
+  if (chunksSlimFile) {
+    const chunksSlimContent = await chunksSlimFile.async('string');
+    let chunksSlimData = JSON.parse(chunksSlimContent) as SlimChunkPayload;
+    chunksSlimData = keysToCamel(chunksSlimData);
+    chunksSlim = extractSlimChunks(chunksSlimData);
+  }
+
+  let tocHierarchies: unknown;
+  const tocHierarchiesFile = zip.file('toc_hierarchies.json');
+  if (tocHierarchiesFile) {
+    const tocHierarchiesContent = await tocHierarchiesFile.async('string');
+    tocHierarchies = keysToCamel(JSON.parse(tocHierarchiesContent));
+  }
+
+  let kbCsv: string | undefined;
+  const kbCsvFile = zip.file('kb.csv');
+  if (kbCsvFile) {
+    kbCsv = await kbCsvFile.async('string');
+  }
+
+  let hierarchyViewHtml: string | undefined;
+  const hierarchyViewFile = zip.file('hierarchy_view.html');
+  if (hierarchyViewFile) {
+    hierarchyViewHtml = await hierarchyViewFile.async('string');
+  }
+
   // Create result object
   const result: ParseResult = {
     manifest,
     chunks,
+    chunksSlim,
     fullMarkdown,
     hierarchy,
+    tocHierarchies,
+    kbCsv,
+    hierarchyViewHtml,
     rawZip: zipBuffer,
 
     get textChunks(): TextChunk[] {
@@ -156,6 +192,13 @@ export async function parseResult(
       // Save chunks
       await fs.writeFile(join(directory, 'chunks.json'), JSON.stringify(chunks, null, 2));
 
+      if (chunksSlim) {
+        await fs.writeFile(
+          join(directory, 'chunks_slim.json'),
+          JSON.stringify({ chunks: chunksSlim }, null, 2),
+        );
+      }
+
       // Save full markdown
       if (fullMarkdown) {
         await fs.writeFile(join(directory, 'full.md'), fullMarkdown);
@@ -164,6 +207,21 @@ export async function parseResult(
       // Save hierarchy
       if (hierarchy) {
         await fs.writeFile(join(directory, 'hierarchy.json'), JSON.stringify(hierarchy, null, 2));
+      }
+
+      if (tocHierarchies) {
+        await fs.writeFile(
+          join(directory, 'toc_hierarchies.json'),
+          JSON.stringify(tocHierarchies, null, 2),
+        );
+      }
+
+      if (kbCsv) {
+        await fs.writeFile(join(directory, 'kb.csv'), kbCsv);
+      }
+
+      if (hierarchyViewHtml) {
+        await fs.writeFile(join(directory, 'hierarchy_view.html'), hierarchyViewHtml);
       }
 
       // Save images
@@ -198,6 +256,18 @@ function extractChunks(payload: ChunkPayload): RawChunk[] {
   return [];
 }
 
+function extractSlimChunks(payload: SlimChunkPayload): SlimChunk[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload.chunks)) {
+    return payload.chunks;
+  }
+
+  return [];
+}
+
 function getChunkMetadata(chunkData: RawChunk): ChunkMetadata {
   if (!chunkData.metadata) {
     return {};
@@ -209,6 +279,15 @@ function getChunkMetadata(chunkData: RawChunk): ChunkMetadata {
 function getChunkFilePath(chunkData: RawChunk): string | undefined {
   const metadata = getChunkMetadata(chunkData);
   return chunkData.filePath ?? metadata.filePath ?? chunkData.path;
+}
+
+function normalizePageNums(pageNums: unknown): number[] | undefined {
+  if (!Array.isArray(pageNums)) {
+    return undefined;
+  }
+
+  const normalized = pageNums.filter((pageNum): pageNum is number => typeof pageNum === 'number');
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeTokens(tokens: unknown): string[] | undefined {
@@ -236,6 +315,7 @@ function normalizeTextChunk(chunkData: RawChunk): TextChunk {
     type: 'text',
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
+    pageNums: normalizePageNums(metadata.pageNums ?? chunkData.pageNums),
     length: metadata.length ?? chunkData.length ?? 0,
     tokens: normalizeTokens(metadata.tokens ?? chunkData.tokens),
     keywords: metadata.keywords ?? chunkData.keywords,
@@ -273,6 +353,7 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
       type: 'image',
       content: chunkData.content ?? '',
       path: chunkData.path ?? '',
+      pageNums: normalizePageNums(metadata.pageNums ?? chunkData.pageNums),
       length: metadata.length ?? chunkData.length ?? 0,
       filePath,
       summary: metadata.summary ?? chunkData.summary,
@@ -317,6 +398,7 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
       type: 'table',
       content: chunkData.content ?? '',
       path: chunkData.path ?? '',
+      pageNums: normalizePageNums(metadata.pageNums ?? chunkData.pageNums),
       length: metadata.length ?? chunkData.length ?? 0,
       filePath,
       tableType: metadata.tableType ?? chunkData.tableType,
