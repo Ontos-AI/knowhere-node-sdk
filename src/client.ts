@@ -6,6 +6,8 @@ import type { ParseParams } from './types/params.js';
 import type { ParseResult } from './types/result.js';
 import { HttpClient } from './lib/http-client.js';
 import { Jobs } from './resources/jobs.js';
+import { Retrieval } from './resources/retrieval.js';
+import { Documents } from './resources/documents.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
 
@@ -37,6 +39,10 @@ function isReadStream(file: ParseParams['file']): file is ReadStream {
 export class Knowhere {
   /** Jobs resource for low-level API */
   public readonly jobs: Jobs;
+  /** Retrieval resource for querying published documents */
+  public readonly retrieval: Retrieval;
+  /** Documents resource for canonical document lifecycle operations */
+  public readonly documents: Documents;
 
   private httpClient: HttpClient;
 
@@ -69,6 +75,8 @@ export class Knowhere {
 
     // Initialize resources
     this.jobs = new Jobs(this.httpClient);
+    this.retrieval = new Retrieval(this.httpClient);
+    this.documents = new Documents(this.httpClient);
   }
 
   /**
@@ -140,6 +148,8 @@ export class Knowhere {
       sourceUrl: params.url,
       fileName: resolvedFileName,
       dataId: params.dataId,
+      namespace: params.namespace,
+      documentId: params.documentId,
       parsingParams: Object.keys(parsingParams).length > 0 ? parsingParams : undefined,
       webhook,
     });

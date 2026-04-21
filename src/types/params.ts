@@ -54,6 +54,10 @@ export interface CreateJobParams {
   fileName?: string;
   /** Optional custom data identifier */
   dataId?: string;
+  /** Retrieval namespace for the canonical document */
+  namespace?: string;
+  /** Existing document identifier when updating a published document */
+  documentId?: string;
   /** Parsing configuration */
   parsingParams?: ParsingParams;
   /** Webhook configuration */
@@ -120,6 +124,10 @@ export interface ParseParams {
   summaryTxt?: boolean;
   /** Custom data identifier */
   dataId?: string;
+  /** Retrieval namespace for the canonical document */
+  namespace?: string;
+  /** Existing document identifier when updating a published document */
+  documentId?: string;
   /** Additional fragment description */
   addFragDesc?: string;
   /** Knowledge base directory */

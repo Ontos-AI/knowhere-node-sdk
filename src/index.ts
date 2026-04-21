@@ -13,6 +13,15 @@ export type {
   JobResult,
   JobStatus,
   JobError,
+  // Document types
+  Document,
+  DocumentListResponse,
+  // Retrieval types
+  RetrievalSectionExclusion,
+  RetrievalQueryParams,
+  RetrievalSource,
+  RetrievalResult,
+  RetrievalQueryResponse,
   // Parameter types
   ParsingParams,
   ParsingModel,
@@ -64,4 +73,4 @@ export {
 } from './errors/index.js';
 
 // Resources (for advanced usage)
-export { Jobs } from './resources/index.js';
+export { Jobs, Retrieval, Documents } from './resources/index.js';

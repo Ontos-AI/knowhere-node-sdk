@@ -179,6 +179,34 @@ describe('Jobs Resource', () => {
         }),
       );
     });
+
+    it('should include document scope when provided', async () => {
+      mockHttpClient.post.mockResolvedValue({
+        jobId: 'job-scoped',
+        status: 'pending',
+        sourceType: 'url',
+        namespace: 'support-center',
+        documentId: 'doc-123',
+        createdAt: new Date(),
+      });
+
+      const result = await jobs.create({
+        sourceType: 'url',
+        sourceUrl: 'https://example.com/doc.pdf',
+        namespace: 'support-center',
+        documentId: 'doc-123',
+      });
+
+      expect(result.namespace).toBe('support-center');
+      expect(result.documentId).toBe('doc-123');
+      expect(mockHttpClient.post).toHaveBeenCalledWith(
+        '/v1/jobs',
+        expect.objectContaining({
+          namespace: 'support-center',
+          documentId: 'doc-123',
+        }),
+      );
+    });
   });
 
   describe('get', () => {

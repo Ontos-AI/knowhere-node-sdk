@@ -163,6 +163,76 @@ const jobResult = await client.jobs.wait(job.jobId, {
 const result = await client.jobs.load(jobResult);
 ```
 
+### Retrieval and Document Lifecycle
+
+Published documents are queryable through the retrieval API after a job
+finishes. Persist the returned `documentId` if you need to update or archive the
+same document later.
+
+```typescript
+const job = await client.jobs.create({
+  sourceType: 'url',
+  sourceUrl: 'https://example.com/manual.pdf',
+  namespace: 'support-center',
+});
+
+const jobResult = await client.jobs.wait(job.jobId);
+console.log(jobResult.documentId);
+
+const response = await client.retrieval.query({
+  namespace: 'support-center',
+  query: 'How do I reset Bluetooth pairing?',
+  topK: 5,
+});
+
+for (const result of response.results) {
+  console.log(result.content);
+  console.log(result.score);
+  console.log(result.source.sourceFileName, result.source.sectionPath);
+}
+```
+
+Retrieval results use one canonical source object:
+
+```typescript
+result.content;
+result.chunkType;
+result.score;
+result.assetUrl;
+result.source.documentId;
+result.source.sourceFileName;
+result.source.sectionPath;
+```
+
+Use `documentId` to update or archive a document:
+
+```typescript
+const updateJob = await client.jobs.create({
+  sourceType: 'url',
+  sourceUrl: 'https://example.com/manual-v2.pdf',
+  documentId: job.documentId,
+});
+
+const documents = await client.documents.list({ namespace: 'support-center' });
+const document = await client.documents.get(job.documentId);
+const archived = await client.documents.archive(job.documentId);
+
+console.log(documents.documents.length);
+console.log(document.status);
+console.log(archived.status);
+```
+
+Follow-up queries can exclude documents or sections for one request:
+
+```typescript
+const followUp = await client.retrieval.query({
+  namespace: 'support-center',
+  query: 'battery charging',
+  excludeDocumentIds: ['doc_old'],
+  excludeSections: [{ documentId: 'doc_123', sectionPath: 'Appendix / Legal' }],
+});
+```
+
 ### Error Handling
 
 ```typescript
