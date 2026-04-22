@@ -179,6 +179,34 @@ describe('Jobs Resource', () => {
         }),
       );
     });
+
+    it('should send document scope without exposing documentId on the create response', async () => {
+      mockHttpClient.post.mockResolvedValue({
+        jobId: 'job-scoped',
+        status: 'pending',
+        sourceType: 'url',
+        namespace: 'support-center',
+        documentId: 'doc-123',
+        createdAt: new Date(),
+      });
+
+      const result = await jobs.create({
+        sourceType: 'url',
+        sourceUrl: 'https://example.com/doc.pdf',
+        namespace: 'support-center',
+        documentId: 'doc-123',
+      });
+
+      expect(result.namespace).toBe('support-center');
+      expect(Object.prototype.hasOwnProperty.call(result, 'documentId')).toBe(false);
+      expect(mockHttpClient.post).toHaveBeenCalledWith(
+        '/v1/jobs',
+        expect.objectContaining({
+          namespace: 'support-center',
+          documentId: 'doc-123',
+        }),
+      );
+    });
   });
 
   describe('get', () => {
@@ -554,6 +582,8 @@ describe('Jobs Resource', () => {
         status: 'done',
         sourceType: 'url',
         createdAt: new Date(),
+        namespace: 'support-center',
+        documentId: 'doc-123',
         resultUrl: 'https://s3.amazonaws.com/result.zip',
       };
 
@@ -584,6 +614,45 @@ describe('Jobs Resource', () => {
         'https://s3.amazonaws.com/result.zip',
         undefined,
       );
+    });
+
+    it('should expose document scope on loaded parse results', async () => {
+      mockHttpClient.get.mockResolvedValue({
+        jobId: 'job-123',
+        status: 'done',
+        sourceType: 'url',
+        createdAt: new Date(),
+        namespace: 'support-center',
+        documentId: 'doc-123',
+        resultUrl: 'https://s3.amazonaws.com/result.zip',
+        isTerminal: true,
+        isDone: true,
+        isFailed: false,
+      });
+
+      const mockParseResult = {
+        jobId: 'job-123',
+        manifest: {} as any,
+        chunks: [],
+        textChunks: [],
+        imageChunks: [],
+        tableChunks: [],
+        statistics: {
+          totalChunks: 0,
+          textChunks: 0,
+          imageChunks: 0,
+          tableChunks: 0,
+        },
+        getChunk: vi.fn(),
+        save: vi.fn(),
+      };
+
+      (parseResult as any).mockResolvedValue(mockParseResult);
+
+      const result = await jobs.load('job-123');
+
+      expect(result.namespace).toBe('support-center');
+      expect(result.documentId).toBe('doc-123');
     });
 
     it('should load result directly from result URL string', async () => {

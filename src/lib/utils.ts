@@ -1,4 +1,5 @@
 import type { JobStatus, JobResult } from '../types/job.js';
+import type { ParseResult } from '../types/result.js';
 import { TERMINAL_JOB_STATUSES } from '../constants.js';
 
 /**
@@ -148,6 +149,24 @@ export function enrichJobResult(jobResult: JobResult): JobResult {
   }
 
   return jobResult;
+}
+
+/**
+ * Attach document lifecycle scope to a loaded parse result when available.
+ */
+export function enrichParseResult(
+  parseResult: ParseResult,
+  scope: { namespace?: string; documentId?: string },
+): ParseResult {
+  if (scope.namespace !== undefined) {
+    parseResult.namespace = scope.namespace;
+  }
+
+  if (scope.documentId !== undefined) {
+    parseResult.documentId = scope.documentId;
+  }
+
+  return parseResult;
 }
 
 /**

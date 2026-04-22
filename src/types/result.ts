@@ -209,6 +209,10 @@ export interface ParseResult {
   readonly tableChunks: TableChunk[];
   /** Job ID */
   readonly jobId: string;
+  /** Effective retrieval namespace when loaded from a job result */
+  namespace?: string;
+  /** Canonical document identifier when loaded from a job result */
+  documentId?: string;
   /** Statistics */
   readonly statistics: Statistics;
 

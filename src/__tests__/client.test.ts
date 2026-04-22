@@ -30,6 +30,8 @@ describe('Knowhere Client', () => {
       const client = new Knowhere({ apiKey: 'sk_test_123' });
       expect(client).toBeDefined();
       expect(client.jobs).toBeDefined();
+      expect(client.retrieval).toBeDefined();
+      expect(client.documents).toBeDefined();
     });
 
     it('should initialize with environment variable API key', () => {
@@ -117,6 +119,8 @@ describe('Knowhere Client', () => {
         jobId: 'job-123',
         status: 'done',
         sourceType: 'url',
+        namespace: 'support-center',
+        documentId: 'doc-123',
         createdAt: new Date('2024-01-15T10:00:00Z'),
         resultUrl: 'https://s3.amazonaws.com/result.zip',
         isTerminal: true,
@@ -188,6 +192,8 @@ describe('Knowhere Client', () => {
           sourceUrl: 'https://example.com/doc.pdf',
         }),
       );
+      expect(result.namespace).toBe('support-center');
+      expect(result.documentId).toBe('doc-123');
     });
 
     it('should parse document from file path', async () => {
@@ -382,6 +388,21 @@ describe('Knowhere Client', () => {
       expect(client.jobs.create).toHaveBeenCalledWith(
         expect.objectContaining({
           dataId: 'custom-id-123',
+        }),
+      );
+    });
+
+    it('should pass document scope to job creation', async () => {
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        namespace: 'support-center',
+        documentId: 'doc-123',
+      });
+
+      expect(client.jobs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          namespace: 'support-center',
+          documentId: 'doc-123',
         }),
       );
     });

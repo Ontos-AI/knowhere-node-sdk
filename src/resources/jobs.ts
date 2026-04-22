@@ -5,7 +5,7 @@ import type { ParseResult } from '../types/result.js';
 import { uploadFile } from '../lib/upload.js';
 import { pollJobStatus } from '../lib/polling.js';
 import { parseResult } from '../lib/result-parser.js';
-import { enrichJobResult } from '../lib/utils.js';
+import { enrichJobResult, enrichParseResult } from '../lib/utils.js';
 import { InvalidStateError, NotFoundError } from '../errors/index.js';
 
 /**
@@ -18,7 +18,11 @@ export class Jobs extends BaseResource {
    * Create a new parsing job
    */
   async create(params: CreateJobParams): Promise<Job> {
-    const job = await this.httpClient.post<Job>('/v1/jobs', params);
+    const job = await this.httpClient.post<Job & { documentId?: string | null }>(
+      '/v1/jobs',
+      params,
+    );
+    delete job.documentId;
     if (job.uploadUrl) {
       this.pendingUploadJobs.set(job.jobId, job);
     }
@@ -80,7 +84,8 @@ export class Jobs extends BaseResource {
     }
 
     // Parse result
-    return parseResult(this.httpClient, jobResult.resultUrl, options);
+    const result = await parseResult(this.httpClient, jobResult.resultUrl, options);
+    return enrichParseResult(result, jobResult);
   }
 
   private isHttpUrl(value: string): boolean {
