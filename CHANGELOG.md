@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- [#63](https://github.com/Ontos-AI/knowhere-node-sdk/pull/63) [`a4120b0`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/a4120b0f356ab35f46333a74c27464e359e7314c) Thanks [@suguanYang](https://github.com/suguanYang)! - Add retrieval query and canonical document lifecycle resources, including the new retrieval response contract with `result.source.*`.
+
 ## 0.2.1
 
 ### Patch Changes
