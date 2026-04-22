@@ -17,6 +17,8 @@ export type {
   Document,
   DocumentListResponse,
   // Retrieval types
+  RetrievalChannel,
+  RetrievalFilterMode,
   RetrievalSectionExclusion,
   RetrievalQueryParams,
   RetrievalSource,

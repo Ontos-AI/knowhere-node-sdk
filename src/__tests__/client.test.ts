@@ -119,6 +119,8 @@ describe('Knowhere Client', () => {
         jobId: 'job-123',
         status: 'done',
         sourceType: 'url',
+        namespace: 'support-center',
+        documentId: 'doc-123',
         createdAt: new Date('2024-01-15T10:00:00Z'),
         resultUrl: 'https://s3.amazonaws.com/result.zip',
         isTerminal: true,
@@ -190,6 +192,8 @@ describe('Knowhere Client', () => {
           sourceUrl: 'https://example.com/doc.pdf',
         }),
       );
+      expect(result.namespace).toBe('support-center');
+      expect(result.documentId).toBe('doc-123');
     });
 
     it('should parse document from file path', async () => {

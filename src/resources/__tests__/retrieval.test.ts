@@ -19,6 +19,7 @@ describe('Retrieval Resource', () => {
     mockHttpClient.post.mockResolvedValue({
       namespace: 'support-center',
       query: 'refund policy',
+      routerUsed: 'discovery+agent',
       results: [
         {
           content: 'Annual plans may be refunded within 30 days.',
@@ -37,6 +38,14 @@ describe('Retrieval Resource', () => {
       namespace: 'support-center',
       query: 'refund policy',
       topK: 5,
+      dataType: 6,
+      signalPaths: ['Billing', 'Refunds'],
+      filterMode: 'keep',
+      channels: ['path', 'term'],
+      channelWeights: { path: 2, term: 0.5 },
+      rerank: true,
+      threshold: 0.2,
+      internalRecallK: 25,
       excludeDocumentIds: ['doc-old'],
       excludeSections: [
         {
@@ -50,6 +59,14 @@ describe('Retrieval Resource', () => {
       namespace: 'support-center',
       query: 'refund policy',
       topK: 5,
+      dataType: 6,
+      signalPaths: ['Billing', 'Refunds'],
+      filterMode: 'keep',
+      channels: ['path', 'term'],
+      channelWeights: { path: 2, term: 0.5 },
+      rerank: true,
+      threshold: 0.2,
+      internalRecallK: 25,
       excludeDocumentIds: ['doc-old'],
       excludeSections: [
         {
@@ -58,6 +75,7 @@ describe('Retrieval Resource', () => {
         },
       ],
     });
+    expect(response.routerUsed).toBe('discovery+agent');
     expect(response.results[0]).toEqual({
       content: 'Annual plans may be refunded within 30 days.',
       chunkType: 'text',

@@ -582,6 +582,8 @@ describe('Jobs Resource', () => {
         status: 'done',
         sourceType: 'url',
         createdAt: new Date(),
+        namespace: 'support-center',
+        documentId: 'doc-123',
         resultUrl: 'https://s3.amazonaws.com/result.zip',
       };
 
@@ -612,6 +614,45 @@ describe('Jobs Resource', () => {
         'https://s3.amazonaws.com/result.zip',
         undefined,
       );
+    });
+
+    it('should expose document scope on loaded parse results', async () => {
+      mockHttpClient.get.mockResolvedValue({
+        jobId: 'job-123',
+        status: 'done',
+        sourceType: 'url',
+        createdAt: new Date(),
+        namespace: 'support-center',
+        documentId: 'doc-123',
+        resultUrl: 'https://s3.amazonaws.com/result.zip',
+        isTerminal: true,
+        isDone: true,
+        isFailed: false,
+      });
+
+      const mockParseResult = {
+        jobId: 'job-123',
+        manifest: {} as any,
+        chunks: [],
+        textChunks: [],
+        imageChunks: [],
+        tableChunks: [],
+        statistics: {
+          totalChunks: 0,
+          textChunks: 0,
+          imageChunks: 0,
+          tableChunks: 0,
+        },
+        getChunk: vi.fn(),
+        save: vi.fn(),
+      };
+
+      (parseResult as any).mockResolvedValue(mockParseResult);
+
+      const result = await jobs.load('job-123');
+
+      expect(result.namespace).toBe('support-center');
+      expect(result.documentId).toBe('doc-123');
     });
 
     it('should load result directly from result URL string', async () => {

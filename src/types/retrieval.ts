@@ -9,6 +9,16 @@ export interface RetrievalSectionExclusion {
 }
 
 /**
+ * Supported retrieval channel names.
+ */
+export type RetrievalChannel = 'path' | 'content' | 'term';
+
+/**
+ * Path filtering mode for retrieval queries.
+ */
+export type RetrievalFilterMode = 'delete' | 'keep';
+
+/**
  * Retrieval query parameters.
  */
 export interface RetrievalQueryParams {
@@ -18,6 +28,22 @@ export interface RetrievalQueryParams {
   namespace?: string;
   /** Maximum number of results to return */
   topK?: number;
+  /** Chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table */
+  dataType?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** Path keywords for include/exclude filtering */
+  signalPaths?: string[];
+  /** Signal path filter mode */
+  filterMode?: RetrievalFilterMode;
+  /** Retrieval channels to run. Defaults to all channels when omitted. */
+  channels?: RetrievalChannel[];
+  /** Per-channel weight overrides for reciprocal-rank fusion */
+  channelWeights?: Partial<Record<RetrievalChannel, number>>;
+  /** Enable LLM reranking after channel fusion */
+  rerank?: boolean;
+  /** Minimum retrieval score threshold after fusion */
+  threshold?: number;
+  /** Override the internal per-channel recall count */
+  internalRecallK?: number;
   /** Documents to exclude for this request only */
   excludeDocumentIds?: string[];
   /** Document sections to exclude for this request only */
@@ -60,6 +86,8 @@ export interface RetrievalQueryResponse {
   namespace: string;
   /** Echoed query text */
   query: string;
+  /** Retrieval router path used by the API for this query */
+  routerUsed?: string;
   /** Ranked retrieval results */
   results: RetrievalResult[];
 }

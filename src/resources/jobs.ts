@@ -5,7 +5,7 @@ import type { ParseResult } from '../types/result.js';
 import { uploadFile } from '../lib/upload.js';
 import { pollJobStatus } from '../lib/polling.js';
 import { parseResult } from '../lib/result-parser.js';
-import { enrichJobResult } from '../lib/utils.js';
+import { enrichJobResult, enrichParseResult } from '../lib/utils.js';
 import { InvalidStateError, NotFoundError } from '../errors/index.js';
 
 /**
@@ -80,7 +80,8 @@ export class Jobs extends BaseResource {
     }
 
     // Parse result
-    return parseResult(this.httpClient, jobResult.resultUrl, options);
+    const result = await parseResult(this.httpClient, jobResult.resultUrl, options);
+    return enrichParseResult(result, jobResult);
   }
 
   private isHttpUrl(value: string): boolean {

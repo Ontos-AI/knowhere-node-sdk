@@ -177,7 +177,13 @@ const job = await client.jobs.create({
 });
 
 const jobResult = await client.jobs.wait(job.jobId);
-console.log(jobResult.documentId);
+const documentId = jobResult.documentId;
+
+if (!documentId) {
+  throw new Error('Expected documentId after successful publication.');
+}
+
+console.log(documentId);
 
 const response = await client.retrieval.query({
   namespace: 'support-center',
@@ -210,12 +216,12 @@ Use `documentId` to update or archive a document:
 const updateJob = await client.jobs.create({
   sourceType: 'url',
   sourceUrl: 'https://example.com/manual-v2.pdf',
-  documentId: job.documentId,
+  documentId,
 });
 
 const documents = await client.documents.list({ namespace: 'support-center' });
-const document = await client.documents.get(job.documentId);
-const archived = await client.documents.archive(job.documentId);
+const document = await client.documents.get(documentId);
+const archived = await client.documents.archive(documentId);
 
 console.log(documents.documents.length);
 console.log(document.status);

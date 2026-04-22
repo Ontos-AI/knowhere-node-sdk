@@ -10,6 +10,7 @@ import { Retrieval } from './resources/retrieval.js';
 import { Documents } from './resources/documents.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
+import { enrichParseResult } from './lib/utils.js';
 
 function inferFileName(file: ParseParams['file'], explicitFileName?: string): string | undefined {
   if (explicitFileName) {
@@ -176,7 +177,7 @@ export class Knowhere {
       verifyChecksum: params.verifyChecksum,
     });
 
-    return result;
+    return enrichParseResult(result, jobResult);
   }
 }
 
