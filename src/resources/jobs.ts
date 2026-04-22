@@ -18,7 +18,10 @@ export class Jobs extends BaseResource {
    * Create a new parsing job
    */
   async create(params: CreateJobParams): Promise<Job> {
-    const job = await this.httpClient.post<Job & { documentId?: string | null }>('/v1/jobs', params);
+    const job = await this.httpClient.post<Job & { documentId?: string | null }>(
+      '/v1/jobs',
+      params,
+    );
     delete job.documentId;
     if (job.uploadUrl) {
       this.pendingUploadJobs.set(job.jobId, job);
