@@ -166,8 +166,9 @@ const result = await client.jobs.load(jobResult);
 ### Retrieval and Document Lifecycle
 
 Published documents are queryable through the retrieval API after a job
-finishes. Persist the returned `documentId` if you need to update or archive the
-same document later.
+finishes. `client.jobs.create(...)` does not return a usable `documentId`;
+persist `jobResult.documentId` after publication if you need to update or
+archive the same document later.
 
 ```typescript
 const job = await client.jobs.create({

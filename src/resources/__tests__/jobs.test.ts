@@ -180,7 +180,7 @@ describe('Jobs Resource', () => {
       );
     });
 
-    it('should include document scope when provided', async () => {
+    it('should send document scope without exposing documentId on the create response', async () => {
       mockHttpClient.post.mockResolvedValue({
         jobId: 'job-scoped',
         status: 'pending',
@@ -198,7 +198,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(result.namespace).toBe('support-center');
-      expect(result.documentId).toBe('doc-123');
+      expect(Object.prototype.hasOwnProperty.call(result, 'documentId')).toBe(false);
       expect(mockHttpClient.post).toHaveBeenCalledWith(
         '/v1/jobs',
         expect.objectContaining({
