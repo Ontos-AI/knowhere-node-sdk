@@ -60,7 +60,7 @@
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test:ci && npm run build"
   },
   "dependencies": {
-    "axios": "^1.6.0",
+    "axios": "^1.15.2",
     "jszip": "^3.10.0"
   },
   "devDependencies": {
