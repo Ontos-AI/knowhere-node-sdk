@@ -104,7 +104,9 @@ const result = await client.parse({
 });
 ```
 
-`fileName` 会在 `file` 是本地文件路径时自动推断；当 `file` 是 `Buffer`、`Uint8Array` 或不带路径信息的流时必须显式提供。
+`fileName` is inferred automatically when `file` is a local file path. When
+`file` is a `Buffer`, `Uint8Array`, or a stream without path metadata, provide
+`fileName` explicitly.
 
 ### Advanced Options
 
@@ -290,7 +292,7 @@ Check out the [examples](./examples) directory for more usage examples:
 
 ```bash
 # Install dependencies
-npm install
+npm ci
 
 # Run tests
 npm test
@@ -315,6 +317,12 @@ npm run build
 
 See [docs/release-workflow.md](./docs/release-workflow.md) for the
 Changesets-based stable and beta release process.
+
+## Community
+
+- Contributing guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Security policy: [SECURITY.md](./SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
 
 ## License
 

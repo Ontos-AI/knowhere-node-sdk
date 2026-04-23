@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Knowhere documentation
+    url: https://docs.knowhereto.ai
+    about: Check the public docs before opening a support issue.
+  - name: Security report
+    url: mailto:team@knowhereto.ai?subject=Security%20report%20for%20knowhere-node-sdk
+    about: Report vulnerabilities privately by email.
