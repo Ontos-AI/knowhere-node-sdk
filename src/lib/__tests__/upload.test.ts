@@ -8,7 +8,6 @@ import { createReadStream, promises as fs } from 'fs';
 import { join } from 'path';
 import { uploadFile } from '../upload.js';
 import { KnowhereError } from '../../errors/index.js';
-import type { HttpClient } from '../http-client.js';
 
 describe('File Upload', () => {
   let mockHttpClient: any;
@@ -18,7 +17,7 @@ describe('File Upload', () => {
   beforeEach(async () => {
     mockHttpClient = {
       upload: vi.fn().mockResolvedValue(undefined),
-    } as unknown as HttpClient;
+    };
 
     // Create test fixtures directory and sample file
     await fs.mkdir(testFixturesDir, { recursive: true });

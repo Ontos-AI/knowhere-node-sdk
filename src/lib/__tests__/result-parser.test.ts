@@ -9,7 +9,6 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { parseResult, verifyChecksum } from '../result-parser.js';
 import { ChecksumError, KnowhereError } from '../../errors/index.js';
-import type { HttpClient } from '../http-client.js';
 import type { Manifest } from '../../types/result.js';
 import { createHash } from 'crypto';
 
@@ -62,7 +61,7 @@ async function createMockResultZip(
   // Create chunks
   const chunks: Array<Record<string, unknown>> = [
     options.useMetadata
-      ? ({
+      ? {
           chunkId: 'chunk-001',
           type: 'text',
           content: 'This is sample text content for testing.',
@@ -74,7 +73,7 @@ async function createMockResultZip(
             summary: 'Sample text chunk',
             relationships: ['chunk-002'],
           },
-        } as Record<string, unknown>)
+        }
       : {
           chunkId: 'chunk-001',
           type: 'text',
@@ -90,7 +89,7 @@ async function createMockResultZip(
   if (options.includeImages) {
     chunks.push(
       options.useMetadata
-        ? ({
+        ? {
             chunkId: 'chunk-002',
             type: 'image',
             content: 'Image description',
@@ -100,7 +99,7 @@ async function createMockResultZip(
               filePath: 'images/image-001.jpg',
               summary: 'Test image',
             },
-          } as Record<string, unknown>)
+          }
         : {
             chunkId: 'chunk-002',
             type: 'image',
@@ -118,7 +117,7 @@ async function createMockResultZip(
   if (options.includeTables) {
     chunks.push(
       options.useMetadata
-        ? ({
+        ? {
             chunkId: 'chunk-003',
             type: 'table',
             content: 'Table content as text',
@@ -129,7 +128,7 @@ async function createMockResultZip(
               tableType: 'data',
               summary: 'Test table',
             },
-          } as Record<string, unknown>)
+          }
         : {
             chunkId: 'chunk-003',
             type: 'table',
@@ -321,7 +320,7 @@ describe('Result Parser', () => {
   beforeEach(() => {
     mockHttpClient = {
       download: vi.fn(),
-    } as unknown as HttpClient;
+    };
 
     vi.clearAllMocks();
   });
