@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { describe, it, expect } from 'vitest';
 import {
   KnowhereError,
@@ -77,7 +75,7 @@ describe('Error Classes', () => {
     });
 
     it('should use default message', () => {
-      const error = new PollingTimeoutError(undefined as any, 300000);
+      const error = new PollingTimeoutError(undefined, 300000);
       expect(error.message).toBe('Polling timed out');
     });
   });
