@@ -34,8 +34,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Dependabot dev-tooling bumps should validate cleanly without forcing
+      # a package release changeset.
       - name: Require changeset for main-bound pull requests
-        if: github.event_name == 'pull_request' && github.base_ref == 'main' && !startsWith(github.head_ref, 'changeset-release/') && matrix.node-version == 22
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.base_ref == 'main' &&
+          !startsWith(github.head_ref, 'changeset-release/') &&
+          matrix.node-version == 22 &&
+          !(
+            startsWith(github.head_ref, 'dependabot/') &&
+            startsWith(github.event.pull_request.title, 'chore(deps-dev):')
+          )
         run: npm run release:check-changeset -- origin/${{ github.base_ref }}
 
       - name: Check formatting
