@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- [#66](https://github.com/Ontos-AI/knowhere-node-sdk/pull/66) [`9dc15d3`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/9dc15d349e70c6a560c07004d14f11492e8ded87) Thanks [@suguanYang](https://github.com/suguanYang)! - Harden the public open-source surface for the Node SDK by adding community
+  files and templates, cleaning the README wording, and updating the runtime
+  Axios dependency to a non-vulnerable range.
+
+- [#47](https://github.com/Ontos-AI/knowhere-node-sdk/pull/47) [`1171b1a`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/1171b1af9e74f85d481a0dab3b91a3daba53fed9) Thanks [@dependabot](https://github.com/apps/dependabot)! - Refresh the ESLint 10 toolchain and add the explicit flat-config dependency
+  needed by the new lint setup.
+
+- [#68](https://github.com/Ontos-AI/knowhere-node-sdk/pull/68) [`c0e047c`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/c0e047cb73866a12b26ba8623ce2b1736f747193) Thanks [@suguanYang](https://github.com/suguanYang)! - Refresh the TypeScript ESLint toolchain and update tests to satisfy the
+  stricter lint rules introduced by the newer release.
+
 ## 0.3.0
 
 ### Minor Changes
