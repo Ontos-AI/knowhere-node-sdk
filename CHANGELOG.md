@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- [#69](https://github.com/Ontos-AI/knowhere-node-sdk/pull/69) [`ff5810e`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/ff5810e2b586e1e699618819870703b8528f025f) Thanks [@suguanYang](https://github.com/suguanYang)! - Add document chunk list and get helpers for current document revisions.
+
 ## 0.3.1
 
 ### Patch Changes
