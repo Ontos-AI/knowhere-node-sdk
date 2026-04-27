@@ -63,6 +63,109 @@ describe('Documents Resource', () => {
     expect(document.documentId).toBe('doc-123');
   });
 
+  it('should list current document chunks with optional filters', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobResultId: 'result-123',
+      jobId: 'job-123',
+      chunks: [
+        {
+          id: 'dchk-123',
+          chunkId: 'parser-chunk-1',
+          chunkType: 'table',
+          content: '| A | B |',
+          sectionId: 'sec-123',
+          sectionPath: 'Chapter 1',
+          sourceChunkPath: 'Chapter 1/Table',
+          filePath: 'tables/table-1.html',
+          sortOrder: 0,
+          metadata: { summary: 'Table' },
+          assetUrl: 'https://assets.example/table-1.html',
+          createdAt: new Date('2026-04-27T04:00:00Z'),
+        },
+      ],
+      pagination: {
+        page: 2,
+        pageSize: 10,
+        total: 11,
+        totalPages: 2,
+      },
+    });
+
+    const response = await documents.listChunks('doc-123', {
+      page: 2,
+      pageSize: 10,
+      chunkType: 'table',
+      includeAssetUrls: true,
+    });
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', {
+      params: {
+        page: 2,
+        page_size: 10,
+        chunk_type: 'table',
+        include_asset_urls: true,
+      },
+    });
+    expect(response.chunks[0]?.id).toBe('dchk-123');
+    expect(response.pagination.totalPages).toBe(2);
+  });
+
+  it('should omit chunk query params when defaults are used', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobResultId: null,
+      jobId: null,
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    await documents.listChunks('doc-123');
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', undefined);
+  });
+
+  it('should get one document chunk and request asset URLs only when needed', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobResultId: 'result-123',
+      jobId: 'job-123',
+      chunk: {
+        id: 'dchk-123',
+        chunkId: 'parser-chunk-1',
+        chunkType: 'image',
+        content: 'Figure summary',
+        sectionId: 'sec-123',
+        sectionPath: 'Chapter 1',
+        sourceChunkPath: 'Chapter 1/Figure',
+        filePath: 'images/figure-1.png',
+        sortOrder: 0,
+        metadata: { summary: 'Figure' },
+        assetUrl: 'https://assets.example/figure-1.png',
+        createdAt: new Date('2026-04-27T04:00:00Z'),
+      },
+    });
+
+    const response = await documents.getChunk('doc-123', 'dchk-123', {
+      includeAssetUrls: true,
+    });
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks/dchk-123', {
+      params: {
+        include_asset_urls: true,
+      },
+    });
+    expect(response.chunk.assetUrl).toBe('https://assets.example/figure-1.png');
+  });
+
   it('should archive using the canonical route', async () => {
     mockHttpClient.post.mockResolvedValue({
       documentId: 'doc-123',

@@ -15,6 +15,13 @@ export type {
   JobError,
   // Document types
   Document,
+  DocumentChunk,
+  DocumentChunkGetParams,
+  DocumentChunkListParams,
+  DocumentChunkListResponse,
+  DocumentChunkPagination,
+  DocumentChunkResponse,
+  DocumentChunkType,
   DocumentListResponse,
   // Retrieval types
   RetrievalChannel,
