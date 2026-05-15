@@ -60,7 +60,6 @@ export interface Manifest {
   dataId?: string;
   /** Original source file name */
   sourceFileName: string;
-  /** Processing completion date */
   /** Processing completion date (optional: only present if emitted by the worker) */
   processingDate?: Date;
   /** Worker-side processing metadata emitted by manifest v2 */
@@ -69,6 +68,13 @@ export interface Manifest {
   statistics: Statistics;
   /** Legacy file index from earlier ZIP manifests */
   files?: FileIndex;
+  /**
+   * Document hierarchy emitted by the current worker.
+   *
+   * The key remains all-caps at runtime because ``keysToCamel()`` only
+   * transforms snake_case keys.
+   */
+  HIERARCHY?: Record<string, unknown>;
 }
 
 /**
@@ -88,6 +94,63 @@ export interface ConnectTo {
 }
 
 /**
+ * A single image or table resource entry in ``doc_nav.json``.
+ */
+export interface DocNavResourceItem {
+  path: string;
+  summary?: string;
+}
+
+/**
+ * Image and table resource summaries from ``doc_nav.json``.
+ */
+export interface DocNavResources {
+  images: DocNavResourceItem[];
+  tables: DocNavResourceItem[];
+}
+
+/**
+ * A document section in the ``doc_nav.json`` navigation tree.
+ */
+export interface DocNavSection {
+  title: string;
+  path: string;
+  level: number;
+  summary?: string;
+  chunkCount: number;
+  children: DocNavSection[];
+}
+
+/**
+ * Top-level document navigation structure from ``doc_nav.json``.
+ */
+export interface DocNav {
+  sections: DocNavSection[];
+  resources?: DocNavResources;
+}
+
+/**
+ * Known worker metadata fields for a chunk.
+ *
+ * All fields are optional.  Unknown fields added by future worker
+ * versions are accessible through the index signature.
+ */
+export interface ChunkMetadata {
+  length?: number;
+  pageNums?: number[];
+  tokens?: string[];
+  keywords?: string[];
+  summary?: string;
+  connectTo?: ConnectTo[];
+  filePath?: string;
+  originalName?: string;
+  tableType?: string;
+  documentTopSummary?: string;
+  /** Allow forward-compatible access to unknown fields. */
+  [key: string]: unknown;
+}
+
+/**
  * Base chunk properties
  */
 export interface BaseChunk {
@@ -99,18 +162,17 @@ export interface BaseChunk {
   content: string;
   /** Relative path in ZIP */
   path: string;
-  /** Page numbers spanned by this chunk when provided by the backend */
-  pageNums?: number[];
+  /** Worker metadata for this chunk */
+  metadata: ChunkMetadata;
 }
 
 /**
- * Minimal chunk representation emitted in chunks_slim.json
+ * Minimal chunk representation emitted in chunks_slim.json (legacy).
  */
 export interface SlimChunk {
   type: 'text' | 'image' | 'table';
   path: string;
   content: string;
-  summary?: string;
 }
 
 /**
@@ -118,21 +180,6 @@ export interface SlimChunk {
  */
 export interface TextChunk extends BaseChunk {
   type: 'text';
-  /** Content length */
-  length: number;
-  /** Extracted tokens from the current backend payload */
-  tokens?: string[];
-  /** Extracted keywords */
-  keywords?: string[];
-  /** Generated summary */
-  summary?: string;
-  /** Chunk relationships (schema v2.1: metadata.connect_to) */
-  connectTo?: ConnectTo[];
-  /**
-   * @deprecated Use connectTo instead. Retained for backward compatibility.
-   * Previously populated from metadata.relationships which is no longer emitted by the API.
-   */
-  relationships?: string[];
 }
 
 /**
@@ -140,12 +187,8 @@ export interface TextChunk extends BaseChunk {
  */
 export interface ImageChunk extends BaseChunk {
   type: 'image';
-  /** Content length */
-  length: number;
   /** Relative file path in ZIP */
   filePath: string;
-  /** Generated summary */
-  summary?: string;
   /** Image data buffer */
   data: Buffer;
   /** Image format (derived from file extension) */
@@ -159,14 +202,8 @@ export interface ImageChunk extends BaseChunk {
  */
 export interface TableChunk extends BaseChunk {
   type: 'table';
-  /** Content length */
-  length: number;
   /** Relative file path in ZIP */
   filePath: string;
-  /** Table type */
-  tableType?: string;
-  /** Generated summary */
-  summary?: string;
   /** HTML representation */
   html: string;
   /** Save table HTML to disk */
@@ -186,20 +223,24 @@ export interface ParseResult {
   manifest: Manifest;
   /** All chunks */
   chunks: Chunk[];
-  /** Minimal chunk projection from chunks_slim.json (if available) */
-  chunksSlim?: SlimChunk[];
+  /** Document navigation tree from doc_nav.json (current worker output) */
+  docNav?: DocNav;
   /** Full document as Markdown (if available) */
   fullMarkdown?: string;
-  /** Document hierarchy (if available) */
-  hierarchy?: unknown;
-  /** Table-of-contents hierarchy hints (if available) */
-  tocHierarchies?: unknown;
-  /** Knowledge-base CSV export (if available) */
-  kbCsv?: string;
-  /** Pre-rendered hierarchy HTML view (if available) */
-  hierarchyViewHtml?: string;
   /** Raw ZIP buffer */
   rawZip: Buffer;
+
+  // Legacy — the current worker no longer emits these files
+  /** @deprecated Current worker no longer emits chunks_slim.json */
+  chunksSlim?: SlimChunk[];
+  /** @deprecated Current worker no longer emits hierarchy.json */
+  hierarchy?: unknown;
+  /** @deprecated Table-of-contents hierarchy hints (if available) */
+  tocHierarchies?: unknown;
+  /** @deprecated Knowledge-base CSV export (if available) */
+  kbCsv?: string;
+  /** @deprecated Pre-rendered hierarchy HTML view (if available) */
+  hierarchyViewHtml?: string;
 
   /** Text chunks only */
   readonly textChunks: TextChunk[];

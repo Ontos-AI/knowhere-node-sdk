@@ -104,4 +104,71 @@ describe('Retrieval Resource', () => {
       query: 'refund policy',
     });
   });
+
+  it('should send useAgentic parameter', async () => {
+    mockHttpClient.post.mockResolvedValue({
+      namespace: 'default',
+      query: 'test',
+      routerUsed: 'workflow_single_step',
+      answerText: 'Generated answer',
+      referencedChunks: [{ chunkId: 'chunk-1', assetUrl: 'https://example.com' }],
+      results: [],
+    });
+
+    await retrieval.query({ query: 'test', useAgentic: true });
+
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
+      query: 'test',
+      useAgentic: true,
+    });
+  });
+
+  it('should handle agentic response fields', async () => {
+    mockHttpClient.post.mockResolvedValue({
+      namespace: 'default',
+      query: 'test',
+      routerUsed: 'workflow_single_step',
+      answerText: 'LLM-generated answer',
+      referencedChunks: [
+        { chunkId: 'chunk-1', documentId: 'doc-1', assetUrl: 'https://example.com/1' },
+      ],
+      results: [],
+    });
+
+    const response = await retrieval.query({ query: 'test', useAgentic: true });
+
+    expect(response.answerText).toBe('LLM-generated answer');
+    expect(response.referencedChunks).toHaveLength(1);
+    expect(response.referencedChunks?.[0]?.chunkId).toBe('chunk-1');
+  });
+
+  it('should handle legacy response without agentic fields', async () => {
+    mockHttpClient.post.mockResolvedValue({
+      namespace: 'default',
+      query: 'refund policy',
+      results: [],
+    });
+
+    const response = await retrieval.query({ query: 'refund policy' });
+
+    expect(response.answerText).toBeUndefined();
+    expect(response.referencedChunks).toBeUndefined();
+    expect(response.results).toEqual([]);
+  });
+
+  it('should handle null answerText', async () => {
+    mockHttpClient.post.mockResolvedValue({
+      namespace: 'default',
+      query: 'test',
+      routerUsed: 'small_kb_all',
+      answerText: null,
+      referencedChunks: [],
+      results: [],
+    });
+
+    const response = await retrieval.query({ query: 'test', useAgentic: true });
+
+    expect(response.answerText).toBeNull();
+    expect(response.referencedChunks).toEqual([]);
+  });
 });

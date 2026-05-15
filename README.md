@@ -47,11 +47,11 @@ console.log(`Found ${result.textChunks.length} text chunks`);
 console.log(`Found ${result.imageChunks.length} images`);
 console.log(`Found ${result.tableChunks.length} tables`);
 
-// Work with chunks
+// Work with chunks — worker metadata is in chunk.metadata
 result.textChunks.forEach((chunk) => {
   console.log(chunk.content);
-  console.log(chunk.keywords);
-  console.log(chunk.summary);
+  console.log(chunk.metadata.keywords);
+  console.log(chunk.metadata.summary);
 });
 
 // Save results to disk
@@ -188,11 +188,16 @@ if (!documentId) {
 
 console.log(documentId);
 
+// Agentic mode (LLM navigation + answer synthesis)
 const response = await client.retrieval.query({
   namespace: 'support-center',
   query: 'How do I reset Bluetooth pairing?',
   topK: 5,
+  useAgentic: true,
 });
+
+console.log(response.answerText);         // LLM-generated answer
+console.log(response.referencedChunks);   // cited evidence chunks
 
 for (const result of response.results) {
   console.log(result.content);
