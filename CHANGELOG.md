@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- [#82](https://github.com/Ontos-AI/knowhere-node-sdk/pull/82) [`c454a57`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/c454a57e50a15e6b48de8d7ad4d4dc10909d7cdc) Thanks [@suguanYang](https://github.com/suguanYang)! - Sync SDK with current worker ZIP contract and agentic retrieval API:
+  - Add `DocNav` types for `doc_nav.json` with section tree and resource summaries
+  - Expose `HIERARCHY` field on manifest from current worker output
+  - Add `documentTopSummary` to all chunk types
+  - Mark legacy fields (`tableType`, `chunksSlim`, `hierarchy`) as deprecated
+  - Add `useAgentic` parameter to retrieval query
+  - Add `answerText` and `referencedChunks` to retrieval response
+
 ## 0.4.0
 
 ### Minor Changes
