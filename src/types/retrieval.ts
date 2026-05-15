@@ -28,6 +28,14 @@ export interface RetrievalQueryParams {
   namespace?: string;
   /** Maximum number of results to return */
   topK?: number;
+  /**
+   * Force retrieval mode.
+   *
+   * - ``true``  — agentic (LLM navigation + answer synthesis)
+   * - ``false`` — legacy 3-channel RRF only
+   * - ``undefined`` / omitted — server default
+   */
+  useAgentic?: boolean;
   /** Chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table */
   dataType?: 1 | 2 | 3 | 4 | 5 | 6;
   /** Path keywords for include/exclude filtering */
@@ -88,6 +96,10 @@ export interface RetrievalQueryResponse {
   query: string;
   /** Retrieval router path used by the API for this query */
   routerUsed?: string;
+  /** LLM-generated natural-language answer (agentic mode only) */
+  answerText?: string | null;
+  /** Cited evidence chunks with asset URLs (agentic mode only) */
+  referencedChunks?: Array<Record<string, unknown>> | null;
   /** Ranked retrieval results */
   results: RetrievalResult[];
 }

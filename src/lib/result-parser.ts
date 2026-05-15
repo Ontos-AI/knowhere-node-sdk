@@ -11,44 +11,20 @@ import type {
   ImageChunk,
   TableChunk,
   Statistics,
-  ConnectTo,
   SlimChunk,
+  DocNav,
 } from '../types/result.js';
 import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
 import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils.js';
-
-type ChunkMetadata = {
-  length?: number;
-  pageNums?: unknown;
-  tokens?: unknown;
-  keywords?: string[];
-  summary?: string;
-  /** schema v2.1: primary relationship field */
-  connectTo?: ConnectTo[];
-  /** @deprecated legacy field, no longer emitted by API */
-  relationships?: string[];
-  filePath?: string;
-  tableType?: string;
-};
 
 type RawChunk = {
   chunkId?: string;
   type?: string;
   content?: string;
   path?: string;
-  length?: number;
-  pageNums?: unknown;
-  tokens?: unknown;
-  keywords?: string[];
-  summary?: string;
-  /** schema v2.1: primary relationship field (camelCased from connect_to) */
-  connectTo?: ConnectTo[];
-  /** @deprecated legacy field */
-  relationships?: string[];
   filePath?: string;
-  tableType?: string;
-  metadata?: ChunkMetadata;
+  metadata?: Record<string, unknown>;
 };
 
 type ChunkPayload = RawChunk[] | { chunks?: RawChunk[] };
@@ -111,6 +87,15 @@ export async function parseResult(
     fullMarkdown = await fullMdFile.async('string');
   }
 
+  // DocNav (current worker output)
+  let docNav: DocNav | undefined;
+  const docNavFile = zip.file('doc_nav.json');
+  if (docNavFile) {
+    const docNavContent = await docNavFile.async('string');
+    const rawDocNav: unknown = JSON.parse(docNavContent);
+    docNav = keysToCamel<DocNav>(rawDocNav);
+  }
+
   let hierarchy: unknown;
   const hierarchyFile = zip.file('hierarchy.json');
   if (hierarchyFile) {
@@ -150,13 +135,15 @@ export async function parseResult(
   const result: ParseResult = {
     manifest,
     chunks,
-    chunksSlim,
+    docNav,
     fullMarkdown,
+    rawZip: zipBuffer,
+    // Legacy
+    chunksSlim,
     hierarchy,
     tocHierarchies,
     kbCsv,
     hierarchyViewHtml,
-    rawZip: zipBuffer,
 
     get textChunks(): TextChunk[] {
       return chunks.filter((c): c is TextChunk => c.type === 'text');
@@ -188,6 +175,11 @@ export async function parseResult(
 
       // Save manifest
       await fs.writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+      // Save doc_nav
+      if (docNav) {
+        await fs.writeFile(join(directory, 'doc_nav.json'), JSON.stringify(docNav, null, 2));
+      }
 
       // Save chunks
       await fs.writeFile(join(directory, 'chunks.json'), JSON.stringify(chunks, null, 2));
@@ -268,70 +260,27 @@ function extractSlimChunks(payload: SlimChunkPayload): SlimChunk[] {
   return [];
 }
 
-function getChunkMetadata(chunkData: RawChunk): ChunkMetadata {
-  if (!chunkData.metadata) {
-    return {};
-  }
-
-  return chunkData.metadata;
-}
-
 function getChunkFilePath(chunkData: RawChunk): string | undefined {
-  const metadata = getChunkMetadata(chunkData);
-  return chunkData.filePath ?? metadata.filePath ?? chunkData.path;
+  const metadata = chunkData.metadata;
+  return chunkData.filePath ?? (metadata?.filePath as string | undefined) ?? chunkData.path;
 }
 
-function normalizePageNums(pageNums: unknown): number[] | undefined {
-  if (!Array.isArray(pageNums)) {
-    return undefined;
-  }
-
-  const normalized = pageNums.filter((pageNum): pageNum is number => typeof pageNum === 'number');
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeTokens(tokens: unknown): string[] | undefined {
-  if (!Array.isArray(tokens)) {
-    return undefined;
-  }
-
-  if (!tokens.every((token) => typeof token === 'string')) {
-    return undefined;
-  }
-
-  return tokens;
-}
-
-function normalizeTextChunk(chunkData: RawChunk): TextChunk {
-  const metadata = getChunkMetadata(chunkData);
-
-  // schema v2.1: prefer connect_to (camelCased to connectTo after keysToCamel)
-  // Fall back to legacy relationships for backward compatibility
-  const connectTo = metadata.connectTo ?? chunkData.connectTo;
-  const relationships = metadata.relationships ?? chunkData.relationships;
-
+function buildTextChunk(chunkData: RawChunk): TextChunk {
   return {
     chunkId: chunkData.chunkId ?? '',
     type: 'text',
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
-    pageNums: normalizePageNums(metadata.pageNums ?? chunkData.pageNums),
-    length: metadata.length ?? chunkData.length ?? 0,
-    tokens: normalizeTokens(metadata.tokens ?? chunkData.tokens),
-    keywords: metadata.keywords ?? chunkData.keywords,
-    summary: metadata.summary ?? chunkData.summary,
-    ...(connectTo !== undefined && { connectTo }),
-    ...(relationships !== undefined && { relationships }),
+    metadata: chunkData.metadata ?? {},
   };
 }
 
 async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
   if (chunkData.type === 'text') {
-    return normalizeTextChunk(chunkData);
+    return buildTextChunk(chunkData);
   }
 
   if (chunkData.type === 'image') {
-    const metadata = getChunkMetadata(chunkData);
     const filePath = getChunkFilePath(chunkData);
 
     if (!filePath) {
@@ -353,11 +302,9 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
       type: 'image',
       content: chunkData.content ?? '',
       path: chunkData.path ?? '',
-      pageNums: normalizePageNums(metadata.pageNums ?? chunkData.pageNums),
-      length: metadata.length ?? chunkData.length ?? 0,
       filePath,
-      summary: metadata.summary ?? chunkData.summary,
       data: imageBuffer,
+      metadata: chunkData.metadata ?? {},
 
       get format(): string {
         return getFileExtension(this.filePath);
@@ -376,7 +323,6 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
   }
 
   if (chunkData.type === 'table') {
-    const metadata = getChunkMetadata(chunkData);
     const filePath = getChunkFilePath(chunkData);
 
     if (!filePath) {
@@ -398,12 +344,9 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
       type: 'table',
       content: chunkData.content ?? '',
       path: chunkData.path ?? '',
-      pageNums: normalizePageNums(metadata.pageNums ?? chunkData.pageNums),
-      length: metadata.length ?? chunkData.length ?? 0,
       filePath,
-      tableType: metadata.tableType ?? chunkData.tableType,
-      summary: metadata.summary ?? chunkData.summary,
       html,
+      metadata: chunkData.metadata ?? {},
 
       async save(directory: string): Promise<string> {
         const outputPath = join(directory, sanitizePath(this.filePath));
@@ -417,7 +360,7 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
     return enrichedChunk;
   }
 
-  return normalizeTextChunk(chunkData);
+  return buildTextChunk(chunkData);
 }
 
 /**

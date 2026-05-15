@@ -383,7 +383,7 @@ describe('Result Parser', () => {
       expect(result.chunks[0].chunkId).toBe('chunk-001');
     });
 
-    it('should extract chunk metadata fields from nested metadata', async () => {
+    it('should extract chunk file paths from nested metadata', async () => {
       const mockZipBuffer = await createMockResultZip({
         includeImages: true,
         includeTables: true,
@@ -394,34 +394,8 @@ describe('Result Parser', () => {
 
       const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
-      expect(result.textChunks[0].summary).toBe('Sample text chunk');
-      expect(result.textChunks[0].tokens).toEqual(['token-a', 'token-b']);
-      expect(result.textChunks[0].relationships).toEqual(['chunk-002']);
       expect(result.imageChunks[0].filePath).toBe('images/image-001.jpg');
-      expect(result.imageChunks[0].summary).toBe('Test image');
       expect(result.tableChunks[0].filePath).toBe('tables/table-001.html');
-      expect(result.tableChunks[0].tableType).toBe('data');
-      expect(result.tableChunks[0].summary).toBe('Test table');
-    });
-
-    it('should parse text chunk tokens as string arrays from the current payload shape', async () => {
-      const mockZipBuffer = await createMockResultZip();
-      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
-
-      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
-
-      expect(result.textChunks[0].tokens).toEqual(['token-a', 'token-b']);
-    });
-
-    it('should drop legacy numeric text chunk tokens instead of leaking the wrong runtime type', async () => {
-      const mockZipBuffer = await createMockResultZip({
-        useLegacyNumericTokens: true,
-      });
-      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
-
-      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
-
-      expect(result.textChunks[0].tokens).toBeUndefined();
     });
 
     it('should extract image chunks with data', async () => {
@@ -635,17 +609,10 @@ describe('Result Parser', () => {
       expect(result.manifest.version).toBe('2.0');
       expect(result.manifest.processing?.pageCount).toBe(12);
       expect(result.manifest.processing?.timing?.startedAt).toBeInstanceOf(Date);
-      expect(result.textChunks[0].pageNums).toEqual([1, 2]);
-      expect(result.imageChunks[0].pageNums).toEqual([2]);
-      expect(result.tableChunks[0].pageNums).toEqual([3]);
-      expect(result.chunksSlim).toEqual([
-        {
-          type: 'text',
-          path: 'Default_Root/optimized.pdf-->Section 1',
-          content: 'Text chunk with embedded resources.',
-          summary: '',
-        },
-      ]);
+      expect(result.chunksSlim).toBeDefined();
+      expect(result.chunksSlim!.length).toBe(1);
+      expect(result.chunksSlim![0].type).toBe('text');
+      expect(result.chunksSlim![0].content).toBe('Text chunk with embedded resources.');
       expect(result.kbCsv).toContain('chunk_id,type');
       expect(result.tocHierarchies).toEqual([{ tocRange: [1, 3], scanRange: [1, 10] }]);
       expect(result.hierarchyViewHtml).toContain('Optimized hierarchy view');
@@ -873,6 +840,192 @@ describe('Result Parser', () => {
 
       const content = await fs.readFile(tablePath, 'utf-8');
       expect(content).toContain('<table>');
+    });
+  });
+
+  describe('Current worker contract (doc_nav, HIERARCHY)', () => {
+    async function createCurrentContractZip(): Promise<Buffer> {
+      const zip = new JSZip();
+
+      zip.file(
+        'manifest.json',
+        JSON.stringify({
+          version: '2.0',
+          job_id: 'job-current-123',
+          source_file_name: 'current.pdf',
+          processing_date: '2026-05-01T00:00:00Z',
+          HIERARCHY: {
+            Default_Root: {
+              'current.pdf': {
+                sections: ['Introduction', 'Methods'],
+              },
+            },
+          },
+          statistics: {
+            total_chunks: 2,
+            text_chunks: 1,
+            image_chunks: 1,
+            table_chunks: 0,
+            total_pages: null,
+          },
+        }),
+      );
+
+      zip.file(
+        'chunks.json',
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'text-with-dts',
+              type: 'text',
+              content: 'Section overview.',
+              path: 'Default_Root/current.pdf-->Introduction',
+              metadata: {
+                length: 15,
+                summary: 'Intro text',
+                page_nums: [1],
+                tokens: ['overview'],
+                keywords: [],
+              },
+            },
+            {
+              chunk_id: 'image-with-dts',
+              type: 'image',
+              content: '[images/diagram.png]',
+              path: 'images/diagram.png',
+              metadata: {
+                length: 1,
+                summary: 'Architecture diagram',
+                page_nums: [2],
+                file_path: 'images/diagram.png',
+              },
+            },
+          ],
+        }),
+      );
+
+      zip.file(
+        'doc_nav.json',
+        JSON.stringify({
+          sections: [
+            {
+              title: 'Introduction',
+              path: 'Default_Root/current.pdf-->Introduction',
+              level: 1,
+              summary: 'Overview of the topic',
+              chunk_count: 2,
+              children: [
+                {
+                  title: 'Background',
+                  path: 'Default_Root/current.pdf-->Introduction-->Background',
+                  level: 2,
+                  summary: 'Historical context',
+                  chunk_count: 1,
+                  children: [],
+                },
+              ],
+            },
+          ],
+          resources: {
+            images: [{ path: 'images/diagram.png', summary: 'Architecture overview' }],
+            tables: [],
+          },
+        }),
+      );
+
+      zip.file('images/diagram.png', Buffer.from('fake-png-data'));
+      zip.file('full.md', '# Current Result\n\nBody');
+
+      return await zip.generateAsync({ type: 'nodebuffer' });
+    }
+
+    it('should parse doc_nav.json', async () => {
+      const zipBuffer = await createCurrentContractZip();
+      mockHttpClient.download.mockResolvedValue(zipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.docNav).toBeDefined();
+      expect(result.docNav?.sections).toHaveLength(1);
+      expect(result.docNav?.sections[0].title).toBe('Introduction');
+      expect(result.docNav?.sections[0].level).toBe(1);
+      expect(result.docNav?.sections[0].chunkCount).toBe(2);
+      expect(result.docNav?.sections[0].children).toHaveLength(1);
+      expect(result.docNav?.sections[0].children[0].title).toBe('Background');
+      expect(result.docNav?.resources?.images).toHaveLength(1);
+      expect(result.docNav?.resources?.images[0].path).toBe('images/diagram.png');
+    });
+
+    it('should leave docNav undefined when doc_nav.json is missing', async () => {
+      const mockZipBuffer = await createMockResultZip();
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.docNav).toBeUndefined();
+    });
+
+    it('should write doc_nav.json in save()', async () => {
+      const zipBuffer = await createCurrentContractZip();
+      mockHttpClient.download.mockResolvedValue(zipBuffer);
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      await result.save(testOutputDir);
+
+      const docNavExists = await fs
+        .access(join(testOutputDir, 'doc_nav.json'))
+        .then(() => true)
+        .catch(() => false);
+      expect(docNavExists).toBe(true);
+    });
+
+    it('should expose manifest HIERARCHY field', async () => {
+      const zipBuffer = await createCurrentContractZip();
+      mockHttpClient.download.mockResolvedValue(zipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.manifest.HIERARCHY).toBeDefined();
+      expect(result.manifest.HIERARCHY?.Default_Root).toBeDefined();
+    });
+
+    it('should parse successfully without chunks_slim.json', async () => {
+      const mockZipBuffer = await createMockResultZip({
+        includeImages: true,
+        includeTables: true,
+        useMetadata: true,
+        wrapChunks: true,
+      });
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.chunksSlim).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+    });
+
+    it('should expose raw metadata on chunks', async () => {
+      const mockZipBuffer = await createMockResultZip({
+        useMetadata: true,
+        wrapChunks: true,
+      });
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.textChunks[0].metadata).toBeDefined();
+      expect(result.textChunks[0].metadata.length).toBe(250);
+      expect(result.textChunks[0].metadata.tokens).toEqual(['token-a', 'token-b']);
+    });
+
+    it('should parse successfully without hierarchy.json', async () => {
+      const mockZipBuffer = await createMockResultZip();
+      mockHttpClient.download.mockResolvedValue(mockZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.hierarchy).toBeUndefined();
+      expect(result.manifest).toBeDefined();
     });
   });
 
