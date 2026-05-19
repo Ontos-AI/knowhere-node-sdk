@@ -100,6 +100,12 @@ export interface RetrievalQueryResponse {
   answerText?: string | null;
   /** Cited evidence chunks with asset URLs (agentic mode only) */
   referencedChunks?: Array<Record<string, unknown>> | null;
+  /** Tree-structured evidence text rendered by the agentic navigator */
+  evidenceText?: string | null;
+  /** Reason why the agentic run stopped (e.g. answer_done, not_found) */
+  stopReason?: string | null;
+  /** Semantic failure reason when the agentic evidence is insufficient */
+  failureReason?: string | null;
   /** Ranked retrieval results */
   results: RetrievalResult[];
 }
