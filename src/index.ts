@@ -30,6 +30,7 @@ export type {
   RetrievalQueryParams,
   RetrievalSource,
   RetrievalResult,
+  RetrievalReferencedChunk,
   RetrievalQueryResponse,
   // Parameter types
   ParsingParams,

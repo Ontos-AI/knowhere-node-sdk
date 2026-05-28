@@ -198,6 +198,9 @@ const response = await client.retrieval.query({
 
 console.log(response.answerText);         // LLM-generated answer
 console.log(response.referencedChunks);   // cited evidence chunks
+console.log(response.evidenceText);       // rendered evidence context, when returned
+console.log(response.stopReason);         // agentic termination reason, when returned
+console.log(response.failureReason);      // no-answer reason, when returned
 
 for (const result of response.results) {
   console.log(result.content);
@@ -216,6 +219,20 @@ result.assetUrl;
 result.source.documentId;
 result.source.sourceFileName;
 result.source.sectionPath;
+```
+
+Agentic references expose the current retrieval citation fields:
+
+```typescript
+const reference = response.referencedChunks[0];
+
+reference.chunkId;
+reference.documentId;
+reference.chunkType;
+reference.sectionPath;
+reference.filePath;
+reference.jobId;
+reference.assetUrl;
 ```
 
 Use `documentId` to update or archive a document:

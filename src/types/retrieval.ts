@@ -63,11 +63,11 @@ export interface RetrievalQueryParams {
  */
 export interface RetrievalSource {
   /** Stable document identifier */
-  documentId?: string;
+  documentId?: string | null;
   /** Original source file name */
-  sourceFileName?: string;
+  sourceFileName?: string | null;
   /** Human-readable section path */
-  sectionPath?: string;
+  sectionPath?: string | null;
 }
 
 /**
@@ -87,6 +87,26 @@ export interface RetrievalResult {
 }
 
 /**
+ * Cited evidence chunk returned by agentic retrieval.
+ */
+export interface RetrievalReferencedChunk {
+  /** Parser-provided chunk identifier */
+  chunkId: string;
+  /** Stable document identifier */
+  documentId: string;
+  /** Chunk type, for example text, image, or table */
+  chunkType: string;
+  /** Human-readable section path */
+  sectionPath: string;
+  /** Generated artifact file path for media chunks */
+  filePath?: string | null;
+  /** Published job identifier for the referenced chunk */
+  jobId?: string | null;
+  /** Presigned asset URL for media chunks when available */
+  assetUrl?: string | null;
+}
+
+/**
  * Response from POST /v1/retrieval/query.
  */
 export interface RetrievalQueryResponse {
@@ -95,11 +115,17 @@ export interface RetrievalQueryResponse {
   /** Echoed query text */
   query: string;
   /** Retrieval router path used by the API for this query */
-  routerUsed?: string;
-  /** LLM-generated natural-language answer (agentic mode only) */
-  answerText?: string | null;
-  /** Cited evidence chunks with asset URLs (agentic mode only) */
-  referencedChunks?: Array<Record<string, unknown>> | null;
+  routerUsed: string;
+  /** LLM-generated natural-language answer, or null when no answer was produced */
+  answerText: string | null;
+  /** Cited evidence chunks with asset URLs when available */
+  referencedChunks: RetrievalReferencedChunk[];
+  /** Rendered evidence context used by agentic answer synthesis */
+  evidenceText?: string;
+  /** Agentic termination reason when provided by the API */
+  stopReason?: string;
+  /** Semantic failure reason when no answer could be produced */
+  failureReason?: string;
   /** Ranked retrieval results */
   results: RetrievalResult[];
 }

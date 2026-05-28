@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Retrieval } from '../retrieval.js';
 import type { HttpClient } from '../../lib/http-client.js';
+import type { RetrievalQueryResponse, RetrievalReferencedChunk } from '../../types/retrieval.js';
 
 describe('Retrieval Resource', () => {
   let retrieval: Retrieval;
@@ -20,6 +21,8 @@ describe('Retrieval Resource', () => {
       namespace: 'support-center',
       query: 'refund policy',
       routerUsed: 'discovery+agent',
+      answerText: null,
+      referencedChunks: [],
       results: [
         {
           content: 'Annual plans may be refunded within 30 days.',
@@ -95,6 +98,9 @@ describe('Retrieval Resource', () => {
     mockHttpClient.post.mockResolvedValue({
       namespace: 'default',
       query: 'refund policy',
+      routerUsed: 'small_corpus_all',
+      answerText: null,
+      referencedChunks: [],
       results: [],
     });
 
@@ -111,7 +117,17 @@ describe('Retrieval Resource', () => {
       query: 'test',
       routerUsed: 'workflow_single_step',
       answerText: 'Generated answer',
-      referencedChunks: [{ chunkId: 'chunk-1', assetUrl: 'https://example.com' }],
+      referencedChunks: [
+        {
+          chunkId: 'chunk-1',
+          documentId: 'doc-1',
+          chunkType: 'image',
+          sectionPath: 'Images',
+          filePath: 'images/chunk-1.png',
+          jobId: 'job-1',
+          assetUrl: 'https://example.com',
+        },
+      ],
       results: [],
     });
 
@@ -129,30 +145,50 @@ describe('Retrieval Resource', () => {
       query: 'test',
       routerUsed: 'workflow_single_step',
       answerText: 'LLM-generated answer',
+      evidenceText: 'Rendered retrieval evidence',
+      stopReason: 'answer_done',
+      failureReason: 'insufficient evidence',
       referencedChunks: [
-        { chunkId: 'chunk-1', documentId: 'doc-1', assetUrl: 'https://example.com/1' },
+        {
+          chunkId: 'chunk-1',
+          documentId: 'doc-1',
+          chunkType: 'text',
+          sectionPath: 'Root',
+          filePath: null,
+          jobId: 'job-1',
+          assetUrl: 'https://example.com/1',
+        },
       ],
       results: [],
     });
 
     const response = await retrieval.query({ query: 'test', useAgentic: true });
+    const typedResponse: RetrievalQueryResponse = response;
+    const referencedChunk: RetrievalReferencedChunk | undefined = response.referencedChunks[0];
 
-    expect(response.answerText).toBe('LLM-generated answer');
+    expect(typedResponse.answerText).toBe('LLM-generated answer');
+    expect(response.evidenceText).toBe('Rendered retrieval evidence');
+    expect(response.stopReason).toBe('answer_done');
+    expect(response.failureReason).toBe('insufficient evidence');
     expect(response.referencedChunks).toHaveLength(1);
-    expect(response.referencedChunks?.[0]?.chunkId).toBe('chunk-1');
+    expect(referencedChunk?.chunkId).toBe('chunk-1');
+    expect(referencedChunk?.filePath).toBeNull();
   });
 
   it('should handle legacy response without agentic fields', async () => {
     mockHttpClient.post.mockResolvedValue({
       namespace: 'default',
       query: 'refund policy',
+      routerUsed: 'small_corpus_all',
+      answerText: null,
+      referencedChunks: [],
       results: [],
     });
 
     const response = await retrieval.query({ query: 'refund policy' });
 
-    expect(response.answerText).toBeUndefined();
-    expect(response.referencedChunks).toBeUndefined();
+    expect(response.answerText).toBeNull();
+    expect(response.referencedChunks).toEqual([]);
     expect(response.results).toEqual([]);
   });
 
