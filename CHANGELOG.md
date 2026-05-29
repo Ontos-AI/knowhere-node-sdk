@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- [#85](https://github.com/Ontos-AI/knowhere-node-sdk/pull/85) [`25b8c30`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/25b8c303c0e0fb19965c45c0ca83651eb46d7e3c) Thanks [@suguanYang](https://github.com/suguanYang)! - Sync retrieval response types with the current API contract, including evidence text, stop/failure reasons, and typed referenced chunks.
+
 ## 0.5.0
 
 ### Minor Changes
