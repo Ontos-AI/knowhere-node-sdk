@@ -148,6 +148,10 @@ describe('Retrieval Resource', () => {
       evidenceText: 'Rendered retrieval evidence',
       stopReason: 'answer_done',
       failureReason: 'insufficient evidence',
+      decisionTrace: [
+        { phase: 'discovery', action: 'select_documents', selected: ['doc-1'] },
+        { phase: 'terminal', action: 'complete', stopReason: 'answer_done', failureReason: 'insufficient evidence' },
+      ],
       referencedChunks: [
         {
           chunkId: 'chunk-1',
@@ -173,6 +177,9 @@ describe('Retrieval Resource', () => {
     expect(response.referencedChunks).toHaveLength(1);
     expect(referencedChunk?.chunkId).toBe('chunk-1');
     expect(referencedChunk?.filePath).toBeNull();
+    expect(response.decisionTrace).toHaveLength(2);
+    expect(response.decisionTrace![0]).toHaveProperty('phase', 'discovery');
+    expect(response.decisionTrace![1]).toHaveProperty('phase', 'terminal');
   });
 
   it('should handle legacy response without agentic fields', async () => {
@@ -190,6 +197,7 @@ describe('Retrieval Resource', () => {
     expect(response.answerText).toBeNull();
     expect(response.referencedChunks).toEqual([]);
     expect(response.results).toEqual([]);
+    expect(response.decisionTrace).toBeUndefined();
   });
 
   it('should handle null answerText', async () => {
