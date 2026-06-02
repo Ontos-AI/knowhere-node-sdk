@@ -125,14 +125,15 @@ export interface RetrievalQueryResponse {
   answerText: string | null;
   /** Cited evidence chunks with asset URLs when available */
   referencedChunks: RetrievalReferencedChunk[];
-  /** Rendered evidence context used by agentic answer synthesis */
-  evidenceText?: string;
-  /** Agentic termination reason when provided by the API */
-  stopReason?: string;
-  /** Semantic failure reason when no answer could be produced */
-  failureReason?: string;
+  /** Tree-structured evidence text rendered by the agentic navigator */
+  evidenceText?: string | null;
+  /** Reason why the agentic run stopped (e.g. answer_done, not_found) */
+  stopReason?: string | null;
+  /** Semantic failure reason when the agentic evidence is insufficient */
+  failureReason?: string | null;
   /** Per-step navigation decisions from agentic retrieval, including terminal stop/failure */
   decisionTrace?: Record<string, unknown>[];
+
   /** Ranked retrieval results */
   results: RetrievalResult[];
 }
