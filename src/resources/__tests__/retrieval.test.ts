@@ -150,7 +150,12 @@ describe('Retrieval Resource', () => {
       failureReason: 'insufficient evidence',
       decisionTrace: [
         { phase: 'discovery', action: 'select_documents', selected: ['doc-1'] },
-        { phase: 'terminal', action: 'complete', stopReason: 'answer_done', failureReason: 'insufficient evidence' },
+        {
+          phase: 'terminal',
+          action: 'complete',
+          stopReason: 'answer_done',
+          failureReason: 'insufficient evidence',
+        },
       ],
       referencedChunks: [
         {
