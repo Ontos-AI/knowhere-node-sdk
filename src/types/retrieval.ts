@@ -78,8 +78,8 @@ export interface RetrievalResult {
   content: string;
   /** Chunk type, for example text, image, or table */
   chunkType: string;
-  /** Retrieval score returned by the API */
-  score: number;
+  /** Retrieval score returned by the API. Null when no score is available (agentic navigation-only results). */
+  score: number | null;
   /** Presigned asset URL for media chunks when available */
   assetUrl?: string;
   /** Source reference for this result */
@@ -108,6 +108,11 @@ export interface RetrievalReferencedChunk {
 
 /**
  * Response from POST /v1/retrieval/query.
+ *
+ * Three PRIMARY output fields for downstream agent consumption:
+ * - `evidenceText`: hierarchical evidence tree for LLM context
+ * - `decisionTrace`: per-step navigation decisions (includes stop/failure)
+ * - `referencedChunks`: structured chunk citations for follow-up queries
  */
 export interface RetrievalQueryResponse {
   /** Namespace searched by the API */
@@ -126,6 +131,8 @@ export interface RetrievalQueryResponse {
   stopReason?: string;
   /** Semantic failure reason when no answer could be produced */
   failureReason?: string;
+  /** Per-step navigation decisions from agentic retrieval, including terminal stop/failure */
+  decisionTrace?: Record<string, unknown>[];
   /** Ranked retrieval results */
   results: RetrievalResult[];
 }
