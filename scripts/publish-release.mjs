@@ -10,8 +10,7 @@ if (version.includes('-')) {
 }
 
 if (!releaseUtils.hasPublishedVersion(packageName, version)) {
-  // npm provenance is disabled while this repository is private.
-  // Re-enable `--provenance` when the source repository becomes public.
+  // Keep the publish command plain so npm can use trusted publishing when configured.
   releaseUtils.runCommand('npm', ['publish', '--access', 'public']);
 } else {
   console.log(`${packageName}@${version} is already on npm, skipping npm publish`);
