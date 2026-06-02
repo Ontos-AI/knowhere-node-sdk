@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- [#84](https://github.com/Ontos-AI/knowhere-node-sdk/pull/84) [`448e026`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/448e026090c42a12741cdf0f656deb5ec49fe419) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Add agentic context fields (evidenceText, stopReason, failureReason) to RetrievalQueryResponse
+
+### Patch Changes
+
+- [#90](https://github.com/Ontos-AI/knowhere-node-sdk/pull/90) [`1d62d1c`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/1d62d1c31fbb32b265fc5694a43b16ab689d61c1) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Make `RetrievalResult.score` nullable (`number | null`) to align with the updated API contract.
+
+  The agentic retrieval route now returns `null` for `score` on chunks found
+  only through KG navigation (no BM25 discovery score available). Consumers
+  should treat `null` as "no score available" rather than assuming high relevance.
+
 ## 0.5.1
 
 ### Patch Changes
