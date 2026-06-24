@@ -39,8 +39,8 @@ the SDK local knowledge cache by default.
 - `knowhere_get_document_outline`: inspect a cached document outline.
 - `knowhere_read_chunks`: read exact chunks from a cached result.
 - `knowhere_grep_chunks`: run local literal or regex grep over cached chunks.
-- `knowhere_search`: search cached chunks locally, or delegate to remote
-  Knowhere retrieval with `useRemote: true`.
+- `knowhere_search`: search published documents through the Knowhere API
+  retrieval query.
 
 ## Package Boundary
 

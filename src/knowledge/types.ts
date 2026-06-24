@@ -160,7 +160,6 @@ export interface KnowledgeSearchParams {
   namespace?: string;
   topK?: number;
   localDocumentIds?: string[];
-  useRemote?: boolean;
   useAgentic?: boolean;
 }
 

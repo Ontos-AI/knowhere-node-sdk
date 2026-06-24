@@ -241,56 +241,6 @@ export class Knowledge {
   }
 
   async search(params: KnowledgeSearchParams): Promise<KnowledgeSearchResponse> {
-    if (params.useRemote) {
-      return this.searchRemote(params);
-    }
-
-    const documents = await this.resolveSearchDocuments(params.localDocumentIds);
-    const topK = clampLimit(params.topK, 10, 50);
-    const queryTerms = tokenizeQuery(params.query);
-    const results: KnowledgeSearchResult[] = [];
-
-    for (const document of documents) {
-      const { result } = await this.store.loadResult(document.localDocumentId);
-      for (const chunk of indexChunks(result)) {
-        const score = scoreChunk(chunk, queryTerms);
-        if (score > 0) {
-          results.push({
-            localDocumentId: document.localDocumentId,
-            documentId: document.documentId,
-            chunkId: chunk.chunkId,
-            chunkType: chunk.chunkType,
-            content: chunk.content,
-            score,
-            sectionPath: chunk.sectionPath,
-            sourceFileName: document.sourceFileName,
-          });
-        }
-      }
-    }
-
-    results.sort((left, right) => (right.score ?? 0) - (left.score ?? 0));
-    const selectedResults = results.slice(0, topK);
-    return {
-      namespace: params.namespace,
-      query: params.query,
-      evidenceText: selectedResults
-        .map((result) => `[${result.sourceFileName} / ${result.sectionPath}]\n${result.content}`)
-        .join('\n\n'),
-      references: selectedResults.map((result) => ({
-        localDocumentId: result.localDocumentId,
-        documentId: result.documentId,
-        chunkId: result.chunkId,
-        sectionPath: result.sectionPath,
-        chunkType: result.chunkType,
-        score: result.score,
-      })),
-      results: selectedResults,
-      rawResponse: selectedResults,
-    };
-  }
-
-  private async searchRemote(params: KnowledgeSearchParams): Promise<KnowledgeSearchResponse> {
     const localDocuments = await this.resolveSearchDocuments(params.localDocumentIds);
     const rawResponse = await this.client.retrieval.query({
       query: params.query,
@@ -340,32 +290,6 @@ export class Knowledge {
     const requested = new Set(localDocumentIds);
     return documents.filter((document) => requested.has(document.localDocumentId));
   }
-}
-
-function tokenizeQuery(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}_]+/u)
-    .map((term) => term.trim())
-    .filter(Boolean);
-}
-
-function scoreChunk(chunk: IndexedKnowledgeChunk, queryTerms: string[]): number {
-  if (queryTerms.length === 0) {
-    return 0;
-  }
-
-  const haystack =
-    `${chunk.sectionPath}\n${chunk.content}\n${JSON.stringify(chunk.metadata)}`.toLowerCase();
-  return queryTerms.reduce((score, term) => {
-    let count = 0;
-    let index = haystack.indexOf(term);
-    while (index >= 0) {
-      count += 1;
-      index = haystack.indexOf(term, index + term.length);
-    }
-    return score + count;
-  }, 0);
 }
 
 function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {

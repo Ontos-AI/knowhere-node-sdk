@@ -256,13 +256,12 @@ export async function createKnowhereMcpServer(
     'knowhere_search',
     {
       description:
-        'Search cached local parse results. By default this is local lexical search; set useRemote=true to delegate to Knowhere retrieval.',
+        'Search published Knowhere documents with the Knowhere API retrieval query. localDocumentIds only map returned server document IDs back to local cache IDs when available.',
       inputSchema: {
         query: z.string(),
         namespace: z.string().optional(),
         topK: z.number().int().positive().optional(),
         localDocumentIds: z.array(z.string()).optional(),
-        useRemote: z.boolean().optional(),
         useAgentic: z.boolean().optional(),
       },
       outputSchema: objectOutputSchema,

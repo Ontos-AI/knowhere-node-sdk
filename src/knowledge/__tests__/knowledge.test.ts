@@ -229,23 +229,41 @@ describe('Knowledge', () => {
     });
   });
 
-  it('should search locally without calling remote retrieval', async () => {
-    const knowledge = await createKnowledgeWithCachedResult();
+  it('should search through Knowhere API retrieval', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, retrievalQuery } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+    await knowledge.parse({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
 
     const response = await knowledge.search({
       query: 'margin',
+      namespace: 'support-center',
       localDocumentIds: ['local-report'],
       topK: 2,
+      useAgentic: true,
     });
 
+    expect(retrievalQuery).toHaveBeenCalledWith({
+      query: 'margin',
+      namespace: 'support-center',
+      topK: 2,
+      useAgentic: true,
+    });
     expect(response.results).toHaveLength(1);
     expect(response.results[0]).toMatchObject({
       localDocumentId: 'local-report',
-      chunkId: 'chunk-margin',
+      documentId: 'doc-1',
       sectionPath: 'Revenue',
-      score: 2,
+      score: 0.42,
     });
-    expect(response.references[0]?.chunkId).toBe('chunk-margin');
+    expect(response.references[0]).toMatchObject({
+      localDocumentId: 'local-report',
+      documentId: 'doc-1',
+      chunkId: 'chunk-margin',
+    });
   });
 
   it('should reload local documents from expanded result files', async () => {
@@ -307,6 +325,7 @@ function createClient(parseResult: ParseResult): {
   startParse: ReturnType<typeof vi.fn>;
   jobsGet: ReturnType<typeof vi.fn>;
   jobsLoad: ReturnType<typeof vi.fn>;
+  retrievalQuery: ReturnType<typeof vi.fn>;
 } {
   const parse = vi.fn().mockResolvedValue(parseResult);
   let startedJobCount = 0;
@@ -342,6 +361,33 @@ function createClient(parseResult: ParseResult): {
       },
     }),
   );
+  const retrievalQuery = vi.fn().mockResolvedValue({
+    namespace: 'support-center',
+    query: 'margin',
+    routerUsed: 'legacy',
+    answerText: null,
+    evidenceText: '[report.md / Revenue]\nMargin guidance improved.',
+    referencedChunks: [
+      {
+        documentId: 'doc-1',
+        chunkId: 'chunk-margin',
+        chunkType: 'text',
+        sectionPath: 'Revenue',
+      },
+    ],
+    results: [
+      {
+        content: 'Margin guidance improved.',
+        chunkType: 'text',
+        score: 0.42,
+        source: {
+          documentId: 'doc-1',
+          sourceFileName: 'report.md',
+          sectionPath: 'Revenue',
+        },
+      },
+    ],
+  });
   return {
     client: {
       parse,
@@ -351,13 +397,14 @@ function createClient(parseResult: ParseResult): {
         load: jobsLoad,
       },
       retrieval: {
-        query: vi.fn(),
+        query: retrievalQuery,
       },
     } as unknown as Knowhere,
     parse,
     startParse,
     jobsGet,
     jobsLoad,
+    retrievalQuery,
   };
 }
 

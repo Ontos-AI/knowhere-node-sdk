@@ -291,7 +291,7 @@ const grep = await client.knowledge.grepChunks({
   maxResults: 10,
 });
 
-const localSearch = await client.knowledge.search({
+const serverSearch = await client.knowledge.search({
   query: 'battery warranty',
   localDocumentIds: [parsed.document.localDocumentId],
   topK: 5,
@@ -299,10 +299,12 @@ const localSearch = await client.knowledge.search({
 
 console.log(read.chunks);
 console.log(grep.matches);
-console.log(localSearch.references);
+console.log(serverSearch.references);
 ```
 
 Local grep and reads use the cached parse result, not server-side chunk scans.
+Search uses the Knowhere API retrieval query; local document IDs only help map
+returned server document IDs back to local cache IDs when available.
 The MCP package is a wrapper over this SDK interface; install it only when an
 agent host needs an MCP server.
 
