@@ -15,21 +15,41 @@ npm install @ontos-ai/knowhere-mcp
 ## Run
 
 ```bash
-KNOWHERE_API_KEY=sk_... npx knowhere-mcp
+npx -y @ontos-ai/knowhere-mcp login
+npx -y @ontos-ai/knowhere-mcp
 ```
 
 The server uses stdio transport and stores expanded Knowhere result files under
-the SDK local knowledge cache by default.
+the SDK local knowledge cache by default. `knowhere-mcp login` opens the
+Knowhere dashboard in your browser and stores a local MCP login at
+`~/.knowhere-node-sdk/mcp/auth.json`.
+
+Useful auth commands:
+
+```bash
+npx -y @ontos-ai/knowhere-mcp login
+npx -y @ontos-ai/knowhere-mcp status
+npx -y @ontos-ai/knowhere-mcp logout
+```
+
+Set `KNOWHERE_DASHBOARD_URL` when logging in through a non-default dashboard.
+Set `KNOWHERE_BASE_URL` only when using a non-default Knowhere API endpoint.
+`KNOWHERE_API_KEY` is still supported as a manual fallback and takes precedence
+over the local dashboard login.
 
 ## Connect From MCP Hosts
 
 The package is a local stdio MCP server. Use `npx -y @ontos-ai/knowhere-mcp`
-as the server command in hosts that manage MCP processes for you. Set
-`KNOWHERE_API_KEY`; set `KNOWHERE_BASE_URL` only when using a non-default
-Knowhere API endpoint.
+as the server command in hosts that manage MCP processes for you. Run the login
+command once before connecting a host:
 
-Do not commit real API keys to shared project config files. Prefer user-level
-config or environment-variable forwarding when a host supports it.
+```bash
+npx -y @ontos-ai/knowhere-mcp login
+```
+
+The host config does not need `KNOWHERE_API_KEY` when dashboard login is used.
+Do not commit real API keys to shared project config files if you choose the
+manual API-key fallback.
 
 ### Codex
 
@@ -39,9 +59,7 @@ can also use project-scoped `.codex/config.toml`.
 Add the server with the Codex CLI:
 
 ```bash
-codex mcp add knowhere \
-  --env KNOWHERE_API_KEY=sk_... \
-  -- npx -y @ontos-ai/knowhere-mcp
+codex mcp add knowhere -- npx -y @ontos-ai/knowhere-mcp
 ```
 
 Or edit `config.toml` directly:
@@ -52,20 +70,16 @@ command = "npx"
 args = ["-y", "@ontos-ai/knowhere-mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120
-
-[mcp_servers.knowhere.env]
-KNOWHERE_API_KEY = "sk_..."
-# KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
 ```
 
-For project-scoped config, prefer forwarding environment variables instead of
-checking secrets into the repo:
+For project-scoped config with a non-default API endpoint, forward only the
+endpoint variable:
 
 ```toml
 [mcp_servers.knowhere]
 command = "npx"
 args = ["-y", "@ontos-ai/knowhere-mcp"]
-env_vars = ["KNOWHERE_API_KEY", "KNOWHERE_BASE_URL"]
+env_vars = ["KNOWHERE_BASE_URL"]
 ```
 
 Restart Codex or run `/mcp` in the Codex TUI to inspect connected MCP servers.
@@ -76,7 +90,6 @@ Add the server with the Claude Code CLI:
 
 ```bash
 claude mcp add \
-  --env KNOWHERE_API_KEY=sk_... \
   --transport stdio \
   knowhere \
   -- npx -y @ontos-ai/knowhere-mcp
@@ -94,11 +107,7 @@ committing secrets:
     "knowhere": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@ontos-ai/knowhere-mcp"],
-      "env": {
-        "KNOWHERE_API_KEY": "${KNOWHERE_API_KEY}",
-        "KNOWHERE_BASE_URL": "${KNOWHERE_BASE_URL:-https://api.knowhereto.ai}"
-      }
+      "args": ["-y", "@ontos-ai/knowhere-mcp"]
     }
   }
 }
@@ -122,10 +131,7 @@ Add the Knowhere server:
     "knowhere": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@ontos-ai/knowhere-mcp"],
-      "env": {
-        "KNOWHERE_API_KEY": "sk_..."
-      }
+      "args": ["-y", "@ontos-ai/knowhere-mcp"]
     }
   }
 }
@@ -142,10 +148,7 @@ Use the same process configuration:
 ```json
 {
   "command": "npx",
-  "args": ["-y", "@ontos-ai/knowhere-mcp"],
-  "env": {
-    "KNOWHERE_API_KEY": "sk_..."
-  }
+  "args": ["-y", "@ontos-ai/knowhere-mcp"]
 }
 ```
 

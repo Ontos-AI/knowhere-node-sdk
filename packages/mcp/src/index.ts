@@ -4,6 +4,7 @@ import {
   Knowhere,
   VERSION,
   ValidationError,
+  type AuthTokenProvider,
   type Knowledge,
   type KnowledgeParseParams,
   type LocalKnowledgeDocument,
@@ -32,6 +33,8 @@ const objectOutputSchema = {
 
 export interface KnowhereMcpServerOptions {
   client?: Knowhere;
+  authTokenProvider?: AuthTokenProvider;
+  baseURL?: string;
   cacheDirectory?: string;
   recoverPendingJobsOnStart?: boolean;
 }
@@ -39,7 +42,12 @@ export interface KnowhereMcpServerOptions {
 export async function createKnowhereMcpServer(
   options?: KnowhereMcpServerOptions,
 ): Promise<McpServer> {
-  const client = options?.client ?? new Knowhere();
+  const client =
+    options?.client ??
+    new Knowhere({
+      authTokenProvider: options?.authTokenProvider,
+      baseURL: options?.baseURL,
+    });
   const knowledge: Knowledge =
     options?.cacheDirectory === undefined
       ? client.knowledge

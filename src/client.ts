@@ -77,11 +77,12 @@ export class Knowhere {
    * Create a new Knowhere client
    */
   constructor(options: KnowhereOptions = {}) {
-    // Resolve API key
+    // Resolve API authentication
     const apiKey = options.apiKey ?? process.env[ENV.API_KEY];
-    if (!apiKey) {
+    const authTokenProvider = apiKey ? undefined : options.authTokenProvider;
+    if (!apiKey && !authTokenProvider) {
       throw new ValidationError(
-        `API key is required. Provide it via options.apiKey or ${ENV.API_KEY} environment variable.`,
+        `API authentication is required. Provide it via options.apiKey, options.authTokenProvider, or ${ENV.API_KEY} environment variable.`,
       );
     }
 
@@ -92,6 +93,7 @@ export class Knowhere {
     this.httpClient = new HttpClient({
       baseURL,
       apiKey,
+      authTokenProvider,
       timeout: options.timeout,
       uploadTimeout: options.uploadTimeout,
       maxRetries: options.maxRetries,

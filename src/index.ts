@@ -7,6 +7,7 @@ export { VERSION } from './version.js';
 // Types
 export type {
   // Client types
+  AuthTokenProvider,
   KnowhereOptions,
   // Job types
   Job,
