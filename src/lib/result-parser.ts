@@ -47,6 +47,13 @@ export async function parseResult(
     // For now, we'll skip this but keep the structure
   }
 
+  return parseResultBuffer(zipBuffer);
+}
+
+/**
+ * Parse result ZIP from an already downloaded buffer.
+ */
+export async function parseResultBuffer(zipBuffer: Buffer): Promise<ParseResult> {
   // Parse ZIP
   const zip = await JSZip.loadAsync(zipBuffer);
 

@@ -54,6 +54,22 @@ export type {
   TextChunk,
   ImageChunk,
   TableChunk,
+  KnowledgeChunkType,
+  KnowledgeParseParams,
+  LocalKnowledgeDocument,
+  LocalKnowledgeParseResponse,
+  KnowledgeOutline,
+  KnowledgeSection,
+  KnowledgeReadParams,
+  KnowledgeReadChunk,
+  KnowledgeReadResponse,
+  KnowledgeGrepParams,
+  KnowledgeGrepMatch,
+  KnowledgeGrepResponse,
+  KnowledgeSearchParams,
+  KnowledgeSearchReference,
+  KnowledgeSearchResponse,
+  KnowledgeSearchResult,
 } from './types/index.js';
 
 // Errors
@@ -84,3 +100,4 @@ export {
 
 // Resources (for advanced usage)
 export { Jobs, Retrieval, Documents } from './resources/index.js';
+export { Knowledge, LocalKnowledgeStore } from './knowledge/index.js';

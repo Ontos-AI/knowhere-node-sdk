@@ -265,6 +265,47 @@ if (chunks.chunks[0]) {
 console.log(archived.status);
 ```
 
+### Local Knowledge Tools
+
+The SDK can also keep parsed results in a local cache and run exact inspection
+tools over that cached copy. This is the implementation used by the separate
+`@ontos-ai/knowhere-mcp` package.
+
+```typescript
+const parsed = await client.knowledge.parse({
+  file: './manual.pdf',
+  localDocumentId: 'manual-v1',
+});
+
+const outline = await client.knowledge.getDocumentOutline(parsed.document.localDocumentId);
+
+const read = await client.knowledge.readChunks({
+  localDocumentId: parsed.document.localDocumentId,
+  sectionPath: outline.sections[0]?.sectionPath,
+  limit: 5,
+});
+
+const grep = await client.knowledge.grepChunks({
+  localDocumentId: parsed.document.localDocumentId,
+  pattern: 'warranty',
+  maxResults: 10,
+});
+
+const localSearch = await client.knowledge.search({
+  query: 'battery warranty',
+  localDocumentIds: [parsed.document.localDocumentId],
+  topK: 5,
+});
+
+console.log(read.chunks);
+console.log(grep.matches);
+console.log(localSearch.references);
+```
+
+Local grep and reads use the cached parse result, not server-side chunk scans.
+The MCP package is a wrapper over this SDK interface; install it only when an
+agent host needs an MCP server.
+
 Follow-up queries can exclude documents or sections for one request:
 
 ```typescript

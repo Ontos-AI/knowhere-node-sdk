@@ -8,6 +8,7 @@ import { HttpClient } from './lib/http-client.js';
 import { Jobs } from './resources/jobs.js';
 import { Retrieval } from './resources/retrieval.js';
 import { Documents } from './resources/documents.js';
+import { Knowledge } from './knowledge/index.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
 import { enrichParseResult } from './lib/utils.js';
@@ -44,6 +45,8 @@ export class Knowhere {
   public readonly retrieval: Retrieval;
   /** Documents resource for canonical document lifecycle operations */
   public readonly documents: Documents;
+  /** Client-side local knowledge tools over parsed Knowhere results */
+  public readonly knowledge: Knowledge;
 
   private httpClient: HttpClient;
 
@@ -78,6 +81,7 @@ export class Knowhere {
     this.jobs = new Jobs(this.httpClient);
     this.retrieval = new Retrieval(this.httpClient);
     this.documents = new Documents(this.httpClient);
+    this.knowledge = new Knowledge(this);
   }
 
   /**
