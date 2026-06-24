@@ -24,8 +24,10 @@ export interface LocalKnowledgeDocument {
   chunkCount: number;
   /** Chunk counts grouped by type. */
   typeCounts: Record<KnowledgeChunkType, number>;
-  /** Local cache file path for the raw parse-result ZIP. */
-  resultZipPath: string;
+  /** Local cache directory containing expanded Knowhere result files and assets. */
+  resultDirectoryPath?: string;
+  /** @deprecated Legacy local cache path for raw parse-result ZIPs. */
+  resultZipPath?: string;
   /** Cache creation time. */
   createdAt: Date;
   /** Last cache write time. */

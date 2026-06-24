@@ -3,7 +3,11 @@ import os from 'os';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-import { parseResultBuffer } from '../lib/result-parser.js';
+import {
+  parseResultBuffer,
+  parseResultDirectory,
+  saveExpandedParseResult,
+} from '../lib/result-parser.js';
 import type { ParseResult } from '../types/index.js';
 import type {
   LocalKnowledgeDocument,
@@ -21,7 +25,8 @@ interface StoredKnowledgeDocument {
   sourceFileName: string;
   chunkCount: number;
   typeCounts: Record<KnowledgeChunkType, number>;
-  resultZipPath: string;
+  resultDirectoryPath?: string;
+  resultZipPath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,13 +72,18 @@ export class LocalKnowledgeStore {
     const now = new Date();
     const index = await this.readIndex();
     const localDocumentId = options?.localDocumentId ?? createLocalDocumentId(result);
-    const resultZipPath = path.join(this.cacheDirectory, `${localDocumentId}.zip`);
-    await fs.writeFile(resultZipPath, result.rawZip);
+    const resultDirectoryPath = this.getResultDirectoryPath(localDocumentId);
+    await fs.rm(resultDirectoryPath, { recursive: true, force: true });
+    await saveExpandedParseResult(result, resultDirectoryPath);
     this.resultCache.set(localDocumentId, result);
 
     const existing = index.documents.find(
       (document) => document.localDocumentId === localDocumentId,
     );
+    if (existing?.resultZipPath) {
+      await fs.rm(existing.resultZipPath, { force: true });
+    }
+
     const stored: StoredKnowledgeDocument = {
       localDocumentId,
       jobId: result.jobId,
@@ -82,7 +92,7 @@ export class LocalKnowledgeStore {
       sourceFileName: result.manifest.sourceFileName,
       chunkCount: result.chunks.length,
       typeCounts: countChunkTypes(result),
-      resultZipPath,
+      resultDirectoryPath,
       createdAt: existing?.createdAt ?? now.toISOString(),
       updatedAt: now.toISOString(),
     };
@@ -197,12 +207,70 @@ export class LocalKnowledgeStore {
       return { document, result: cachedResult };
     }
 
-    const zipBuffer = await fs.readFile(document.resultZipPath);
-    const result = await parseResultBuffer(zipBuffer);
+    const result = await this.loadStoredResult(document);
     result.namespace = document.namespace;
     result.documentId = document.documentId;
     this.resultCache.set(localDocumentId, result);
     return { document, result };
+  }
+
+  private getResultDirectoryPath(localDocumentId: string): string {
+    return path.join(this.cacheDirectory, 'documents', localDocumentId);
+  }
+
+  private async loadStoredResult(document: LocalKnowledgeDocument): Promise<ParseResult> {
+    if (document.resultDirectoryPath) {
+      return parseResultDirectory(document.resultDirectoryPath);
+    }
+
+    if (document.resultZipPath) {
+      return this.migrateLegacyZipResult(document);
+    }
+
+    throw new Error(
+      `Local Knowhere document has no cached result path: ${document.localDocumentId}`,
+    );
+  }
+
+  private async migrateLegacyZipResult(document: LocalKnowledgeDocument): Promise<ParseResult> {
+    if (!document.resultZipPath) {
+      throw new Error(
+        `Local Knowhere document has no legacy ZIP path: ${document.localDocumentId}`,
+      );
+    }
+
+    const zipBuffer = await fs.readFile(document.resultZipPath);
+    const result = await parseResultBuffer(zipBuffer);
+    const resultDirectoryPath = this.getResultDirectoryPath(document.localDocumentId);
+    await fs.rm(resultDirectoryPath, { recursive: true, force: true });
+    await saveExpandedParseResult(result, resultDirectoryPath);
+    await fs.rm(document.resultZipPath, { force: true });
+    await this.replaceStoredDocumentPath({
+      localDocumentId: document.localDocumentId,
+      resultDirectoryPath,
+    });
+    return result;
+  }
+
+  private async replaceStoredDocumentPath(params: {
+    localDocumentId: string;
+    resultDirectoryPath: string;
+  }): Promise<void> {
+    const index = await this.readIndex();
+    await this.writeIndex({
+      version: STORE_VERSION,
+      documents: index.documents.map((stored) =>
+        stored.localDocumentId === params.localDocumentId
+          ? {
+              ...stored,
+              resultDirectoryPath: params.resultDirectoryPath,
+              resultZipPath: undefined,
+              updatedAt: new Date().toISOString(),
+            }
+          : stored,
+      ),
+      asyncParseJobs: index.asyncParseJobs ?? [],
+    });
   }
 
   private async readIndex(): Promise<StoreIndex> {
@@ -253,7 +321,15 @@ function countChunkTypes(result: ParseResult): Record<KnowledgeChunkType, number
 
 function toLocalKnowledgeDocument(stored: StoredKnowledgeDocument): LocalKnowledgeDocument {
   return {
-    ...stored,
+    localDocumentId: stored.localDocumentId,
+    jobId: stored.jobId,
+    documentId: stored.documentId,
+    namespace: stored.namespace,
+    sourceFileName: stored.sourceFileName,
+    chunkCount: stored.chunkCount,
+    typeCounts: stored.typeCounts,
+    resultDirectoryPath: stored.resultDirectoryPath,
+    resultZipPath: stored.resultZipPath,
     createdAt: new Date(stored.createdAt),
     updatedAt: new Date(stored.updatedAt),
   };

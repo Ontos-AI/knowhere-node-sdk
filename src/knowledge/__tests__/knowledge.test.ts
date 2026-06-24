@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'fs/promises';
+import { access, mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -40,8 +40,19 @@ describe('Knowledge', () => {
     expect(response.document.jobId).toBe('job-1');
     expect(response.document.documentId).toBe('doc-1');
     expect(response.document.typeCounts).toEqual({ text: 2, image: 0, table: 1 });
+    expect(response.document.resultDirectoryPath).toBe(
+      path.join(cacheDirectory, 'documents', 'local-report'),
+    );
+    expect(response.document.resultZipPath).toBeUndefined();
     expect(documents).toHaveLength(1);
     expect(documents[0]?.sourceFileName).toBe('report.md');
+    await expectFileExists(path.join(cacheDirectory, 'documents', 'local-report', 'manifest.json'));
+    await expectFileExists(path.join(cacheDirectory, 'documents', 'local-report', 'chunks.json'));
+    await expectFileExists(
+      path.join(cacheDirectory, 'documents', 'local-report', 'tables', 'revenue.html'),
+    );
+    await expectFileMissing(path.join(cacheDirectory, 'local-report.zip'));
+    await expectFileMissing(path.join(cacheDirectory, 'documents', 'local-report', 'result.zip'));
   });
 
   it('should start async parses without waiting for results', async () => {
@@ -238,6 +249,39 @@ describe('Knowledge', () => {
     expect(response.references[0]?.chunkId).toBe('chunk-margin');
   });
 
+  it('should reload local documents from expanded result files', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client } = createClient(createParseResult());
+    const firstKnowledge = new Knowledge(client, { cacheDirectory });
+
+    await firstKnowledge.parse({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
+
+    const secondKnowledge = new Knowledge(client, { cacheDirectory });
+    const read = await secondKnowledge.readChunks({
+      localDocumentId: 'local-report',
+      chunkType: 'table',
+      limit: 1,
+    });
+    const savedTable = await readFile(
+      path.join(cacheDirectory, 'documents', 'local-report', 'tables', 'revenue.html'),
+      'utf8',
+    );
+
+    expect(read.document.resultDirectoryPath).toBe(
+      path.join(cacheDirectory, 'documents', 'local-report'),
+    );
+    expect(read.chunks).toHaveLength(1);
+    expect(read.chunks[0]).toMatchObject({
+      chunkId: 'chunk-table',
+      filePath: 'tables/revenue.html',
+      content: '<table><tr><td>Revenue</td></tr></table>',
+    });
+    expect(savedTable).toBe('<table><tr><td>Revenue</td></tr></table>');
+  });
+
   async function createKnowledgeWithCachedResult(
     parseResult = createParseResult(),
   ): Promise<Knowledge> {
@@ -316,6 +360,14 @@ function createClient(parseResult: ParseResult): {
     jobsGet,
     jobsLoad,
   };
+}
+
+async function expectFileExists(filePath: string): Promise<void> {
+  await expect(access(filePath)).resolves.toBeUndefined();
+}
+
+async function expectFileMissing(filePath: string): Promise<void> {
+  await expect(access(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
 }
 
 function createParseResult(): ParseResult {

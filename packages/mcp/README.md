@@ -18,8 +18,8 @@ npm install @ontos-ai/knowhere-mcp
 KNOWHERE_API_KEY=sk_... npx knowhere-mcp
 ```
 
-The server uses stdio transport and stores parsed result ZIPs under the SDK local
-knowledge cache by default.
+The server uses stdio transport and stores expanded Knowhere result files under
+the SDK local knowledge cache by default.
 
 ## Tools
 

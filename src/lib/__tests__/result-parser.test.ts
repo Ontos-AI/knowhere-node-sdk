@@ -7,7 +7,12 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import JSZip from 'jszip';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { parseResult, verifyChecksum } from '../result-parser.js';
+import {
+  parseResult,
+  parseResultDirectory,
+  saveExpandedParseResult,
+  verifyChecksum,
+} from '../result-parser.js';
 import { ChecksumError, KnowhereError } from '../../errors/index.js';
 import type { Manifest } from '../../types/result.js';
 import { createHash } from 'crypto';
@@ -725,6 +730,29 @@ describe('Result Parser', () => {
         .then(() => true)
         .catch(() => false);
       expect(hierarchyViewExists).toBe(true);
+    });
+
+    it('should save expanded result files without storing a raw ZIP', async () => {
+      const optimizedZipBuffer = await createOptimizedResultZip();
+      mockHttpClient.download.mockResolvedValue(optimizedZipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      await saveExpandedParseResult(result, testOutputDir);
+
+      const resultZipExists = await fs
+        .access(join(testOutputDir, 'result.zip'))
+        .then(() => true)
+        .catch(() => false);
+      const tableHtml = await fs.readFile(join(testOutputDir, 'tables/table-001.html'), 'utf8');
+      const reloaded = await parseResultDirectory(testOutputDir);
+
+      expect(resultZipExists).toBe(false);
+      expect(tableHtml).toContain('Optimized');
+      expect(reloaded.manifest.sourceFileName).toBe('optimized.pdf');
+      expect(reloaded.chunks).toHaveLength(3);
+      expect(reloaded.tableChunks[0].html).toContain('Optimized');
+      expect(reloaded.rawZip.length).toBe(0);
     });
 
     it('should expose jobId property', async () => {
