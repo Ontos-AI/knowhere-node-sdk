@@ -4,6 +4,10 @@ import { ValidationError } from '../errors/index.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
   IndexedKnowledgeChunk,
+  KnowledgeAsyncJobStatusResponse,
+  KnowledgeAsyncParseParams,
+  KnowledgeAsyncParseResponse,
+  KnowledgeCacheJobResultParams,
   KnowledgeGrepMatch,
   KnowledgeGrepParams,
   KnowledgeGrepResponse,
@@ -43,6 +47,32 @@ export class Knowledge {
 
   async parse(params: KnowledgeParseParams): Promise<LocalKnowledgeParseResponse> {
     const result = await this.client.parse(params);
+    const document = await this.store.saveResult(result, {
+      localDocumentId: params.localDocumentId,
+    });
+    return { document, result };
+  }
+
+  async startParse(params: KnowledgeAsyncParseParams): Promise<KnowledgeAsyncParseResponse> {
+    const job = await this.client.startParse(params);
+    return {
+      job,
+      localDocumentId: params.localDocumentId,
+    };
+  }
+
+  async getJobStatus(jobId: string): Promise<KnowledgeAsyncJobStatusResponse> {
+    return {
+      job: await this.client.jobs.get(jobId),
+    };
+  }
+
+  async cacheJobResult(
+    params: KnowledgeCacheJobResultParams,
+  ): Promise<LocalKnowledgeParseResponse> {
+    const result = await this.client.jobs.load(params.jobId, {
+      verifyChecksum: params.verifyChecksum,
+    });
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });

@@ -2,7 +2,8 @@ import path from 'path';
 import type { ReadStream } from 'fs';
 
 import type { KnowhereOptions } from './types/client.js';
-import type { ParseParams } from './types/params.js';
+import type { CreateJobParams, ParseParams } from './types/params.js';
+import type { Job } from './types/job.js';
 import type { ParseResult } from './types/result.js';
 import { HttpClient } from './lib/http-client.js';
 import { Jobs } from './resources/jobs.js';
@@ -33,6 +34,28 @@ function isReadStream(file: ParseParams['file']): file is ReadStream {
   return (
     typeof file === 'object' && file !== null && 'pipe' in file && typeof file.pipe === 'function'
   );
+}
+
+function buildParsingParams(params: ParseParams): CreateJobParams['parsingParams'] {
+  const parsingParams = {
+    model: params.model,
+    ocrEnabled: params.ocr,
+    docType: params.docType,
+    smartTitleParse: params.smartTitleParse,
+    summaryImage: params.summaryImage,
+    summaryTable: params.summaryTable,
+    summaryTxt: params.summaryTxt,
+    addFragDesc: params.addFragDesc,
+    kbDir: params.kbDir,
+  };
+
+  Object.keys(parsingParams).forEach((key) => {
+    if (parsingParams[key as keyof typeof parsingParams] === undefined) {
+      delete parsingParams[key as keyof typeof parsingParams];
+    }
+  });
+
+  return Object.keys(parsingParams).length > 0 ? parsingParams : undefined;
 }
 
 /**
@@ -105,6 +128,30 @@ export class Knowhere {
    * ```
    */
   async parse(params: ParseParams): Promise<ParseResult> {
+    const job = await this.startParse(params);
+
+    // Wait for completion
+    const jobResult = await this.jobs.wait(job.jobId, {
+      pollInterval: params.pollInterval,
+      pollTimeout: params.pollTimeout,
+      onProgress: params.onPollProgress,
+      signal: params.signal,
+    });
+
+    // Load result
+    const result = await this.jobs.load(jobResult, {
+      verifyChecksum: params.verifyChecksum,
+    });
+
+    return enrichParseResult(result, jobResult);
+  }
+
+  /**
+   * Start a parse job and return immediately after the URL job is created or
+   * the local file is uploaded. Use jobs.get()/jobs.wait() and jobs.load()
+   * to inspect completion and load results later.
+   */
+  async startParse(params: ParseParams): Promise<Job> {
     // Validate params
     if (!params.url && !params.file) {
       throw new ValidationError('Either url or file must be provided');
@@ -124,26 +171,6 @@ export class Knowhere {
       );
     }
 
-    // Build parsing params
-    const parsingParams = {
-      model: params.model,
-      ocrEnabled: params.ocr,
-      docType: params.docType,
-      smartTitleParse: params.smartTitleParse,
-      summaryImage: params.summaryImage,
-      summaryTable: params.summaryTable,
-      summaryTxt: params.summaryTxt,
-      addFragDesc: params.addFragDesc,
-      kbDir: params.kbDir,
-    };
-
-    // Remove undefined values
-    Object.keys(parsingParams).forEach((key) => {
-      if (parsingParams[key as keyof typeof parsingParams] === undefined) {
-        delete parsingParams[key as keyof typeof parsingParams];
-      }
-    });
-
     // Build webhook config
     const webhook = params.webhook;
 
@@ -155,7 +182,7 @@ export class Knowhere {
       dataId: params.dataId,
       namespace: params.namespace,
       documentId: params.documentId,
-      parsingParams: Object.keys(parsingParams).length > 0 ? parsingParams : undefined,
+      parsingParams: buildParsingParams(params),
       webhook,
     });
 
@@ -168,20 +195,7 @@ export class Knowhere {
       });
     }
 
-    // Wait for completion
-    const jobResult = await this.jobs.wait(job.jobId, {
-      pollInterval: params.pollInterval,
-      pollTimeout: params.pollTimeout,
-      onProgress: params.onPollProgress,
-      signal: params.signal,
-    });
-
-    // Load result
-    const result = await this.jobs.load(jobResult, {
-      verifyChecksum: params.verifyChecksum,
-    });
-
-    return enrichParseResult(result, jobResult);
+    return job;
   }
 }
 

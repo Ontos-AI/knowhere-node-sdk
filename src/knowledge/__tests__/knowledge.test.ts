@@ -44,6 +44,55 @@ describe('Knowledge', () => {
     expect(documents[0]?.sourceFileName).toBe('report.md');
   });
 
+  it('should start async parses without waiting for results', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, startParse } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const response = await knowledge.startParse({
+      file: './report.md',
+      localDocumentId: 'local-report',
+    });
+
+    expect(startParse).toHaveBeenCalledWith({
+      file: './report.md',
+      localDocumentId: 'local-report',
+    });
+    expect(response).toEqual({
+      job: {
+        jobId: 'job-async',
+        status: 'waiting-file',
+        sourceType: 'file',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      localDocumentId: 'local-report',
+    });
+  });
+
+  it('should fetch async job status and cache completed job results', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, jobsGet, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const status = await knowledge.getJobStatus('job-1');
+    const cached = await knowledge.cacheJobResult({
+      jobId: 'job-1',
+      localDocumentId: 'local-report',
+      verifyChecksum: false,
+    });
+    const documents = await knowledge.listDocuments();
+
+    expect(jobsGet).toHaveBeenCalledWith('job-1');
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: false });
+    expect(status.job).toMatchObject({
+      jobId: 'job-1',
+      status: 'done',
+      isDone: true,
+    });
+    expect(cached.document.localDocumentId).toBe('local-report');
+    expect(documents).toHaveLength(1);
+  });
+
   it('should build outline and range reads from the local parse result', async () => {
     const knowledge = await createKnowledgeWithCachedResult();
 
@@ -161,16 +210,44 @@ describe('Knowledge', () => {
 function createClient(parseResult: ParseResult): {
   client: Knowhere;
   parse: ReturnType<typeof vi.fn>;
+  startParse: ReturnType<typeof vi.fn>;
+  jobsGet: ReturnType<typeof vi.fn>;
+  jobsLoad: ReturnType<typeof vi.fn>;
 } {
   const parse = vi.fn().mockResolvedValue(parseResult);
+  const startParse = vi.fn().mockResolvedValue({
+    jobId: 'job-async',
+    status: 'waiting-file',
+    sourceType: 'file',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  });
+  const jobsGet = vi.fn().mockResolvedValue({
+    jobId: 'job-1',
+    status: 'done',
+    sourceType: 'url',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    resultUrl: 'https://example.com/result.zip',
+    isTerminal: true,
+    isDone: true,
+    isFailed: false,
+  });
+  const jobsLoad = vi.fn().mockResolvedValue(parseResult);
   return {
     client: {
       parse,
+      startParse,
+      jobs: {
+        get: jobsGet,
+        load: jobsLoad,
+      },
       retrieval: {
         query: vi.fn(),
       },
     } as unknown as Knowhere,
     parse,
+    startParse,
+    jobsGet,
+    jobsLoad,
   };
 }
 

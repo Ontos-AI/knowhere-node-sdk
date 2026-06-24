@@ -48,7 +48,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
     'knowhere_parse_url',
     {
       description:
-        'Parse a remote URL through Knowhere and cache the parse result locally for local outline/read/grep/search tools.',
+        'Blocking parse: submit a remote URL to Knowhere, wait for completion, then cache the parse result locally for outline/read/grep/search tools.',
       inputSchema: {
         url: z.string().url(),
         namespace: z.string().optional(),
@@ -74,7 +74,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
     'knowhere_parse_file',
     {
       description:
-        'Parse a local file path available to this MCP process through the SDK and cache the parse result locally.',
+        'Blocking parse: submit a local file path available to this MCP process, wait for completion, then cache the parse result locally.',
       inputSchema: {
         file: z.string().describe('Local file path available to this MCP server process.'),
         fileName: z.string().optional(),
@@ -94,6 +94,95 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
           localDocumentId: input.localDocumentId,
           dataId: input.dataId,
           ...toFlatParsingParams(input.parsingParams),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'knowhere_async_parse_url',
+    {
+      description:
+        'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status, then cache completed results with knowhere_async_cache_job_result.',
+      inputSchema: {
+        url: z.string().url(),
+        namespace: z.string().optional(),
+        localDocumentId: z.string().optional(),
+        dataId: z.string().optional(),
+        parsingParams: parsingParamsSchema,
+      },
+      outputSchema: objectOutputSchema,
+    },
+    async (input) =>
+      createToolResult(
+        await knowledge.startParse({
+          url: input.url,
+          namespace: input.namespace,
+          localDocumentId: input.localDocumentId,
+          dataId: input.dataId,
+          ...toFlatParsingParams(input.parsingParams),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'knowhere_async_parse_file',
+    {
+      description:
+        'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status, then cache completed results with knowhere_async_cache_job_result.',
+      inputSchema: {
+        file: z.string().describe('Local file path available to this MCP server process.'),
+        fileName: z.string().optional(),
+        namespace: z.string().optional(),
+        localDocumentId: z.string().optional(),
+        dataId: z.string().optional(),
+        parsingParams: parsingParamsSchema,
+      },
+      outputSchema: objectOutputSchema,
+    },
+    async (input) =>
+      createToolResult(
+        await knowledge.startParse({
+          file: input.file,
+          fileName: input.fileName,
+          namespace: input.namespace,
+          localDocumentId: input.localDocumentId,
+          dataId: input.dataId,
+          ...toFlatParsingParams(input.parsingParams),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'knowhere_async_get_job_status',
+    {
+      description:
+        'Fetch the current status for a Knowhere parse job started by an async parse tool.',
+      inputSchema: {
+        jobId: z.string(),
+      },
+      outputSchema: objectOutputSchema,
+    },
+    async (input) => createToolResult(await knowledge.getJobStatus(input.jobId)),
+  );
+
+  server.registerTool(
+    'knowhere_async_cache_job_result',
+    {
+      description:
+        'Load a completed Knowhere parse job result and cache it locally so outline/read/grep/search tools can inspect it.',
+      inputSchema: {
+        jobId: z.string(),
+        localDocumentId: z.string().optional(),
+        verifyChecksum: z.boolean().optional(),
+      },
+      outputSchema: objectOutputSchema,
+    },
+    async (input) =>
+      createToolResult(
+        await knowledge.cacheJobResult({
+          jobId: input.jobId,
+          localDocumentId: input.localDocumentId,
+          verifyChecksum: input.verifyChecksum,
         }),
       ),
   );

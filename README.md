@@ -196,11 +196,11 @@ const response = await client.retrieval.query({
   useAgentic: true,
 });
 
-console.log(response.answerText);         // LLM-generated answer
-console.log(response.referencedChunks);   // cited evidence chunks
-console.log(response.evidenceText);       // rendered evidence context, when returned
-console.log(response.stopReason);         // agentic termination reason, when returned
-console.log(response.failureReason);      // no-answer reason, when returned
+console.log(response.answerText); // LLM-generated answer
+console.log(response.referencedChunks); // cited evidence chunks
+console.log(response.evidenceText); // rendered evidence context, when returned
+console.log(response.stopReason); // agentic termination reason, when returned
+console.log(response.failureReason); // no-answer reason, when returned
 
 for (const result of response.results) {
   console.log(result.content);
@@ -305,6 +305,25 @@ console.log(localSearch.references);
 Local grep and reads use the cached parse result, not server-side chunk scans.
 The MCP package is a wrapper over this SDK interface; install it only when an
 agent host needs an MCP server.
+
+For longer parses, use the non-blocking SDK flow and cache the result after the
+job completes:
+
+```typescript
+const started = await client.knowledge.startParse({
+  file: './manual.pdf',
+  localDocumentId: 'manual-v1',
+});
+
+const status = await client.knowledge.getJobStatus(started.job.jobId);
+
+if (status.job.isDone) {
+  await client.knowledge.cacheJobResult({
+    jobId: started.job.jobId,
+    localDocumentId: started.localDocumentId,
+  });
+}
+```
 
 Follow-up queries can exclude documents or sections for one request:
 

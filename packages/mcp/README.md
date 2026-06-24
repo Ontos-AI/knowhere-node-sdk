@@ -23,9 +23,16 @@ knowledge cache by default.
 
 ## Tools
 
-- `knowhere_parse_url`: parse a remote URL and cache the result locally.
-- `knowhere_parse_file`: parse a file path available to the MCP process and
-  cache the result locally.
+- `knowhere_parse_url`: blocking parse for a remote URL; waits for completion
+  and caches the result locally.
+- `knowhere_parse_file`: blocking parse for a file path available to the MCP
+  process; waits for completion and caches the result locally.
+- `knowhere_async_parse_url`: start parsing a remote URL and return the job
+  immediately.
+- `knowhere_async_parse_file`: start parsing a local file path, upload it if
+  needed, and return the job immediately.
+- `knowhere_async_get_job_status`: check a parse job status.
+- `knowhere_async_cache_job_result`: cache a completed parse job result locally.
 - `knowhere_list_documents`: list locally cached parse results.
 - `knowhere_get_document_outline`: inspect a cached document outline.
 - `knowhere_read_chunks`: read exact chunks from a cached result.

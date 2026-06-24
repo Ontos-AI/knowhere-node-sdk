@@ -2,6 +2,10 @@ export { Knowledge } from './knowledge.js';
 export { LocalKnowledgeStore } from './local-store.js';
 export type {
   IndexedKnowledgeChunk,
+  KnowledgeAsyncJobStatusResponse,
+  KnowledgeAsyncParseParams,
+  KnowledgeAsyncParseResponse,
+  KnowledgeCacheJobResultParams,
   KnowledgeChunkType,
   KnowledgeGrepMatch,
   KnowledgeGrepParams,

@@ -12,6 +12,10 @@ describe('knowhere MCP wrapper', () => {
     const toolNames = tools.tools.map((tool) => tool.name).sort();
 
     expect(toolNames).toEqual([
+      'knowhere_async_cache_job_result',
+      'knowhere_async_get_job_status',
+      'knowhere_async_parse_file',
+      'knowhere_async_parse_url',
       'knowhere_get_document_outline',
       'knowhere_grep_chunks',
       'knowhere_list_documents',
@@ -86,6 +90,83 @@ describe('knowhere MCP wrapper', () => {
     await server.close();
   });
 
+  it('should delegate async parse, status, and cache calls to the SDK knowledge module', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    const parseResponse = await client.callTool({
+      name: 'knowhere_async_parse_url',
+      arguments: {
+        url: 'https://example.com/report.pdf',
+        localDocumentId: 'local-report',
+        parsingParams: {
+          model: 'advanced',
+        },
+      },
+    });
+    const statusResponse = await client.callTool({
+      name: 'knowhere_async_get_job_status',
+      arguments: {
+        jobId: 'job-async',
+      },
+    });
+    const cacheResponse = await client.callTool({
+      name: 'knowhere_async_cache_job_result',
+      arguments: {
+        jobId: 'job-async',
+        localDocumentId: 'local-report',
+        verifyChecksum: false,
+      },
+    });
+
+    expect(knowhereClient.knowledge.startParse).toHaveBeenCalledWith({
+      url: 'https://example.com/report.pdf',
+      namespace: undefined,
+      localDocumentId: 'local-report',
+      dataId: undefined,
+      model: 'advanced',
+      ocr: undefined,
+      docType: undefined,
+      smartTitleParse: undefined,
+      summaryImage: undefined,
+      summaryTable: undefined,
+      summaryTxt: undefined,
+      addFragDesc: undefined,
+      kbDir: undefined,
+    });
+    expect(knowhereClient.knowledge.getJobStatus).toHaveBeenCalledWith('job-async');
+    expect(knowhereClient.knowledge.cacheJobResult).toHaveBeenCalledWith({
+      jobId: 'job-async',
+      localDocumentId: 'local-report',
+      verifyChecksum: false,
+    });
+    expect(parseResponse.structuredContent).toEqual({
+      result: {
+        job: {
+          jobId: 'job-async',
+        },
+        localDocumentId: 'local-report',
+      },
+    });
+    expect(statusResponse.structuredContent).toEqual({
+      result: {
+        job: {
+          jobId: 'job-async',
+          status: 'done',
+        },
+      },
+    });
+    expect(cacheResponse.structuredContent).toEqual({
+      result: {
+        document: {
+          localDocumentId: 'local-report',
+        },
+      },
+    });
+    await client.close();
+    await server.close();
+  });
+
   it('should use an SDK knowledge adapter scoped to the configured cache directory', async () => {
     const knowhereClient = createClient();
     const { client, server } = await connectTestClient(knowhereClient, '/tmp/knowhere-mcp-cache');
@@ -124,6 +205,16 @@ function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
       document: { localDocumentId: 'local-report' },
       result: { jobId: 'job-1' },
     }),
+    startParse: vi.fn().mockResolvedValue({
+      job: { jobId: 'job-async' },
+      localDocumentId: 'local-report',
+    }),
+    getJobStatus: vi.fn().mockResolvedValue({
+      job: { jobId: 'job-async', status: 'done' },
+    }),
+    cacheJobResult: vi.fn().mockResolvedValue({
+      document: { localDocumentId: 'local-report' },
+    }),
     listDocuments: vi.fn().mockResolvedValue([]),
     getDocumentOutline: vi.fn().mockResolvedValue({ sections: [] }),
     readChunks: vi.fn().mockResolvedValue({ chunks: [] }),
@@ -141,6 +232,9 @@ function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
 type KnowledgeWithMocks = Pick<
   Knowledge,
   | 'parse'
+  | 'startParse'
+  | 'getJobStatus'
+  | 'cacheJobResult'
   | 'listDocuments'
   | 'getDocumentOutline'
   | 'readChunks'
@@ -149,6 +243,9 @@ type KnowledgeWithMocks = Pick<
   | 'withCacheDirectory'
 > & {
   parse: Mock<Knowledge['parse']>;
+  startParse: Mock<Knowledge['startParse']>;
+  getJobStatus: Mock<Knowledge['getJobStatus']>;
+  cacheJobResult: Mock<Knowledge['cacheJobResult']>;
   listDocuments: Mock<Knowledge['listDocuments']>;
   getDocumentOutline: Mock<Knowledge['getDocumentOutline']>;
   readChunks: Mock<Knowledge['readChunks']>;

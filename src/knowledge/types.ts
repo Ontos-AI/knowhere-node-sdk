@@ -1,4 +1,5 @@
 import type { ParseParams } from '../types/params.js';
+import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
@@ -34,6 +35,26 @@ export interface LocalKnowledgeDocument {
 export interface LocalKnowledgeParseResponse {
   document: LocalKnowledgeDocument;
   result: ParseResult;
+}
+
+export interface KnowledgeAsyncParseParams extends ParseParams {
+  /** Optional stable local identifier to use when this job result is cached later. */
+  localDocumentId?: string;
+}
+
+export interface KnowledgeAsyncParseResponse {
+  job: Job;
+  localDocumentId?: string;
+}
+
+export interface KnowledgeAsyncJobStatusResponse {
+  job: JobResult;
+}
+
+export interface KnowledgeCacheJobResultParams {
+  jobId: string;
+  localDocumentId?: string;
+  verifyChecksum?: boolean;
 }
 
 export interface KnowledgeSection {
