@@ -306,7 +306,8 @@ Local grep and reads use the cached parse result, not server-side chunk scans.
 Search uses the Knowhere API retrieval query; local document IDs only help map
 returned server document IDs back to local cache IDs when available.
 The MCP package is a wrapper over this SDK interface; install it only when an
-agent host needs an MCP server.
+agent host needs an MCP server. See the MCP package README for Codex, Claude
+Code, Claude Desktop, and generic stdio MCP host configuration examples.
 
 For longer parses, use the non-blocking SDK flow and cache the result after the
 job completes:

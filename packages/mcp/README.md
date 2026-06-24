@@ -21,6 +21,140 @@ KNOWHERE_API_KEY=sk_... npx knowhere-mcp
 The server uses stdio transport and stores expanded Knowhere result files under
 the SDK local knowledge cache by default.
 
+## Connect From MCP Hosts
+
+The package is a local stdio MCP server. Use `npx -y @ontos-ai/knowhere-mcp`
+as the server command in hosts that manage MCP processes for you. Set
+`KNOWHERE_API_KEY`; set `KNOWHERE_BASE_URL` only when using a non-default
+Knowhere API endpoint.
+
+Do not commit real API keys to shared project config files. Prefer user-level
+config or environment-variable forwarding when a host supports it.
+
+### Codex
+
+Codex stores MCP servers in `~/.codex/config.toml` by default. Trusted projects
+can also use project-scoped `.codex/config.toml`.
+
+Add the server with the Codex CLI:
+
+```bash
+codex mcp add knowhere \
+  --env KNOWHERE_API_KEY=sk_... \
+  -- npx -y @ontos-ai/knowhere-mcp
+```
+
+Or edit `config.toml` directly:
+
+```toml
+[mcp_servers.knowhere]
+command = "npx"
+args = ["-y", "@ontos-ai/knowhere-mcp"]
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.knowhere.env]
+KNOWHERE_API_KEY = "sk_..."
+# KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
+```
+
+For project-scoped config, prefer forwarding environment variables instead of
+checking secrets into the repo:
+
+```toml
+[mcp_servers.knowhere]
+command = "npx"
+args = ["-y", "@ontos-ai/knowhere-mcp"]
+env_vars = ["KNOWHERE_API_KEY", "KNOWHERE_BASE_URL"]
+```
+
+Restart Codex or run `/mcp` in the Codex TUI to inspect connected MCP servers.
+
+### Claude Code
+
+Add the server with the Claude Code CLI:
+
+```bash
+claude mcp add \
+  --env KNOWHERE_API_KEY=sk_... \
+  --transport stdio \
+  knowhere \
+  -- npx -y @ontos-ai/knowhere-mcp
+```
+
+Use `/mcp` inside Claude Code to verify the server and `claude mcp list` to see
+configured servers.
+
+For a project-shared `.mcp.json`, forward environment variables rather than
+committing secrets:
+
+```json
+{
+  "mcpServers": {
+    "knowhere": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@ontos-ai/knowhere-mcp"],
+      "env": {
+        "KNOWHERE_API_KEY": "${KNOWHERE_API_KEY}",
+        "KNOWHERE_BASE_URL": "${KNOWHERE_BASE_URL:-https://api.knowhereto.ai}"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Open Claude Desktop settings, go to the developer settings, and edit
+`claude_desktop_config.json`.
+
+Config file locations:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+Add the Knowhere server:
+
+```json
+{
+  "mcpServers": {
+    "knowhere": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@ontos-ai/knowhere-mcp"],
+      "env": {
+        "KNOWHERE_API_KEY": "sk_..."
+      }
+    }
+  }
+}
+```
+
+Save the file and fully restart Claude Desktop. If the server does not appear,
+check Claude's MCP logs and verify that `node`, `npm`, and `npx` are available
+from the desktop app's environment.
+
+### Other Stdio MCP Hosts
+
+Use the same process configuration:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@ontos-ai/knowhere-mcp"],
+  "env": {
+    "KNOWHERE_API_KEY": "sk_..."
+  }
+}
+```
+
+Host documentation:
+
+- [Codex MCP configuration](https://developers.openai.com/codex/mcp)
+- [Claude Code MCP configuration](https://docs.anthropic.com/en/docs/claude-code/mcp)
+- [Claude Desktop local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers)
+
 ## Tools
 
 - `knowhere_parse_url`: blocking parse for a remote URL; waits for completion
