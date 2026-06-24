@@ -3,8 +3,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   Knowhere,
   VERSION,
+  ValidationError,
   type Knowledge,
   type KnowledgeParseParams,
+  type LocalKnowledgeDocument,
 } from '@ontos-ai/knowhere-sdk';
 import * as z from 'zod/v4';
 
@@ -204,6 +206,21 @@ export async function createKnowhereMcpServer(
   );
 
   server.registerTool(
+    'knowhere_delete_document',
+    {
+      description:
+        'Archive, or soft-delete, a published Knowhere document through the Knowhere API. Provide documentId directly, or localDocumentId for a cached parse result that has a server documentId.',
+      inputSchema: {
+        documentId: z.string().optional(),
+        localDocumentId: z.string().optional(),
+      },
+      outputSchema: objectOutputSchema,
+    },
+    async (input) =>
+      createToolResult(await archiveDocument({ client, knowledge, params: input })),
+  );
+
+  server.registerTool(
     'knowhere_get_document_outline',
     {
       description: 'Return the local outline for a cached parsed document.',
@@ -307,4 +324,68 @@ function toFlatParsingParams(
     addFragDesc: parsingParams.addFragDesc,
     kbDir: parsingParams.kbDir,
   };
+}
+
+async function archiveDocument(params: {
+  client: Knowhere;
+  knowledge: Knowledge;
+  params: {
+    documentId?: string;
+    localDocumentId?: string;
+  };
+}): Promise<{
+  document: Awaited<ReturnType<Knowhere['documents']['archive']>>;
+  localDocumentId?: string;
+}> {
+  const archiveTarget = await resolveArchiveTarget(params.knowledge, params.params);
+  const document = await params.client.documents.archive(archiveTarget.documentId);
+  return {
+    document,
+    localDocumentId: archiveTarget.localDocumentId,
+  };
+}
+
+async function resolveArchiveTarget(
+  knowledge: Knowledge,
+  params: {
+    documentId?: string;
+    localDocumentId?: string;
+  },
+): Promise<{
+  documentId: string;
+  localDocumentId?: string;
+}> {
+  if (params.documentId) {
+    return {
+      documentId: params.documentId,
+      localDocumentId: params.localDocumentId,
+    };
+  }
+
+  if (!params.localDocumentId) {
+    throw new ValidationError('documentId or localDocumentId is required');
+  }
+
+  const document = await findLocalDocument(knowledge, params.localDocumentId);
+  if (!document) {
+    throw new Error(`Local Knowhere document not found: ${params.localDocumentId}`);
+  }
+  if (!document.documentId) {
+    throw new Error(
+      `Local Knowhere document has no server documentId: ${params.localDocumentId}`,
+    );
+  }
+
+  return {
+    documentId: document.documentId,
+    localDocumentId: document.localDocumentId,
+  };
+}
+
+async function findLocalDocument(
+  knowledge: Knowledge,
+  localDocumentId: string,
+): Promise<LocalKnowledgeDocument | undefined> {
+  const documents = await knowledge.listDocuments();
+  return documents.find((document) => document.localDocumentId === localDocumentId);
 }

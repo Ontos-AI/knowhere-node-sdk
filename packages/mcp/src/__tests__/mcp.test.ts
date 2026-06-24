@@ -16,6 +16,7 @@ describe('knowhere MCP wrapper', () => {
       'knowhere_async_get_job_status',
       'knowhere_async_parse_file',
       'knowhere_async_parse_url',
+      'knowhere_delete_document',
       'knowhere_get_document_outline',
       'knowhere_grep_chunks',
       'knowhere_list_documents',
@@ -192,6 +193,58 @@ describe('knowhere MCP wrapper', () => {
     await server.close();
   });
 
+  it('should delegate delete calls to the SDK document lifecycle resource', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    const response = await client.callTool({
+      name: 'knowhere_delete_document',
+      arguments: {
+        documentId: 'doc-1',
+        localDocumentId: 'local-report',
+      },
+    });
+
+    expect(knowhereClient.archiveDocument).toHaveBeenCalledWith('doc-1');
+    expect(response.structuredContent).toEqual({
+      result: {
+        document: {
+          documentId: 'doc-1',
+          status: 'archived',
+        },
+        localDocumentId: 'local-report',
+      },
+    });
+    await client.close();
+    await server.close();
+  });
+
+  it('should resolve archive calls from a cached local document id', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    const response = await client.callTool({
+      name: 'knowhere_delete_document',
+      arguments: {
+        localDocumentId: 'local-report',
+      },
+    });
+
+    expect(knowhereClient.knowledge.listDocuments).toHaveBeenCalledOnce();
+    expect(knowhereClient.archiveDocument).toHaveBeenCalledWith('doc-1');
+    expect(response.structuredContent).toEqual({
+      result: {
+        document: {
+          documentId: 'doc-1',
+          status: 'archived',
+        },
+        localDocumentId: 'local-report',
+      },
+    });
+    await client.close();
+    await server.close();
+  });
+
   it('should recover pending async parse jobs when the MCP server starts', async () => {
     const knowhereClient = createClient();
     const { client, server } = await connectTestClient(knowhereClient);
@@ -217,7 +270,10 @@ async function connectTestClient(
   return { client, server };
 }
 
-function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
+function createClient(): Knowhere & {
+  archiveDocument: ReturnType<typeof vi.fn>;
+  knowledge: KnowledgeWithMocks;
+} {
   const knowledge: KnowledgeWithMocks = {
     parse: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
@@ -242,7 +298,12 @@ function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
       checkedJobs: 0,
       results: [],
     }),
-    listDocuments: vi.fn().mockResolvedValue([]),
+    listDocuments: vi.fn().mockResolvedValue([
+      {
+        localDocumentId: 'local-report',
+        documentId: 'doc-1',
+      },
+    ]),
     getDocumentOutline: vi.fn().mockResolvedValue({ sections: [] }),
     readChunks: vi.fn().mockResolvedValue({ chunks: [] }),
     grepChunks: vi.fn().mockResolvedValue({ matches: [] }),
@@ -250,10 +311,21 @@ function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
     withCacheDirectory: vi.fn(),
   };
   knowledge.withCacheDirectory.mockReturnValue(knowledge as unknown as Knowledge);
+  const archiveDocument = vi.fn().mockResolvedValue({
+    documentId: 'doc-1',
+    status: 'archived',
+  });
 
   return {
+    archiveDocument,
+    documents: {
+      archive: archiveDocument,
+    },
     knowledge,
-  } as unknown as Knowhere & { knowledge: KnowledgeWithMocks };
+  } as unknown as Knowhere & {
+    archiveDocument: ReturnType<typeof vi.fn>;
+    knowledge: KnowledgeWithMocks;
+  };
 }
 
 type KnowledgeWithMocks = Pick<

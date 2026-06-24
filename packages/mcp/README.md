@@ -36,6 +36,8 @@ the SDK local knowledge cache by default.
 - `knowhere_async_cache_job_result`: manually cache a completed parse job result
   locally, mainly for recovery or jobs started outside the async parse tools.
 - `knowhere_list_documents`: list locally cached parse results.
+- `knowhere_delete_document`: archive, or soft-delete, a published Knowhere
+  document through the Knowhere API.
 - `knowhere_get_document_outline`: inspect a cached document outline.
 - `knowhere_read_chunks`: read exact chunks from a cached result.
 - `knowhere_grep_chunks`: run local literal or regex grep over cached chunks.
