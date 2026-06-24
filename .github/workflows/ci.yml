@@ -24,15 +24,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # Dependabot dev-tooling bumps should validate cleanly without forcing
       # a package release changeset.
@@ -46,25 +51,27 @@ jobs:
             startsWith(github.head_ref, 'dependabot/') &&
             startsWith(github.event.pull_request.title, 'chore(deps-dev):')
           )
-        run: npm run release:check-changeset -- origin/${{ github.base_ref }}
+        run: pnpm run release:check-changeset -- origin/${{ github.base_ref }}
 
       - name: Check formatting
-        run: npm run format:check
+        run: pnpm run format:check:all
 
       - name: Type check
-        run: npm run typecheck
+        run: pnpm run typecheck:all
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint:all
 
       - name: Run tests
-        run: npm run test:ci
+        run: pnpm run test:all
 
       - name: Build
-        run: npm run build
+        run: pnpm run build:all
 
       - name: Test package installation
         if: matrix.node-version == 22
         run: |
-          npm pack
-          npm install -g *.tgz
+          mkdir -p /tmp/knowhere-node-sdk-packages
+          pnpm pack --pack-destination /tmp/knowhere-node-sdk-packages
+          (cd packages/mcp && pnpm pack --pack-destination /tmp/knowhere-node-sdk-packages)
+          npm install -g /tmp/knowhere-node-sdk-packages/*.tgz

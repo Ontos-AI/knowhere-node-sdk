@@ -216,8 +216,7 @@ export async function createKnowhereMcpServer(
       },
       outputSchema: objectOutputSchema,
     },
-    async (input) =>
-      createToolResult(await archiveDocument({ client, knowledge, params: input })),
+    async (input) => createToolResult(await archiveDocument({ client, knowledge, params: input })),
   );
 
   server.registerTool(
@@ -371,9 +370,7 @@ async function resolveArchiveTarget(
     throw new Error(`Local Knowhere document not found: ${params.localDocumentId}`);
   }
   if (!document.documentId) {
-    throw new Error(
-      `Local Knowhere document has no server documentId: ${params.localDocumentId}`,
-    );
+    throw new Error(`Local Knowhere document has no server documentId: ${params.localDocumentId}`);
   }
 
   return {

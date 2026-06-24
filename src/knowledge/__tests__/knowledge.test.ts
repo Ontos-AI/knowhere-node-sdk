@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from 'fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -52,6 +52,27 @@ describe('Knowledge', () => {
     );
     await expectFileMissing(path.join(cacheDirectory, 'local-report.zip'));
     await expectFileMissing(path.join(cacheDirectory, 'documents', 'local-report', 'result.zip'));
+  });
+
+  it('should reject local document ids that resolve outside the cache', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const siblingDirectory = path.join(path.dirname(cacheDirectory), 'knowhere-victim');
+    const parseResult = createParseResult();
+    const { client } = createClient(parseResult);
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    tempDirectories.push(siblingDirectory);
+    await mkdir(siblingDirectory, { recursive: true });
+    await writeFile(path.join(siblingDirectory, 'sentinel.txt'), 'keep');
+
+    await expect(
+      knowledge.parse({
+        url: 'https://example.com/report.md',
+        localDocumentId: `../../${path.basename(siblingDirectory)}`,
+      }),
+    ).rejects.toThrow(/safe slug/);
+
+    await expectFileExists(path.join(siblingDirectory, 'sentinel.txt'));
   });
 
   it('should start async parses without waiting for results', async () => {

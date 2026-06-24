@@ -9,12 +9,7 @@ if (version.includes('-')) {
   throw new Error(`Stable publish expects a non-prerelease version, received ${version}`);
 }
 
-if (!releaseUtils.hasPublishedVersion(packageName, version)) {
-  // Keep the publish command plain so npm can use trusted publishing when configured.
-  releaseUtils.runCommand('npm', ['publish', '--access', 'public']);
-} else {
-  console.log(`${packageName}@${version} is already on npm, skipping npm publish`);
-}
+releaseUtils.publishWorkspacePackages();
 
 if (releaseUtils.doesGitHubReleaseExist(tagName)) {
   console.log(`GitHub release ${tagName} already exists, skipping release creation`);

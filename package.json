@@ -64,8 +64,8 @@
     "release:publish": "node ./scripts/publish-release.mjs",
     "release:version": "node ./scripts/release-version.mjs",
     "typecheck": "tsc --noEmit",
-    "typecheck:all": "pnpm --include-workspace-root -r typecheck",
-    "check:all": "pnpm --include-workspace-root -r lint && pnpm --include-workspace-root -r typecheck && pnpm --include-workspace-root -r exec vitest run",
+    "typecheck:all": "pnpm run build && pnpm --include-workspace-root -r typecheck",
+    "check:all": "pnpm run lint:all && pnpm run typecheck:all && pnpm run test:all",
     "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test:ci && pnpm run build"
   },
   "dependencies": {

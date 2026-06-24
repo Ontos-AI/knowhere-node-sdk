@@ -12,6 +12,7 @@ import type {
 } from './types.js';
 
 const STORE_VERSION = 1;
+const LOCAL_DOCUMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 interface StoredKnowledgeDocument {
   localDocumentId: string;
@@ -66,7 +67,9 @@ export class LocalKnowledgeStore {
     await fs.mkdir(this.cacheDirectory, { recursive: true });
     const now = new Date();
     const index = await this.readIndex();
-    const localDocumentId = options?.localDocumentId ?? createLocalDocumentId(result);
+    const localDocumentId = validateLocalDocumentId(
+      options?.localDocumentId ?? createLocalDocumentId(result),
+    );
     const resultDirectoryPath = this.getResultDirectoryPath(localDocumentId);
     await fs.rm(resultDirectoryPath, { recursive: true, force: true });
     await saveExpandedParseResult(result, resultDirectoryPath);
@@ -114,10 +117,13 @@ export class LocalKnowledgeStore {
   async saveAsyncParseJob(params: { jobId: string; localDocumentId?: string }): Promise<void> {
     const now = new Date().toISOString();
     const index = await this.readIndex();
+    const localDocumentId = params.localDocumentId
+      ? validateLocalDocumentId(params.localDocumentId)
+      : undefined;
     const existing = (index.asyncParseJobs ?? []).find((job) => job.jobId === params.jobId);
     const stored: StoredAsyncParseJob = {
       jobId: params.jobId,
-      localDocumentId: params.localDocumentId ?? existing?.localDocumentId,
+      localDocumentId: localDocumentId ?? existing?.localDocumentId,
       cacheStatus: existing?.cacheStatus ?? 'pending',
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -151,6 +157,9 @@ export class LocalKnowledgeStore {
     localDocumentId?: string;
   }): Promise<void> {
     const index = await this.readIndex();
+    const localDocumentId = params.localDocumentId
+      ? validateLocalDocumentId(params.localDocumentId)
+      : undefined;
     const existing = (index.asyncParseJobs ?? []).find((job) => job.jobId === params.jobId);
     if (!existing) {
       return;
@@ -159,7 +168,7 @@ export class LocalKnowledgeStore {
     const now = new Date().toISOString();
     const stored: StoredAsyncParseJob = {
       ...existing,
-      localDocumentId: params.localDocumentId ?? existing.localDocumentId,
+      localDocumentId: localDocumentId ?? existing.localDocumentId,
       cacheStatus: params.cacheStatus,
       updatedAt: now,
     };
@@ -180,6 +189,7 @@ export class LocalKnowledgeStore {
   }
 
   async getDocument(localDocumentId: string): Promise<LocalKnowledgeDocument | undefined> {
+    validateLocalDocumentId(localDocumentId);
     const index = await this.readIndex();
     const stored = index.documents.find((document) => document.localDocumentId === localDocumentId);
     return stored ? toLocalKnowledgeDocument(stored) : undefined;
@@ -207,7 +217,14 @@ export class LocalKnowledgeStore {
   }
 
   private getResultDirectoryPath(localDocumentId: string): string {
-    return path.join(this.cacheDirectory, 'documents', localDocumentId);
+    const documentsDirectory = path.resolve(this.cacheDirectory, 'documents');
+    const resultDirectoryPath = path.resolve(documentsDirectory, localDocumentId);
+
+    if (!isPathInsideDirectory(resultDirectoryPath, documentsDirectory)) {
+      throw new Error(`Local Knowhere document ID resolves outside the cache: ${localDocumentId}`);
+    }
+
+    return resultDirectoryPath;
   }
 
   private async loadStoredResult(document: LocalKnowledgeDocument): Promise<ParseResult> {
@@ -238,6 +255,27 @@ export class LocalKnowledgeStore {
     await fs.mkdir(this.cacheDirectory, { recursive: true });
     await fs.writeFile(this.indexPath, JSON.stringify(index, null, 2));
   }
+}
+
+function validateLocalDocumentId(localDocumentId: string): string {
+  if (
+    !LOCAL_DOCUMENT_ID_PATTERN.test(localDocumentId) ||
+    localDocumentId.includes('..') ||
+    path.basename(localDocumentId) !== localDocumentId
+  ) {
+    throw new Error(
+      'Local Knowhere document ID must be a safe slug containing only letters, numbers, dots, underscores, or hyphens',
+    );
+  }
+
+  return localDocumentId;
+}
+
+function isPathInsideDirectory(targetPath: string, parentDirectory: string): boolean {
+  const relativePath = path.relative(parentDirectory, targetPath);
+  return (
+    relativePath.length === 0 || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath))
+  );
 }
 
 function createLocalDocumentId(result: ParseResult): string {
