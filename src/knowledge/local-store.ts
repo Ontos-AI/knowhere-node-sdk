@@ -5,7 +5,11 @@ import path from 'path';
 
 import { parseResultBuffer } from '../lib/result-parser.js';
 import type { ParseResult } from '../types/index.js';
-import type { LocalKnowledgeDocument, KnowledgeChunkType } from './types.js';
+import type {
+  LocalKnowledgeDocument,
+  KnowledgeAsyncCacheStatus,
+  KnowledgeChunkType,
+} from './types.js';
 
 const STORE_VERSION = 1;
 
@@ -22,9 +26,18 @@ interface StoredKnowledgeDocument {
   updatedAt: string;
 }
 
+interface StoredAsyncParseJob {
+  jobId: string;
+  localDocumentId?: string;
+  cacheStatus: KnowledgeAsyncCacheStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface StoreIndex {
   version: number;
   documents: StoredKnowledgeDocument[];
+  asyncParseJobs?: StoredAsyncParseJob[];
 }
 
 export class LocalKnowledgeStore {
@@ -70,8 +83,78 @@ export class LocalKnowledgeStore {
       stored,
       ...index.documents.filter((document) => document.localDocumentId !== localDocumentId),
     ];
-    await this.writeIndex({ version: STORE_VERSION, documents: nextDocuments });
+    const asyncParseJobs = (index.asyncParseJobs ?? []).map((job) =>
+      job.jobId === result.jobId
+        ? {
+            ...job,
+            localDocumentId,
+            cacheStatus: 'cached' as const,
+            updatedAt: now.toISOString(),
+          }
+        : job,
+    );
+    await this.writeIndex({
+      version: STORE_VERSION,
+      documents: nextDocuments,
+      asyncParseJobs,
+    });
     return toLocalKnowledgeDocument(stored);
+  }
+
+  async saveAsyncParseJob(params: { jobId: string; localDocumentId?: string }): Promise<void> {
+    const now = new Date().toISOString();
+    const index = await this.readIndex();
+    const existing = (index.asyncParseJobs ?? []).find((job) => job.jobId === params.jobId);
+    const stored: StoredAsyncParseJob = {
+      jobId: params.jobId,
+      localDocumentId: params.localDocumentId ?? existing?.localDocumentId,
+      cacheStatus: existing?.cacheStatus ?? 'pending',
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    await this.writeIndex({
+      version: STORE_VERSION,
+      documents: index.documents,
+      asyncParseJobs: [
+        stored,
+        ...(index.asyncParseJobs ?? []).filter((job) => job.jobId !== params.jobId),
+      ],
+    });
+  }
+
+  async getAsyncParseJob(jobId: string): Promise<StoredAsyncParseJob | undefined> {
+    const index = await this.readIndex();
+    return (index.asyncParseJobs ?? []).find((job) => job.jobId === jobId);
+  }
+
+  async updateAsyncParseJobCacheStatus(params: {
+    jobId: string;
+    cacheStatus: KnowledgeAsyncCacheStatus;
+    localDocumentId?: string;
+  }): Promise<void> {
+    const index = await this.readIndex();
+    const existing = (index.asyncParseJobs ?? []).find((job) => job.jobId === params.jobId);
+    if (!existing) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const stored: StoredAsyncParseJob = {
+      ...existing,
+      localDocumentId: params.localDocumentId ?? existing.localDocumentId,
+      cacheStatus: params.cacheStatus,
+      updatedAt: now,
+    };
+
+    await this.writeIndex({
+      version: STORE_VERSION,
+      documents: index.documents,
+      asyncParseJobs: [
+        stored,
+        ...(index.asyncParseJobs ?? []).filter((job) => job.jobId !== params.jobId),
+      ],
+    });
   }
 
   async listDocuments(): Promise<LocalKnowledgeDocument[]> {
@@ -112,12 +195,16 @@ export class LocalKnowledgeStore {
       const raw = await fs.readFile(this.indexPath, 'utf8');
       const parsed = JSON.parse(raw) as StoreIndex;
       if (parsed.version !== STORE_VERSION || !Array.isArray(parsed.documents)) {
-        return { version: STORE_VERSION, documents: [] };
+        return { version: STORE_VERSION, documents: [], asyncParseJobs: [] };
       }
-      return parsed;
+      return {
+        version: STORE_VERSION,
+        documents: parsed.documents,
+        asyncParseJobs: Array.isArray(parsed.asyncParseJobs) ? parsed.asyncParseJobs : [],
+      };
     } catch (error) {
       if (isMissingFileError(error)) {
-        return { version: STORE_VERSION, documents: [] };
+        return { version: STORE_VERSION, documents: [], asyncParseJobs: [] };
       }
       throw error;
     }

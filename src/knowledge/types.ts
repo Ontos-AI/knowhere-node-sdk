@@ -47,8 +47,24 @@ export interface KnowledgeAsyncParseResponse {
   localDocumentId?: string;
 }
 
+export type KnowledgeAsyncCacheStatus =
+  | 'pending'
+  | 'cached'
+  | 'already_cached'
+  | 'untracked'
+  | 'not_available'
+  | 'failed';
+
+export interface KnowledgeAsyncCacheResult {
+  status: KnowledgeAsyncCacheStatus;
+  localDocumentId?: string;
+  document?: LocalKnowledgeDocument;
+  error?: string;
+}
+
 export interface KnowledgeAsyncJobStatusResponse {
   job: JobResult;
+  cache: KnowledgeAsyncCacheResult;
 }
 
 export interface KnowledgeCacheJobResultParams {

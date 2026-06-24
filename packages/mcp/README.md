@@ -31,8 +31,10 @@ knowledge cache by default.
   immediately.
 - `knowhere_async_parse_file`: start parsing a local file path, upload it if
   needed, and return the job immediately.
-- `knowhere_async_get_job_status`: check a parse job status.
-- `knowhere_async_cache_job_result`: cache a completed parse job result locally.
+- `knowhere_async_get_job_status`: check a parse job status; completed jobs
+  started by async parse tools are cached locally automatically.
+- `knowhere_async_cache_job_result`: manually cache a completed parse job result
+  locally, mainly for recovery or jobs started outside the async parse tools.
 - `knowhere_list_documents`: list locally cached parse results.
 - `knowhere_get_document_outline`: inspect a cached document outline.
 - `knowhere_read_chunks`: read exact chunks from a cached result.

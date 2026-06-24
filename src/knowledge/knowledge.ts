@@ -4,6 +4,7 @@ import { ValidationError } from '../errors/index.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
   IndexedKnowledgeChunk,
+  KnowledgeAsyncCacheResult,
   KnowledgeAsyncJobStatusResponse,
   KnowledgeAsyncParseParams,
   KnowledgeAsyncParseResponse,
@@ -55,6 +56,10 @@ export class Knowledge {
 
   async startParse(params: KnowledgeAsyncParseParams): Promise<KnowledgeAsyncParseResponse> {
     const job = await this.client.startParse(params);
+    await this.store.saveAsyncParseJob({
+      jobId: job.jobId,
+      localDocumentId: params.localDocumentId,
+    });
     return {
       job,
       localDocumentId: params.localDocumentId,
@@ -62,8 +67,10 @@ export class Knowledge {
   }
 
   async getJobStatus(jobId: string): Promise<KnowledgeAsyncJobStatusResponse> {
+    const job = await this.client.jobs.get(jobId);
     return {
-      job: await this.client.jobs.get(jobId),
+      job,
+      cache: await this.resolveAsyncCache(jobId, job.isDone, job.isFailed),
     };
   }
 
@@ -77,6 +84,68 @@ export class Knowledge {
       localDocumentId: params.localDocumentId,
     });
     return { document, result };
+  }
+
+  private async resolveAsyncCache(
+    jobId: string,
+    isDone: boolean,
+    isFailed: boolean,
+  ): Promise<KnowledgeAsyncCacheResult> {
+    const trackedJob = await this.store.getAsyncParseJob(jobId);
+    if (!trackedJob) {
+      return { status: 'untracked' };
+    }
+
+    if (trackedJob.cacheStatus === 'cached' && trackedJob.localDocumentId) {
+      const existingDocument = await this.store.getDocument(trackedJob.localDocumentId);
+      if (existingDocument) {
+        return {
+          status: 'already_cached',
+          localDocumentId: trackedJob.localDocumentId,
+          document: existingDocument,
+        };
+      }
+    }
+
+    if (isFailed) {
+      await this.store.updateAsyncParseJobCacheStatus({
+        jobId,
+        cacheStatus: 'failed',
+      });
+      return {
+        status: 'failed',
+        localDocumentId: trackedJob.localDocumentId,
+      };
+    }
+
+    if (!isDone) {
+      return {
+        status: 'pending',
+        localDocumentId: trackedJob.localDocumentId,
+      };
+    }
+
+    try {
+      const cached = await this.cacheJobResult({
+        jobId,
+        localDocumentId: trackedJob.localDocumentId,
+      });
+      return {
+        status: 'cached',
+        localDocumentId: cached.document.localDocumentId,
+        document: cached.document,
+      };
+    } catch (error) {
+      await this.store.updateAsyncParseJobCacheStatus({
+        jobId,
+        cacheStatus: 'not_available',
+      });
+      return {
+        status: 'not_available',
+        localDocumentId: trackedJob.localDocumentId,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async listDocuments(): Promise<LocalKnowledgeDocument[]> {

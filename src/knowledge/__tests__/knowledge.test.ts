@@ -60,7 +60,7 @@ describe('Knowledge', () => {
     });
     expect(response).toEqual({
       job: {
-        jobId: 'job-async',
+        jobId: 'job-1',
         status: 'waiting-file',
         sourceType: 'file',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -69,28 +69,52 @@ describe('Knowledge', () => {
     });
   });
 
-  it('should fetch async job status and cache completed job results', async () => {
+  it('should auto-cache completed async job results while fetching status', async () => {
     const cacheDirectory = await createTempDirectory();
     const { client, jobsGet, jobsLoad } = createClient(createParseResult());
     const knowledge = new Knowledge(client, { cacheDirectory });
 
-    const status = await knowledge.getJobStatus('job-1');
-    const cached = await knowledge.cacheJobResult({
-      jobId: 'job-1',
+    await knowledge.startParse({
+      url: 'https://example.com/report.md',
       localDocumentId: 'local-report',
-      verifyChecksum: false,
     });
+    const status = await knowledge.getJobStatus('job-1');
+    const secondStatus = await knowledge.getJobStatus('job-1');
     const documents = await knowledge.listDocuments();
 
     expect(jobsGet).toHaveBeenCalledWith('job-1');
-    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: false });
+    expect(jobsLoad).toHaveBeenCalledOnce();
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: undefined });
     expect(status.job).toMatchObject({
       jobId: 'job-1',
       status: 'done',
       isDone: true,
     });
-    expect(cached.document.localDocumentId).toBe('local-report');
+    expect(status.cache).toMatchObject({
+      status: 'cached',
+      localDocumentId: 'local-report',
+    });
+    expect(status.cache.document?.localDocumentId).toBe('local-report');
+    expect(secondStatus.cache).toMatchObject({
+      status: 'already_cached',
+      localDocumentId: 'local-report',
+    });
     expect(documents).toHaveLength(1);
+  });
+
+  it('should still allow manual completed job result caching', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const cached = await knowledge.cacheJobResult({
+      jobId: 'job-1',
+      localDocumentId: 'local-report',
+      verifyChecksum: false,
+    });
+
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: false });
+    expect(cached.document.localDocumentId).toBe('local-report');
   });
 
   it('should build outline and range reads from the local parse result', async () => {
@@ -216,7 +240,7 @@ function createClient(parseResult: ParseResult): {
 } {
   const parse = vi.fn().mockResolvedValue(parseResult);
   const startParse = vi.fn().mockResolvedValue({
-    jobId: 'job-async',
+    jobId: 'job-1',
     status: 'waiting-file',
     sourceType: 'file',
     createdAt: new Date('2026-01-01T00:00:00.000Z'),

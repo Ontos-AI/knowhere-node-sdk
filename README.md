@@ -317,13 +317,16 @@ const started = await client.knowledge.startParse({
 
 const status = await client.knowledge.getJobStatus(started.job.jobId);
 
-if (status.job.isDone) {
-  await client.knowledge.cacheJobResult({
-    jobId: started.job.jobId,
-    localDocumentId: started.localDocumentId,
-  });
+if (status.job.isDone && status.cache.document) {
+  console.log(status.cache.document.localDocumentId);
 }
 ```
+
+When the job was started through `client.knowledge.startParse(...)`,
+`getJobStatus(...)` automatically caches the completed result locally the first
+time it observes `status.job.isDone`. Use `cacheJobResult(...)` only to recover a
+completed job that was not started through the local knowledge helper, or to
+retry a cache step explicitly.
 
 Follow-up queries can exclude documents or sections for one request:
 

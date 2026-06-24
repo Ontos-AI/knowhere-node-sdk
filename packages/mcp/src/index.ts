@@ -102,7 +102,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
     'knowhere_async_parse_url',
     {
       description:
-        'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status, then cache completed results with knowhere_async_cache_job_result.',
+        'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
       inputSchema: {
         url: z.string().url(),
         namespace: z.string().optional(),
@@ -128,7 +128,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
     'knowhere_async_parse_file',
     {
       description:
-        'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status, then cache completed results with knowhere_async_cache_job_result.',
+        'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
       inputSchema: {
         file: z.string().describe('Local file path available to this MCP server process.'),
         fileName: z.string().optional(),
@@ -156,7 +156,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
     'knowhere_async_get_job_status',
     {
       description:
-        'Fetch the current status for a Knowhere parse job started by an async parse tool.',
+        'Fetch the current status for a Knowhere parse job. If the job was started by an async parse tool and is done, this also caches the result locally for outline/read/grep/search.',
       inputSchema: {
         jobId: z.string(),
       },
@@ -169,7 +169,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
     'knowhere_async_cache_job_result',
     {
       description:
-        'Load a completed Knowhere parse job result and cache it locally so outline/read/grep/search tools can inspect it.',
+        'Manually load a completed Knowhere parse job result and cache it locally. Usually not needed for jobs started by async parse tools because knowhere_async_get_job_status auto-caches them when done.',
       inputSchema: {
         jobId: z.string(),
         localDocumentId: z.string().optional(),

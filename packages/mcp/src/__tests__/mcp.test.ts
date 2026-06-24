@@ -150,6 +150,13 @@ describe('knowhere MCP wrapper', () => {
     });
     expect(statusResponse.structuredContent).toEqual({
       result: {
+        cache: {
+          document: {
+            localDocumentId: 'local-report',
+          },
+          localDocumentId: 'local-report',
+          status: 'cached',
+        },
         job: {
           jobId: 'job-async',
           status: 'done',
@@ -211,6 +218,11 @@ function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
     }),
     getJobStatus: vi.fn().mockResolvedValue({
       job: { jobId: 'job-async', status: 'done' },
+      cache: {
+        status: 'cached',
+        localDocumentId: 'local-report',
+        document: { localDocumentId: 'local-report' },
+      },
     }),
     cacheJobResult: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
