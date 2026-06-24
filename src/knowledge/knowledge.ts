@@ -22,6 +22,7 @@ import type {
   KnowledgeSearchResponse,
   KnowledgeSearchResult,
   KnowledgeSection,
+  KnowledgeStartupRecoveryResponse,
   KnowledgeChunkType,
   LocalKnowledgeDocument,
   LocalKnowledgeParseResponse,
@@ -71,6 +72,18 @@ export class Knowledge {
     return {
       job,
       cache: await this.resolveAsyncCache(jobId, job.isDone, job.isFailed),
+    };
+  }
+
+  async recoverPendingAsyncParseJobs(): Promise<KnowledgeStartupRecoveryResponse> {
+    const jobs = await this.store.listRecoverableAsyncParseJobs();
+    const results: KnowledgeAsyncJobStatusResponse[] = [];
+    for (const job of jobs) {
+      results.push(await this.getJobStatus(job.jobId));
+    }
+    return {
+      checkedJobs: jobs.length,
+      results,
     };
   }
 

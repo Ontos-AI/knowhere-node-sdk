@@ -34,6 +34,14 @@ interface StoredAsyncParseJob {
   updatedAt: string;
 }
 
+export interface LocalKnowledgeAsyncParseJob {
+  jobId: string;
+  localDocumentId?: string;
+  cacheStatus: KnowledgeAsyncCacheStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface StoreIndex {
   version: number;
   documents: StoredKnowledgeDocument[];
@@ -126,6 +134,13 @@ export class LocalKnowledgeStore {
   async getAsyncParseJob(jobId: string): Promise<StoredAsyncParseJob | undefined> {
     const index = await this.readIndex();
     return (index.asyncParseJobs ?? []).find((job) => job.jobId === jobId);
+  }
+
+  async listRecoverableAsyncParseJobs(): Promise<LocalKnowledgeAsyncParseJob[]> {
+    const index = await this.readIndex();
+    return (index.asyncParseJobs ?? [])
+      .filter((job) => job.cacheStatus === 'pending' || job.cacheStatus === 'not_available')
+      .map(toLocalKnowledgeAsyncParseJob);
   }
 
   async updateAsyncParseJobCacheStatus(params: {
@@ -237,6 +252,14 @@ function countChunkTypes(result: ParseResult): Record<KnowledgeChunkType, number
 }
 
 function toLocalKnowledgeDocument(stored: StoredKnowledgeDocument): LocalKnowledgeDocument {
+  return {
+    ...stored,
+    createdAt: new Date(stored.createdAt),
+    updatedAt: new Date(stored.updatedAt),
+  };
+}
+
+function toLocalKnowledgeAsyncParseJob(stored: StoredAsyncParseJob): LocalKnowledgeAsyncParseJob {
   return {
     ...stored,
     createdAt: new Date(stored.createdAt),

@@ -20,6 +20,7 @@ export type {
   KnowledgeSearchResponse,
   KnowledgeSearchResult,
   KnowledgeSection,
+  KnowledgeStartupRecoveryResponse,
   LocalKnowledgeDocument,
   LocalKnowledgeParseResponse,
 } from './types.js';

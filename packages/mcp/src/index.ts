@@ -31,14 +31,20 @@ const objectOutputSchema = {
 export interface KnowhereMcpServerOptions {
   client?: Knowhere;
   cacheDirectory?: string;
+  recoverPendingJobsOnStart?: boolean;
 }
 
-export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): McpServer {
+export async function createKnowhereMcpServer(
+  options?: KnowhereMcpServerOptions,
+): Promise<McpServer> {
   const client = options?.client ?? new Knowhere();
   const knowledge: Knowledge =
     options?.cacheDirectory === undefined
       ? client.knowledge
       : client.knowledge.withCacheDirectory(options.cacheDirectory);
+  if (options?.recoverPendingJobsOnStart !== false) {
+    await knowledge.recoverPendingAsyncParseJobs();
+  }
   const server = new McpServer({
     name: 'knowhere-local-knowledge',
     version: VERSION,
@@ -268,7 +274,7 @@ export function createKnowhereMcpServer(options?: KnowhereMcpServerOptions): Mcp
 }
 
 export async function runKnowhereMcpServer(options?: KnowhereMcpServerOptions): Promise<void> {
-  const server = createKnowhereMcpServer(options);
+  const server = await createKnowhereMcpServer(options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

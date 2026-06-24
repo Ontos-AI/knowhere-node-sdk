@@ -74,6 +74,7 @@ export type {
   KnowledgeSearchReference,
   KnowledgeSearchResponse,
   KnowledgeSearchResult,
+  KnowledgeStartupRecoveryResponse,
 } from './types/index.js';
 
 // Errors

@@ -186,7 +186,18 @@ describe('knowhere MCP wrapper', () => {
     expect(knowhereClient.knowledge.withCacheDirectory).toHaveBeenCalledWith(
       '/tmp/knowhere-mcp-cache',
     );
+    expect(knowhereClient.knowledge.recoverPendingAsyncParseJobs).toHaveBeenCalledOnce();
     expect(knowhereClient.knowledge.listDocuments).toHaveBeenCalledOnce();
+    await client.close();
+    await server.close();
+  });
+
+  it('should recover pending async parse jobs when the MCP server starts', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    expect(knowhereClient.knowledge.recoverPendingAsyncParseJobs).toHaveBeenCalledOnce();
+
     await client.close();
     await server.close();
   });
@@ -197,9 +208,9 @@ async function connectTestClient(
   cacheDirectory?: string,
 ): Promise<{
   client: Client;
-  server: ReturnType<typeof createKnowhereMcpServer>;
+  server: Awaited<ReturnType<typeof createKnowhereMcpServer>>;
 }> {
-  const server = createKnowhereMcpServer({ client: knowhereClient, cacheDirectory });
+  const server = await createKnowhereMcpServer({ client: knowhereClient, cacheDirectory });
   const client = new Client({ name: 'knowhere-mcp-test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -227,6 +238,10 @@ function createClient(): Knowhere & { knowledge: KnowledgeWithMocks } {
     cacheJobResult: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
     }),
+    recoverPendingAsyncParseJobs: vi.fn().mockResolvedValue({
+      checkedJobs: 0,
+      results: [],
+    }),
     listDocuments: vi.fn().mockResolvedValue([]),
     getDocumentOutline: vi.fn().mockResolvedValue({ sections: [] }),
     readChunks: vi.fn().mockResolvedValue({ chunks: [] }),
@@ -247,6 +262,7 @@ type KnowledgeWithMocks = Pick<
   | 'startParse'
   | 'getJobStatus'
   | 'cacheJobResult'
+  | 'recoverPendingAsyncParseJobs'
   | 'listDocuments'
   | 'getDocumentOutline'
   | 'readChunks'
@@ -258,6 +274,7 @@ type KnowledgeWithMocks = Pick<
   startParse: Mock<Knowledge['startParse']>;
   getJobStatus: Mock<Knowledge['getJobStatus']>;
   cacheJobResult: Mock<Knowledge['cacheJobResult']>;
+  recoverPendingAsyncParseJobs: Mock<Knowledge['recoverPendingAsyncParseJobs']>;
   listDocuments: Mock<Knowledge['listDocuments']>;
   getDocumentOutline: Mock<Knowledge['getDocumentOutline']>;
   readChunks: Mock<Knowledge['readChunks']>;

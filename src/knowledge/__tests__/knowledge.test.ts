@@ -117,6 +117,33 @@ describe('Knowledge', () => {
     expect(cached.document.localDocumentId).toBe('local-report');
   });
 
+  it('should recover and cache pending async parse jobs on startup', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, jobsGet, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    await knowledge.startParse({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
+    await knowledge.startParse({
+      url: 'https://example.com/other-report.md',
+      localDocumentId: 'local-other-report',
+    });
+
+    const recovered = await knowledge.recoverPendingAsyncParseJobs();
+    const documents = await knowledge.listDocuments();
+
+    expect(recovered.checkedJobs).toBe(2);
+    expect(recovered.results.map((result) => result.cache.status)).toEqual(['cached', 'cached']);
+    expect(jobsGet).toHaveBeenCalledTimes(2);
+    expect(jobsLoad).toHaveBeenCalledTimes(2);
+    expect(documents.map((document) => document.localDocumentId).sort()).toEqual([
+      'local-other-report',
+      'local-report',
+    ]);
+  });
+
   it('should build outline and range reads from the local parse result', async () => {
     const knowledge = await createKnowledgeWithCachedResult();
 
@@ -239,23 +266,39 @@ function createClient(parseResult: ParseResult): {
   jobsLoad: ReturnType<typeof vi.fn>;
 } {
   const parse = vi.fn().mockResolvedValue(parseResult);
-  const startParse = vi.fn().mockResolvedValue({
-    jobId: 'job-1',
-    status: 'waiting-file',
-    sourceType: 'file',
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  let startedJobCount = 0;
+  const startParse = vi.fn().mockImplementation(() => {
+    startedJobCount += 1;
+    return Promise.resolve({
+      jobId: startedJobCount === 1 ? 'job-1' : `job-${startedJobCount}`,
+      status: 'waiting-file',
+      sourceType: 'file',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
   });
-  const jobsGet = vi.fn().mockResolvedValue({
-    jobId: 'job-1',
-    status: 'done',
-    sourceType: 'url',
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    resultUrl: 'https://example.com/result.zip',
-    isTerminal: true,
-    isDone: true,
-    isFailed: false,
-  });
-  const jobsLoad = vi.fn().mockResolvedValue(parseResult);
+  const jobsGet = vi.fn().mockImplementation((jobId: string) =>
+    Promise.resolve({
+      jobId,
+      status: 'done',
+      sourceType: 'url',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      resultUrl: 'https://example.com/result.zip',
+      isTerminal: true,
+      isDone: true,
+      isFailed: false,
+    }),
+  );
+  const jobsLoad = vi.fn().mockImplementation((jobId: string) =>
+    Promise.resolve({
+      ...parseResult,
+      jobId,
+      manifest: {
+        ...parseResult.manifest,
+        jobId,
+        sourceFileName: `${jobId}.md`,
+      },
+    }),
+  );
   return {
     client: {
       parse,

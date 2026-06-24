@@ -67,6 +67,11 @@ export interface KnowledgeAsyncJobStatusResponse {
   cache: KnowledgeAsyncCacheResult;
 }
 
+export interface KnowledgeStartupRecoveryResponse {
+  checkedJobs: number;
+  results: KnowledgeAsyncJobStatusResponse[];
+}
+
 export interface KnowledgeCacheJobResultParams {
   jobId: string;
   localDocumentId?: string;
