@@ -43,7 +43,6 @@ describe('Knowledge', () => {
     expect(response.document.resultDirectoryPath).toBe(
       path.join(cacheDirectory, 'documents', 'local-report'),
     );
-    expect(response.document.resultZipPath).toBeUndefined();
     expect(documents).toHaveLength(1);
     expect(documents[0]?.sourceFileName).toBe('report.md');
     await expectFileExists(path.join(cacheDirectory, 'documents', 'local-report', 'manifest.json'));

@@ -3,11 +3,7 @@ import os from 'os';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-import {
-  parseResultBuffer,
-  parseResultDirectory,
-  saveExpandedParseResult,
-} from '../lib/result-parser.js';
+import { parseResultDirectory, saveExpandedParseResult } from '../lib/result-parser.js';
 import type { ParseResult } from '../types/index.js';
 import type {
   LocalKnowledgeDocument,
@@ -25,8 +21,7 @@ interface StoredKnowledgeDocument {
   sourceFileName: string;
   chunkCount: number;
   typeCounts: Record<KnowledgeChunkType, number>;
-  resultDirectoryPath?: string;
-  resultZipPath?: string;
+  resultDirectoryPath: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,9 +75,6 @@ export class LocalKnowledgeStore {
     const existing = index.documents.find(
       (document) => document.localDocumentId === localDocumentId,
     );
-    if (existing?.resultZipPath) {
-      await fs.rm(existing.resultZipPath, { force: true });
-    }
 
     const stored: StoredKnowledgeDocument = {
       localDocumentId,
@@ -219,58 +211,7 @@ export class LocalKnowledgeStore {
   }
 
   private async loadStoredResult(document: LocalKnowledgeDocument): Promise<ParseResult> {
-    if (document.resultDirectoryPath) {
-      return parseResultDirectory(document.resultDirectoryPath);
-    }
-
-    if (document.resultZipPath) {
-      return this.migrateLegacyZipResult(document);
-    }
-
-    throw new Error(
-      `Local Knowhere document has no cached result path: ${document.localDocumentId}`,
-    );
-  }
-
-  private async migrateLegacyZipResult(document: LocalKnowledgeDocument): Promise<ParseResult> {
-    if (!document.resultZipPath) {
-      throw new Error(
-        `Local Knowhere document has no legacy ZIP path: ${document.localDocumentId}`,
-      );
-    }
-
-    const zipBuffer = await fs.readFile(document.resultZipPath);
-    const result = await parseResultBuffer(zipBuffer);
-    const resultDirectoryPath = this.getResultDirectoryPath(document.localDocumentId);
-    await fs.rm(resultDirectoryPath, { recursive: true, force: true });
-    await saveExpandedParseResult(result, resultDirectoryPath);
-    await fs.rm(document.resultZipPath, { force: true });
-    await this.replaceStoredDocumentPath({
-      localDocumentId: document.localDocumentId,
-      resultDirectoryPath,
-    });
-    return result;
-  }
-
-  private async replaceStoredDocumentPath(params: {
-    localDocumentId: string;
-    resultDirectoryPath: string;
-  }): Promise<void> {
-    const index = await this.readIndex();
-    await this.writeIndex({
-      version: STORE_VERSION,
-      documents: index.documents.map((stored) =>
-        stored.localDocumentId === params.localDocumentId
-          ? {
-              ...stored,
-              resultDirectoryPath: params.resultDirectoryPath,
-              resultZipPath: undefined,
-              updatedAt: new Date().toISOString(),
-            }
-          : stored,
-      ),
-      asyncParseJobs: index.asyncParseJobs ?? [],
-    });
+    return parseResultDirectory(document.resultDirectoryPath);
   }
 
   private async readIndex(): Promise<StoreIndex> {
@@ -329,7 +270,6 @@ function toLocalKnowledgeDocument(stored: StoredKnowledgeDocument): LocalKnowled
     chunkCount: stored.chunkCount,
     typeCounts: stored.typeCounts,
     resultDirectoryPath: stored.resultDirectoryPath,
-    resultZipPath: stored.resultZipPath,
     createdAt: new Date(stored.createdAt),
     updatedAt: new Date(stored.updatedAt),
   };
