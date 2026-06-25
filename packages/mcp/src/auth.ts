@@ -6,20 +6,44 @@ import path from 'path';
 import { mkdir, readFile, rm, writeFile, chmod } from 'fs/promises';
 import { ValidationError } from '@ontos-ai/knowhere-sdk';
 
-const DEFAULT_DASHBOARD_URL = 'https://knowhereto.ai';
+const DEFAULT_BASE_URL = 'https://knowhereto.ai';
 const AUTH_FILE_ENV = 'KNOWHERE_MCP_AUTH_FILE';
-const DASHBOARD_URL_ENV = 'KNOWHERE_DASHBOARD_URL';
-const API_BASE_URL_ENV = 'KNOWHERE_BASE_URL';
+const BASE_URL_ENV = 'KNOWHERE_BASE_URL';
 const API_KEY_ENV = 'KNOWHERE_API_KEY';
 const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const RANDOM_BYTE_LENGTH = 32;
-const DEFAULT_CLIENT_NAME = 'knowhere-cli';
+const DEFAULT_CLIENT_NAME = 'knowhere-mcp';
 
 export type Permission = 'read_only' | 'full_access';
 
 const DEFAULT_PERMISSION: Permission = 'full_access';
 const PERMISSION_VALUES = new Set<Permission>(['read_only', 'full_access']);
+
+/** Knowhere URLs derived from a single site base origin. */
+interface McpUrls {
+  readonly base: string;
+  readonly api: string;
+  readonly mcpLogin: string;
+  readonly token: string;
+  readonly revoke: string;
+}
+
+/**
+ * Resolve every Knowhere URL from a single site base origin. The API and OAuth
+ * routes hang off the base so callers configure one value; point it at
+ * https://staging.knowhereto.ai to target staging.
+ */
+function resolveMcpUrls(base: string): McpUrls {
+  const normalized = base.replace(/\/+$/, '');
+  return {
+    base: normalized,
+    api: `${normalized}/api`,
+    mcpLogin: `${normalized}/mcp/login`,
+    token: `${normalized}/api/oauth/token`,
+    revoke: `${normalized}/api/oauth/revoke`,
+  };
+}
 
 type TokenResponse = {
   accessToken: string;
@@ -31,8 +55,7 @@ type TokenResponse = {
 };
 
 type StoredMcpAuth = {
-  dashboardUrl: string;
-  apiBaseUrl?: string;
+  baseUrl: string;
   permission: Permission;
   refreshToken: string;
   refreshTokenExpiresAt?: string;
@@ -45,16 +68,14 @@ type StoredMcpAuth = {
 export type McpAuthStatus = {
   source: 'api_key' | 'stored_login' | 'none';
   authFilePath: string;
-  dashboardUrl?: string;
-  apiBaseUrl?: string;
+  baseUrl?: string;
   permission?: Permission;
   refreshTokenExpiresAt?: string;
   accessTokenExpiresAt?: string;
 };
 
 export type McpLoginOptions = {
-  dashboardUrl?: string;
-  baseURL?: string;
+  baseUrl?: string;
   authFilePath?: string;
   openBrowser?: boolean;
   clientName?: string;
@@ -63,8 +84,7 @@ export type McpLoginOptions = {
 
 export type McpLoginResult = {
   authFilePath: string;
-  dashboardUrl: string;
-  apiBaseUrl?: string;
+  baseUrl: string;
   permission: Permission;
   refreshTokenExpiresAt?: string;
 };
@@ -92,7 +112,7 @@ export class McpCredentialManager {
       return {
         source: 'api_key',
         authFilePath: this.authFilePath,
-        apiBaseUrl: process.env[API_BASE_URL_ENV],
+        baseUrl: process.env[BASE_URL_ENV],
         permission: DEFAULT_PERMISSION,
       };
     }
@@ -105,8 +125,7 @@ export class McpCredentialManager {
     return {
       source: 'stored_login',
       authFilePath: this.authFilePath,
-      dashboardUrl: storedAuth.dashboardUrl,
-      apiBaseUrl: process.env[API_BASE_URL_ENV] ?? storedAuth.apiBaseUrl,
+      baseUrl: process.env[BASE_URL_ENV] ?? storedAuth.baseUrl,
       permission: storedAuth.permission,
       refreshTokenExpiresAt: storedAuth.refreshTokenExpiresAt,
       accessTokenExpiresAt: storedAuth.accessTokenExpiresAt,
@@ -139,10 +158,10 @@ export class McpCredentialManager {
   }
 
   async login(options: McpLoginOptions = {}): Promise<McpLoginResult> {
-    const dashboardUrl = normalizeDashboardUrl(
-      options.dashboardUrl ?? process.env[DASHBOARD_URL_ENV] ?? DEFAULT_DASHBOARD_URL,
+    const baseUrl = normalizeBaseUrl(
+      options.baseUrl ?? process.env[BASE_URL_ENV] ?? DEFAULT_BASE_URL,
     );
-    const apiBaseUrl = options.baseURL ?? process.env[API_BASE_URL_ENV];
+    const urls = resolveMcpUrls(baseUrl);
     const codeVerifier = createRandomToken();
     const state = createRandomToken();
     const codeChallenge = createPkceChallenge(codeVerifier);
@@ -150,7 +169,7 @@ export class McpCredentialManager {
 
     try {
       const loginUrl = buildLoginUrl({
-        dashboardUrl,
+        loginEndpoint: urls.mcpLogin,
         redirectUri: callback.redirectUri,
         state,
         codeChallenge,
@@ -163,15 +182,14 @@ export class McpCredentialManager {
       }
 
       const code = await callback.waitForCode();
-      const tokenResponse = await requestToken(dashboardUrl, {
+      const tokenResponse = await requestToken(urls.token, {
         grant_type: 'authorization_code',
         code,
         code_verifier: codeVerifier,
         client_name: options.clientName ?? DEFAULT_CLIENT_NAME,
       });
       const storedAuth = buildStoredAuth({
-        dashboardUrl,
-        apiBaseUrl,
+        baseUrl,
         tokenResponse,
         previous: await this.readAuth(),
       });
@@ -179,8 +197,7 @@ export class McpCredentialManager {
 
       return {
         authFilePath: this.authFilePath,
-        dashboardUrl,
-        apiBaseUrl,
+        baseUrl,
         permission: tokenResponse.permission,
         refreshTokenExpiresAt: tokenResponse.refreshTokenExpiresAt,
       };
@@ -195,7 +212,7 @@ export class McpCredentialManager {
 
     if (storedAuth) {
       try {
-        await requestRevoke(storedAuth.dashboardUrl, storedAuth.refreshToken);
+        await requestRevoke(resolveMcpUrls(storedAuth.baseUrl).revoke, storedAuth.refreshToken);
       } catch (error: unknown) {
         revokeError = error instanceof Error ? error.message : 'Failed to revoke MCP login';
       }
@@ -211,17 +228,21 @@ export class McpCredentialManager {
   }
 
   async resolveBaseURL(): Promise<string | undefined> {
-    return process.env[API_BASE_URL_ENV] ?? (await this.readAuth())?.apiBaseUrl;
+    const envBase = process.env[BASE_URL_ENV];
+    if (envBase) {
+      return resolveMcpUrls(envBase).api;
+    }
+    const storedAuth = await this.readAuth();
+    return storedAuth ? resolveMcpUrls(storedAuth.baseUrl).api : undefined;
   }
 
   private async refreshAccessToken(storedAuth: StoredMcpAuth): Promise<string> {
-    const tokenResponse = await requestToken(storedAuth.dashboardUrl, {
+    const tokenResponse = await requestToken(resolveMcpUrls(storedAuth.baseUrl).token, {
       grant_type: 'refresh_token',
       refresh_token: storedAuth.refreshToken,
     });
     const refreshedAuth = buildStoredAuth({
-      dashboardUrl: storedAuth.dashboardUrl,
-      apiBaseUrl: storedAuth.apiBaseUrl,
+      baseUrl: storedAuth.baseUrl,
       tokenResponse,
       previous: storedAuth,
     });
@@ -268,13 +289,11 @@ function isUsableAccessToken(storedAuth: StoredMcpAuth): storedAuth is StoredMcp
 }
 
 function buildStoredAuth({
-  dashboardUrl,
-  apiBaseUrl,
+  baseUrl,
   tokenResponse,
   previous,
 }: {
-  dashboardUrl: string;
-  apiBaseUrl?: string;
+  baseUrl: string;
   tokenResponse: TokenResponse;
   previous?: StoredMcpAuth;
 }): StoredMcpAuth {
@@ -289,8 +308,7 @@ function buildStoredAuth({
   }
 
   return {
-    dashboardUrl,
-    apiBaseUrl,
+    baseUrl,
     permission: tokenResponse.permission,
     refreshToken,
     refreshTokenExpiresAt: tokenResponse.refreshTokenExpiresAt ?? previous?.refreshTokenExpiresAt,
@@ -306,14 +324,13 @@ function parseStoredAuth(value: unknown): StoredMcpAuth {
     throw new Error('Invalid Knowhere MCP auth file');
   }
 
-  const dashboardUrl = readRequiredString(value, 'dashboardUrl');
+  const baseUrl = readRequiredString(value, 'baseUrl');
   const refreshToken = readRequiredString(value, 'refreshToken');
   const createdAt = readRequiredString(value, 'createdAt');
   const updatedAt = readRequiredString(value, 'updatedAt');
 
   return {
-    dashboardUrl,
-    apiBaseUrl: readOptionalString(value, 'apiBaseUrl'),
+    baseUrl,
     permission: normalizePermission(readOptionalString(value, 'permission')),
     refreshToken,
     refreshTokenExpiresAt: readOptionalString(value, 'refreshTokenExpiresAt'),
@@ -353,19 +370,19 @@ function createPkceChallenge(codeVerifier: string): string {
 }
 
 function buildLoginUrl({
-  dashboardUrl,
+  loginEndpoint,
   redirectUri,
   state,
   codeChallenge,
   clientName,
 }: {
-  dashboardUrl: string;
+  loginEndpoint: string;
   redirectUri: string;
   state: string;
   codeChallenge: string;
   clientName: string;
 }): string {
-  const url = new URL('/mcp/login', dashboardUrl);
+  const url = new URL(loginEndpoint);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', codeChallenge);
@@ -487,10 +504,10 @@ function handleCallbackRequest({
 }
 
 async function requestToken(
-  dashboardUrl: string,
+  tokenUrl: string,
   body: Record<string, string>,
 ): Promise<TokenResponse> {
-  const response = await fetch(new URL('/api/mcp/token', dashboardUrl), {
+  const response = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -504,8 +521,8 @@ async function requestToken(
   return parseTokenResponse(responseBody);
 }
 
-async function requestRevoke(dashboardUrl: string, refreshToken: string): Promise<void> {
-  const response = await fetch(new URL('/api/mcp/revoke', dashboardUrl), {
+async function requestRevoke(revokeUrl: string, refreshToken: string): Promise<void> {
+  const response = await fetch(revokeUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -558,12 +575,12 @@ function getResponseMessage(responseBody: unknown, fallback: string): string {
   return fallback;
 }
 
-function normalizeDashboardUrl(value: string): string {
+function normalizeBaseUrl(value: string): string {
   const url = new URL(value);
   url.pathname = '/';
   url.search = '';
   url.hash = '';
-  return url.toString();
+  return url.toString().replace(/\/+$/, '');
 }
 
 function normalizePermission(value: string | undefined): Permission {

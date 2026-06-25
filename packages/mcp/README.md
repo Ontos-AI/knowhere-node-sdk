@@ -41,10 +41,12 @@ npx -y @ontos-ai/knowhere-mcp logout
 
 `knowhere-mcp status` shows the stored Permission for the current login.
 
-Set `KNOWHERE_DASHBOARD_URL` when logging in through a non-default dashboard.
-Set `KNOWHERE_BASE_URL` only when using a non-default Knowhere API endpoint.
-`KNOWHERE_API_KEY` is still supported as a manual fallback and takes precedence
-over the local dashboard login. API-key authentication runs with full access.
+Set `KNOWHERE_BASE_URL` (or `--base-url`) to the Knowhere site base URL when
+using a non-default environment, e.g. `https://staging.knowhereto.ai`; it
+defaults to `https://knowhereto.ai`. The API and login routes are derived from
+it. `KNOWHERE_API_KEY` is still supported as a manual fallback and takes
+precedence over the local dashboard login. API-key authentication runs with
+full access.
 
 ## Connect From MCP Hosts
 
