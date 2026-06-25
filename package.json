@@ -1,6 +1,6 @@
 {
   "name": "@ontos-ai/knowhere-sdk",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Official Node.js SDK for Knowhere document parsing API",
   "keywords": [
     "knowhere",

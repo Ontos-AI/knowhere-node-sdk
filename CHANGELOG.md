@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- [#93](https://github.com/Ontos-AI/knowhere-node-sdk/pull/93) [`f238240`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/f2382405df0d9222772e1c70d5dd93bce1dbaa75) Thanks [@suguanYang](https://github.com/suguanYang)! - Add SDK-owned local knowledge tools for parse-result caching, outline, read,
+  grep, and search, plus a separate MCP wrapper package that exposes those SDK
+  tools over stdio. Add dashboard-login support for the stdio MCP package and a
+  dynamic bearer-token provider for short-lived SDK authentication flows.
+
+### Patch Changes
+
+- [#95](https://github.com/Ontos-AI/knowhere-node-sdk/pull/95) [`ce518a5`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/ce518a5c90e85d2c0ca3c2c6bd27309f648e8826) Thanks [@suguanYang](https://github.com/suguanYang)! - Include the repository root in the pnpm workspace (`pnpm-workspace.yaml`) so
+  Changesets can resolve the root `@ontos-ai/knowhere-sdk` package during the
+  release flow. Previously `changeset version` failed with "Found changeset for
+  package @ontos-ai/knowhere-sdk which is not in the workspace", blocking the
+  release PR and publish.
+
 ## 0.6.0
 
 ### Minor Changes
