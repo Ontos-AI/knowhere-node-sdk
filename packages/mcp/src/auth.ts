@@ -14,6 +14,7 @@ const API_KEY_ENV = 'KNOWHERE_API_KEY';
 const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const RANDOM_BYTE_LENGTH = 32;
+const DEFAULT_CLIENT_NAME = 'knowhere-cli';
 
 export type Permission = 'read_only' | 'full_access';
 
@@ -153,7 +154,7 @@ export class McpCredentialManager {
         redirectUri: callback.redirectUri,
         state,
         codeChallenge,
-        clientName: options.clientName ?? 'Knowhere MCP',
+        clientName: options.clientName ?? DEFAULT_CLIENT_NAME,
       });
 
       options.onLoginUrl?.(loginUrl);
@@ -166,7 +167,7 @@ export class McpCredentialManager {
         grant_type: 'authorization_code',
         code,
         code_verifier: codeVerifier,
-        client_name: options.clientName ?? 'Knowhere MCP',
+        client_name: options.clientName ?? DEFAULT_CLIENT_NAME,
       });
       const storedAuth = buildStoredAuth({
         dashboardUrl,
