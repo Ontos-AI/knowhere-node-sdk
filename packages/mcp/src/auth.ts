@@ -15,9 +15,15 @@ const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const RANDOM_BYTE_LENGTH = 32;
 
+export type Permission = 'read_only' | 'full_access';
+
+const DEFAULT_PERMISSION: Permission = 'full_access';
+const PERMISSION_VALUES = new Set<Permission>(['read_only', 'full_access']);
+
 type TokenResponse = {
   accessToken: string;
   expiresInSeconds: number;
+  permission: Permission;
   refreshToken?: string;
   refreshTokenExpiresAt?: string;
   tokenType: 'Bearer';
@@ -26,6 +32,7 @@ type TokenResponse = {
 type StoredMcpAuth = {
   dashboardUrl: string;
   apiBaseUrl?: string;
+  permission: Permission;
   refreshToken: string;
   refreshTokenExpiresAt?: string;
   accessToken?: string;
@@ -39,6 +46,7 @@ export type McpAuthStatus = {
   authFilePath: string;
   dashboardUrl?: string;
   apiBaseUrl?: string;
+  permission?: Permission;
   refreshTokenExpiresAt?: string;
   accessTokenExpiresAt?: string;
 };
@@ -56,6 +64,7 @@ export type McpLoginResult = {
   authFilePath: string;
   dashboardUrl: string;
   apiBaseUrl?: string;
+  permission: Permission;
   refreshTokenExpiresAt?: string;
 };
 
@@ -83,6 +92,7 @@ export class McpCredentialManager {
         source: 'api_key',
         authFilePath: this.authFilePath,
         apiBaseUrl: process.env[API_BASE_URL_ENV],
+        permission: DEFAULT_PERMISSION,
       };
     }
 
@@ -96,6 +106,7 @@ export class McpCredentialManager {
       authFilePath: this.authFilePath,
       dashboardUrl: storedAuth.dashboardUrl,
       apiBaseUrl: process.env[API_BASE_URL_ENV] ?? storedAuth.apiBaseUrl,
+      permission: storedAuth.permission,
       refreshTokenExpiresAt: storedAuth.refreshTokenExpiresAt,
       accessTokenExpiresAt: storedAuth.accessTokenExpiresAt,
     };
@@ -169,6 +180,7 @@ export class McpCredentialManager {
         authFilePath: this.authFilePath,
         dashboardUrl,
         apiBaseUrl,
+        permission: tokenResponse.permission,
         refreshTokenExpiresAt: tokenResponse.refreshTokenExpiresAt,
       };
     } finally {
@@ -278,6 +290,7 @@ function buildStoredAuth({
   return {
     dashboardUrl,
     apiBaseUrl,
+    permission: tokenResponse.permission,
     refreshToken,
     refreshTokenExpiresAt: tokenResponse.refreshTokenExpiresAt ?? previous?.refreshTokenExpiresAt,
     accessToken: tokenResponse.accessToken,
@@ -300,6 +313,7 @@ function parseStoredAuth(value: unknown): StoredMcpAuth {
   return {
     dashboardUrl,
     apiBaseUrl: readOptionalString(value, 'apiBaseUrl'),
+    permission: normalizePermission(readOptionalString(value, 'permission')),
     refreshToken,
     refreshTokenExpiresAt: readOptionalString(value, 'refreshTokenExpiresAt'),
     accessToken: readOptionalString(value, 'accessToken'),
@@ -320,6 +334,17 @@ function readRequiredString(value: Record<string, unknown>, key: string): string
 function readOptionalString(value: Record<string, unknown>, key: string): string | undefined {
   const field = value[key];
   return typeof field === 'string' && field.length > 0 ? field : undefined;
+}
+
+function readRequiredPermission(value: Record<string, unknown>, key: string): Permission {
+  const field = value[key];
+  if (typeof field !== 'string' || field.length === 0) {
+    throw new Error(`Invalid Knowhere MCP token response: ${key} is required`);
+  }
+  if (!PERMISSION_VALUES.has(field as Permission)) {
+    throw new Error(`Invalid Knowhere MCP token response: ${key} is invalid`);
+  }
+  return field as Permission;
 }
 
 function createPkceChallenge(codeVerifier: string): string {
@@ -438,7 +463,14 @@ function handleCallbackRequest({
   }
 
   const code = requestUrl.searchParams.get('code');
+  const callbackError = requestUrl.searchParams.get('error');
   const state = requestUrl.searchParams.get('state');
+  if (callbackError) {
+    response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.end('Knowhere MCP login was denied. You can close this window.');
+    rejectCode(new Error(`Dashboard login failed: ${callbackError}`));
+    return;
+  }
   if (!code || state !== expectedState) {
     response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
     response.end('Knowhere MCP login failed. You can close this window.');
@@ -500,6 +532,7 @@ function parseTokenResponse(value: unknown): TokenResponse {
   const accessToken = readRequiredString(value, 'accessToken');
   const tokenType = readRequiredString(value, 'tokenType');
   const expiresInSeconds = value.expiresInSeconds;
+  const permission = readRequiredPermission(value, 'permission');
   if (tokenType !== 'Bearer') {
     throw new Error('Invalid Knowhere MCP token type');
   }
@@ -510,6 +543,7 @@ function parseTokenResponse(value: unknown): TokenResponse {
   return {
     accessToken,
     expiresInSeconds,
+    permission,
     refreshToken: readOptionalString(value, 'refreshToken'),
     refreshTokenExpiresAt: readOptionalString(value, 'refreshTokenExpiresAt'),
     tokenType,
@@ -529,6 +563,14 @@ function normalizeDashboardUrl(value: string): string {
   url.search = '';
   url.hash = '';
   return url.toString();
+}
+
+function normalizePermission(value: string | undefined): Permission {
+  if (value && PERMISSION_VALUES.has(value as Permission)) {
+    return value as Permission;
+  }
+
+  return DEFAULT_PERMISSION;
 }
 
 function openBrowser(url: string): void {

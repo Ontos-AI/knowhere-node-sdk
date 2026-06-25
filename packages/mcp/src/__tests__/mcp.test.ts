@@ -29,6 +29,24 @@ describe('knowhere MCP wrapper', () => {
     await server.close();
   });
 
+  it('should hide parse and delete tools for read only permission', async () => {
+    const { client, server } = await connectTestClient(createClient(), undefined, 'read_only');
+    const tools = await client.listTools();
+    const toolNames = tools.tools.map((tool) => tool.name).sort();
+
+    expect(toolNames).toEqual([
+      'knowhere_async_cache_job_result',
+      'knowhere_async_get_job_status',
+      'knowhere_get_document_outline',
+      'knowhere_grep_chunks',
+      'knowhere_list_documents',
+      'knowhere_read_chunks',
+      'knowhere_search',
+    ]);
+    await client.close();
+    await server.close();
+  });
+
   it('should delegate parse and grep calls to the SDK knowledge module', async () => {
     const knowhereClient = createClient();
     const { client, server } = await connectTestClient(knowhereClient);
@@ -259,11 +277,16 @@ describe('knowhere MCP wrapper', () => {
 async function connectTestClient(
   knowhereClient: Knowhere,
   cacheDirectory?: string,
+  permission?: 'read_only' | 'full_access',
 ): Promise<{
   client: Client;
   server: Awaited<ReturnType<typeof createKnowhereMcpServer>>;
 }> {
-  const server = await createKnowhereMcpServer({ client: knowhereClient, cacheDirectory });
+  const server = await createKnowhereMcpServer({
+    client: knowhereClient,
+    cacheDirectory,
+    permission,
+  });
   const client = new Client({ name: 'knowhere-mcp-test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

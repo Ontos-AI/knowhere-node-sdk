@@ -36,6 +36,7 @@ describe('McpCredentialManager', () => {
             JSON.stringify({
               accessToken: 'jwt_access',
               expiresInSeconds: 3600,
+              permission: 'read_only',
               refreshToken: 'refresh_secret',
               refreshTokenExpiresAt: '2027-01-01T00:00:00.000Z',
               tokenType: 'Bearer',
@@ -78,10 +79,16 @@ describe('McpCredentialManager', () => {
     });
 
     expect(result.authFilePath).toBe(authFilePath);
+    expect(result.permission).toBe('read_only');
     expect(await manager.getAccessToken()).toBe('jwt_access');
+    await expect(manager.getStatus()).resolves.toMatchObject({
+      permission: 'read_only',
+      source: 'stored_login',
+    });
     expect(JSON.parse(await readFile(authFilePath, 'utf8'))).toMatchObject({
       dashboardUrl: 'https://dashboard.example/',
       apiBaseUrl: 'https://api.example',
+      permission: 'read_only',
       refreshToken: 'refresh_secret',
     });
 

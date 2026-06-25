@@ -11,6 +11,8 @@ import {
 } from '@ontos-ai/knowhere-sdk';
 import * as z from 'zod/v4';
 
+import type { Permission } from './auth.js';
+
 type ToolResult = object;
 
 const parsingParamsSchema = z
@@ -36,6 +38,7 @@ export interface KnowhereMcpServerOptions {
   authTokenProvider?: AuthTokenProvider;
   baseURL?: string;
   cacheDirectory?: string;
+  permission?: Permission;
   recoverPendingJobsOnStart?: boolean;
 }
 
@@ -59,114 +62,118 @@ export async function createKnowhereMcpServer(
     name: 'knowhere-local-knowledge',
     version: VERSION,
   });
+  const permission = options?.permission ?? 'full_access';
+  const hasWritePermission = permission === 'full_access';
 
-  server.registerTool(
-    'knowhere_parse_url',
-    {
-      description:
-        'Blocking parse: submit a remote URL to Knowhere, wait for completion, then cache the parse result locally for outline/read/grep/search tools.',
-      inputSchema: {
-        url: z.string().url(),
-        namespace: z.string().optional(),
-        localDocumentId: z.string().optional(),
-        dataId: z.string().optional(),
-        parsingParams: parsingParamsSchema,
+  if (hasWritePermission) {
+    server.registerTool(
+      'knowhere_parse_url',
+      {
+        description:
+          'Blocking parse: submit a remote URL to Knowhere, wait for completion, then cache the parse result locally for outline/read/grep/search tools.',
+        inputSchema: {
+          url: z.string().url(),
+          namespace: z.string().optional(),
+          localDocumentId: z.string().optional(),
+          dataId: z.string().optional(),
+          parsingParams: parsingParamsSchema,
+        },
+        outputSchema: objectOutputSchema,
       },
-      outputSchema: objectOutputSchema,
-    },
-    async (input) =>
-      createToolResult(
-        await knowledge.parse({
-          url: input.url,
-          namespace: input.namespace,
-          localDocumentId: input.localDocumentId,
-          dataId: input.dataId,
-          ...toFlatParsingParams(input.parsingParams),
-        }),
-      ),
-  );
+      async (input) =>
+        createToolResult(
+          await knowledge.parse({
+            url: input.url,
+            namespace: input.namespace,
+            localDocumentId: input.localDocumentId,
+            dataId: input.dataId,
+            ...toFlatParsingParams(input.parsingParams),
+          }),
+        ),
+    );
 
-  server.registerTool(
-    'knowhere_parse_file',
-    {
-      description:
-        'Blocking parse: submit a local file path available to this MCP process, wait for completion, then cache the parse result locally.',
-      inputSchema: {
-        file: z.string().describe('Local file path available to this MCP server process.'),
-        fileName: z.string().optional(),
-        namespace: z.string().optional(),
-        localDocumentId: z.string().optional(),
-        dataId: z.string().optional(),
-        parsingParams: parsingParamsSchema,
+    server.registerTool(
+      'knowhere_parse_file',
+      {
+        description:
+          'Blocking parse: submit a local file path available to this MCP process, wait for completion, then cache the parse result locally.',
+        inputSchema: {
+          file: z.string().describe('Local file path available to this MCP server process.'),
+          fileName: z.string().optional(),
+          namespace: z.string().optional(),
+          localDocumentId: z.string().optional(),
+          dataId: z.string().optional(),
+          parsingParams: parsingParamsSchema,
+        },
+        outputSchema: objectOutputSchema,
       },
-      outputSchema: objectOutputSchema,
-    },
-    async (input) =>
-      createToolResult(
-        await knowledge.parse({
-          file: input.file,
-          fileName: input.fileName,
-          namespace: input.namespace,
-          localDocumentId: input.localDocumentId,
-          dataId: input.dataId,
-          ...toFlatParsingParams(input.parsingParams),
-        }),
-      ),
-  );
+      async (input) =>
+        createToolResult(
+          await knowledge.parse({
+            file: input.file,
+            fileName: input.fileName,
+            namespace: input.namespace,
+            localDocumentId: input.localDocumentId,
+            dataId: input.dataId,
+            ...toFlatParsingParams(input.parsingParams),
+          }),
+        ),
+    );
 
-  server.registerTool(
-    'knowhere_async_parse_url',
-    {
-      description:
-        'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
-      inputSchema: {
-        url: z.string().url(),
-        namespace: z.string().optional(),
-        localDocumentId: z.string().optional(),
-        dataId: z.string().optional(),
-        parsingParams: parsingParamsSchema,
+    server.registerTool(
+      'knowhere_async_parse_url',
+      {
+        description:
+          'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
+        inputSchema: {
+          url: z.string().url(),
+          namespace: z.string().optional(),
+          localDocumentId: z.string().optional(),
+          dataId: z.string().optional(),
+          parsingParams: parsingParamsSchema,
+        },
+        outputSchema: objectOutputSchema,
       },
-      outputSchema: objectOutputSchema,
-    },
-    async (input) =>
-      createToolResult(
-        await knowledge.startParse({
-          url: input.url,
-          namespace: input.namespace,
-          localDocumentId: input.localDocumentId,
-          dataId: input.dataId,
-          ...toFlatParsingParams(input.parsingParams),
-        }),
-      ),
-  );
+      async (input) =>
+        createToolResult(
+          await knowledge.startParse({
+            url: input.url,
+            namespace: input.namespace,
+            localDocumentId: input.localDocumentId,
+            dataId: input.dataId,
+            ...toFlatParsingParams(input.parsingParams),
+          }),
+        ),
+    );
 
-  server.registerTool(
-    'knowhere_async_parse_file',
-    {
-      description:
-        'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
-      inputSchema: {
-        file: z.string().describe('Local file path available to this MCP server process.'),
-        fileName: z.string().optional(),
-        namespace: z.string().optional(),
-        localDocumentId: z.string().optional(),
-        dataId: z.string().optional(),
-        parsingParams: parsingParamsSchema,
+    server.registerTool(
+      'knowhere_async_parse_file',
+      {
+        description:
+          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
+        inputSchema: {
+          file: z.string().describe('Local file path available to this MCP server process.'),
+          fileName: z.string().optional(),
+          namespace: z.string().optional(),
+          localDocumentId: z.string().optional(),
+          dataId: z.string().optional(),
+          parsingParams: parsingParamsSchema,
+        },
+        outputSchema: objectOutputSchema,
       },
-      outputSchema: objectOutputSchema,
-    },
-    async (input) =>
-      createToolResult(
-        await knowledge.startParse({
-          file: input.file,
-          fileName: input.fileName,
-          namespace: input.namespace,
-          localDocumentId: input.localDocumentId,
-          dataId: input.dataId,
-          ...toFlatParsingParams(input.parsingParams),
-        }),
-      ),
-  );
+      async (input) =>
+        createToolResult(
+          await knowledge.startParse({
+            file: input.file,
+            fileName: input.fileName,
+            namespace: input.namespace,
+            localDocumentId: input.localDocumentId,
+            dataId: input.dataId,
+            ...toFlatParsingParams(input.parsingParams),
+          }),
+        ),
+    );
+  }
 
   server.registerTool(
     'knowhere_async_get_job_status',
@@ -213,19 +220,22 @@ export async function createKnowhereMcpServer(
     async () => createToolResult({ documents: await knowledge.listDocuments() }),
   );
 
-  server.registerTool(
-    'knowhere_delete_document',
-    {
-      description:
-        'Archive, or soft-delete, a published Knowhere document through the Knowhere API. Provide documentId directly, or localDocumentId for a cached parse result that has a server documentId.',
-      inputSchema: {
-        documentId: z.string().optional(),
-        localDocumentId: z.string().optional(),
+  if (hasWritePermission) {
+    server.registerTool(
+      'knowhere_delete_document',
+      {
+        description:
+          'Archive, or soft-delete, a published Knowhere document through the Knowhere API. Provide documentId directly, or localDocumentId for a cached parse result that has a server documentId.',
+        inputSchema: {
+          documentId: z.string().optional(),
+          localDocumentId: z.string().optional(),
+        },
+        outputSchema: objectOutputSchema,
       },
-      outputSchema: objectOutputSchema,
-    },
-    async (input) => createToolResult(await archiveDocument({ client, knowledge, params: input })),
-  );
+      async (input) =>
+        createToolResult(await archiveDocument({ client, knowledge, params: input })),
+    );
+  }
 
   server.registerTool(
     'knowhere_get_document_outline',

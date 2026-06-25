@@ -24,6 +24,13 @@ the SDK local knowledge cache by default. `knowhere-mcp login` opens the
 Knowhere dashboard in your browser and stores a local MCP login at
 `~/.knowhere-node-sdk/mcp/auth.json`.
 
+During login, the dashboard asks for a Permission:
+
+- Read only: query Knowhere and read existing parsed documents. Parse and
+  delete tools are not exposed to the MCP host.
+- Full access: query, read, parse URLs/files, cache completed parse jobs, and
+  archive documents.
+
 Useful auth commands:
 
 ```bash
@@ -32,10 +39,12 @@ npx -y @ontos-ai/knowhere-mcp status
 npx -y @ontos-ai/knowhere-mcp logout
 ```
 
+`knowhere-mcp status` shows the stored Permission for the current login.
+
 Set `KNOWHERE_DASHBOARD_URL` when logging in through a non-default dashboard.
 Set `KNOWHERE_BASE_URL` only when using a non-default Knowhere API endpoint.
 `KNOWHERE_API_KEY` is still supported as a manual fallback and takes precedence
-over the local dashboard login.
+over the local dashboard login. API-key authentication runs with full access.
 
 ## Connect From MCP Hosts
 
@@ -159,6 +168,12 @@ Host documentation:
 - [Claude Desktop local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers)
 
 ## Tools
+
+When logged in with Read only permission, the MCP server exposes only
+`knowhere_search`, `knowhere_list_documents`,
+`knowhere_get_document_outline`, `knowhere_read_chunks`,
+`knowhere_grep_chunks`, `knowhere_async_get_job_status`, and
+`knowhere_async_cache_job_result`.
 
 - `knowhere_parse_url`: blocking parse for a remote URL; waits for completion
   and caches the result locally.
