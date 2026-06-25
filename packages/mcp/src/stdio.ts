@@ -30,17 +30,19 @@ async function main(): Promise<void> {
 }
 
 async function runKnowhereMcpServerWithAuth(): Promise<void> {
+  const credentialManager = new McpCredentialManager();
+  const status = await credentialManager.getStatus();
+
   if (process.env.KNOWHERE_API_KEY) {
-    await runKnowhereMcpServer();
+    await runKnowhereMcpServer({ permission: status.permission });
     return;
   }
 
-  const credentialManager = new McpCredentialManager();
-  const hasStoredLogin = await credentialManager.hasStoredLogin();
   await runKnowhereMcpServer({
     authTokenProvider: () => credentialManager.getAccessToken(),
     baseURL: await credentialManager.resolveBaseURL(),
-    recoverPendingJobsOnStart: hasStoredLogin,
+    permission: status.permission,
+    recoverPendingJobsOnStart: status.source === 'stored_login',
   });
 }
 
@@ -58,6 +60,7 @@ async function runLogin(args: readonly string[]): Promise<void> {
   });
 
   console.log(`Knowhere MCP login saved to ${result.authFilePath}`);
+  console.log(`Permission: ${result.permission}`);
   if (result.refreshTokenExpiresAt) {
     console.log(`Refresh token expires at ${result.refreshTokenExpiresAt}`);
   }
@@ -142,13 +145,18 @@ function readFlagValue(args: readonly string[], index: number, flag: string): st
 function formatStatus(status: McpAuthStatus): string {
   switch (status.source) {
     case 'api_key':
-      return `Knowhere MCP is authenticated with KNOWHERE_API_KEY\nAuth file: ${status.authFilePath}`;
+      return [
+        'Knowhere MCP is authenticated with KNOWHERE_API_KEY',
+        `Auth file: ${status.authFilePath}`,
+        `Permission: ${status.permission ?? 'full_access'}`,
+      ].join('\n');
     case 'stored_login':
       return [
         'Knowhere MCP is authenticated with dashboard login',
         `Auth file: ${status.authFilePath}`,
         `Dashboard: ${status.dashboardUrl ?? 'unknown'}`,
         `API base URL: ${status.apiBaseUrl ?? 'default'}`,
+        `Permission: ${status.permission ?? 'full_access'}`,
         `Refresh token expires: ${status.refreshTokenExpiresAt ?? 'unknown'}`,
         `Access token expires: ${status.accessTokenExpiresAt ?? 'not cached'}`,
       ].join('\n');

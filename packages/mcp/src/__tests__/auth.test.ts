@@ -28,34 +28,37 @@ describe('McpCredentialManager', () => {
     const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'knowhere-mcp-auth-'));
     const authFilePath = path.join(tempDirectory, 'auth.json');
     const manager = new McpCredentialManager(authFilePath);
-    const fetchMock = vi.fn((input: string | URL | Request): Promise<Response> => {
-      const url = getRequestUrl(input);
-      if (url.pathname === '/api/mcp/token') {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              accessToken: 'jwt_access',
-              expiresInSeconds: 3600,
-              refreshToken: 'refresh_secret',
-              refreshTokenExpiresAt: '2027-01-01T00:00:00.000Z',
-              tokenType: 'Bearer',
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, _init?: RequestInit): Promise<Response> => {
+        const url = getRequestUrl(input);
+        if (url.pathname === '/api/mcp/token') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                accessToken: 'jwt_access',
+                expiresInSeconds: 3600,
+                permission: 'read_only',
+                refreshToken: 'refresh_secret',
+                refreshTokenExpiresAt: '2027-01-01T00:00:00.000Z',
+                tokenType: 'Bearer',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        if (url.pathname === '/api/mcp/revoke') {
+          return Promise.resolve(
+            new Response(JSON.stringify({ revoked: true }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
             }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
-        );
-      }
-      if (url.pathname === '/api/mcp/revoke') {
+          );
+        }
         return Promise.resolve(
-          new Response(JSON.stringify({ revoked: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+          new Response(JSON.stringify({ message: 'not found' }), { status: 404 }),
         );
-      }
-      return Promise.resolve(
-        new Response(JSON.stringify({ message: 'not found' }), { status: 404 }),
-      );
-    });
+      },
+    );
     global.fetch = fetchMock;
 
     const result = await manager.login({
@@ -66,6 +69,7 @@ describe('McpCredentialManager', () => {
         const url = new URL(loginUrl);
         const redirectUri = url.searchParams.get('redirect_uri');
         const state = url.searchParams.get('state');
+        expect(url.searchParams.get('client_name')).toBe('knowhere-cli');
         if (!redirectUri || !state) {
           throw new Error('login URL missing callback params');
         }
@@ -78,11 +82,29 @@ describe('McpCredentialManager', () => {
     });
 
     expect(result.authFilePath).toBe(authFilePath);
+    expect(result.permission).toBe('read_only');
     expect(await manager.getAccessToken()).toBe('jwt_access');
+    await expect(manager.getStatus()).resolves.toMatchObject({
+      permission: 'read_only',
+      source: 'stored_login',
+    });
     expect(JSON.parse(await readFile(authFilePath, 'utf8'))).toMatchObject({
       dashboardUrl: 'https://dashboard.example/',
       apiBaseUrl: 'https://api.example',
+      permission: 'read_only',
       refreshToken: 'refresh_secret',
+    });
+    const tokenRequest = fetchMock.mock.calls.find(
+      ([input]) => getRequestUrl(input).pathname === '/api/mcp/token',
+    );
+    const tokenRequestInit = tokenRequest?.[1];
+    if (!tokenRequestInit || typeof tokenRequestInit.body !== 'string') {
+      throw new Error('token request did not include a JSON body');
+    }
+    const tokenRequestBody: unknown = JSON.parse(tokenRequestInit.body);
+    expect(tokenRequestBody).toMatchObject({
+      grant_type: 'authorization_code',
+      client_name: 'knowhere-cli',
     });
 
     const logoutResult = await manager.logout();
