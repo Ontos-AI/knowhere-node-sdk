@@ -80,6 +80,15 @@ describe('HttpClient', () => {
 
       expect(client).toBeDefined();
     });
+
+    it('should initialize with an auth token provider', () => {
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        authTokenProvider: () => 'jwt_test',
+      });
+
+      expect(client).toBeDefined();
+    });
   });
 
   describe('HTTP methods', () => {
@@ -119,6 +128,29 @@ describe('HttpClient', () => {
         const result = await client.get('/test');
 
         expect(result).toEqual(mockData);
+      });
+
+      it('should attach dynamic Authorization from an auth token provider', async () => {
+        const providerClient = new HttpClient({
+          baseURL: 'https://api.example.com',
+          authTokenProvider: () => 'jwt_dynamic',
+        });
+        let authorizationHeader: unknown;
+
+        await providerClient.get('/test', {
+          adapter: async (config) => {
+            authorizationHeader = config.headers?.get?.('Authorization');
+            return {
+              data: { ok: true },
+              status: 200,
+              statusText: 'OK',
+              headers: {},
+              config,
+            };
+          },
+        });
+
+        expect(authorizationHeader).toBe('Bearer jwt_dynamic');
       });
     });
 

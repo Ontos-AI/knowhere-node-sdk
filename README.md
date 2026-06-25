@@ -196,11 +196,11 @@ const response = await client.retrieval.query({
   useAgentic: true,
 });
 
-console.log(response.answerText);         // LLM-generated answer
-console.log(response.referencedChunks);   // cited evidence chunks
-console.log(response.evidenceText);       // rendered evidence context, when returned
-console.log(response.stopReason);         // agentic termination reason, when returned
-console.log(response.failureReason);      // no-answer reason, when returned
+console.log(response.answerText); // LLM-generated answer
+console.log(response.referencedChunks); // cited evidence chunks
+console.log(response.evidenceText); // rendered evidence context, when returned
+console.log(response.stopReason); // agentic termination reason, when returned
+console.log(response.failureReason); // no-answer reason, when returned
 
 for (const result of response.results) {
   console.log(result.content);
@@ -264,6 +264,72 @@ if (chunks.chunks[0]) {
 }
 console.log(archived.status);
 ```
+
+### Local Knowledge Tools
+
+The SDK can also keep parsed results in a local cache and run exact inspection
+tools over that cached copy. This is the implementation used by the separate
+`@ontos-ai/knowhere-mcp` package.
+
+```typescript
+const parsed = await client.knowledge.parse({
+  file: './manual.pdf',
+  localDocumentId: 'manual-v1',
+});
+
+const outline = await client.knowledge.getDocumentOutline(parsed.document.localDocumentId);
+
+const read = await client.knowledge.readChunks({
+  localDocumentId: parsed.document.localDocumentId,
+  sectionPath: outline.sections[0]?.sectionPath,
+  limit: 5,
+});
+
+const grep = await client.knowledge.grepChunks({
+  localDocumentId: parsed.document.localDocumentId,
+  pattern: 'warranty',
+  maxResults: 10,
+});
+
+const serverSearch = await client.knowledge.search({
+  query: 'battery warranty',
+  localDocumentIds: [parsed.document.localDocumentId],
+  topK: 5,
+});
+
+console.log(read.chunks);
+console.log(grep.matches);
+console.log(serverSearch.references);
+```
+
+Local grep and reads use the cached parse result, not server-side chunk scans.
+Search uses the Knowhere API retrieval query; local document IDs only help map
+returned server document IDs back to local cache IDs when available.
+The MCP package is a wrapper over this SDK interface; install it only when an
+agent host needs an MCP server. See the MCP package README for Codex, Claude
+Code, Claude Desktop, and generic stdio MCP host configuration examples.
+
+For longer parses, use the non-blocking SDK flow and cache the result after the
+job completes:
+
+```typescript
+const started = await client.knowledge.startParse({
+  file: './manual.pdf',
+  localDocumentId: 'manual-v1',
+});
+
+const status = await client.knowledge.getJobStatus(started.job.jobId);
+
+if (status.job.isDone && status.cache.document) {
+  console.log(status.cache.document.localDocumentId);
+}
+```
+
+When the job was started through `client.knowledge.startParse(...)`,
+`getJobStatus(...)` automatically caches the completed result locally the first
+time it observes `status.job.isDone`. Use `cacheJobResult(...)` only to recover a
+completed job that was not started through the local knowledge helper, or to
+retry a cache step explicitly.
 
 Follow-up queries can exclude documents or sections for one request:
 

@@ -7,6 +7,7 @@ export { VERSION } from './version.js';
 // Types
 export type {
   // Client types
+  AuthTokenProvider,
   KnowhereOptions,
   // Job types
   Job,
@@ -54,6 +55,27 @@ export type {
   TextChunk,
   ImageChunk,
   TableChunk,
+  KnowledgeChunkType,
+  KnowledgeAsyncJobStatusResponse,
+  KnowledgeAsyncParseParams,
+  KnowledgeAsyncParseResponse,
+  KnowledgeCacheJobResultParams,
+  KnowledgeParseParams,
+  LocalKnowledgeDocument,
+  LocalKnowledgeParseResponse,
+  KnowledgeOutline,
+  KnowledgeSection,
+  KnowledgeReadParams,
+  KnowledgeReadChunk,
+  KnowledgeReadResponse,
+  KnowledgeGrepParams,
+  KnowledgeGrepMatch,
+  KnowledgeGrepResponse,
+  KnowledgeSearchParams,
+  KnowledgeSearchReference,
+  KnowledgeSearchResponse,
+  KnowledgeSearchResult,
+  KnowledgeStartupRecoveryResponse,
 } from './types/index.js';
 
 // Errors
@@ -84,3 +106,4 @@ export {
 
 // Resources (for advanced usage)
 export { Jobs, Retrieval, Documents } from './resources/index.js';
+export { Knowledge, LocalKnowledgeStore } from './knowledge/index.js';

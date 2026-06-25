@@ -44,7 +44,13 @@ describe('Knowhere Client', () => {
     it('should throw error when API key is missing', () => {
       delete process.env.KNOWHERE_API_KEY;
       expect(() => new Knowhere()).toThrow(ValidationError);
-      expect(() => new Knowhere()).toThrow('API key is required');
+      expect(() => new Knowhere()).toThrow('API authentication is required');
+    });
+
+    it('should initialize with an auth token provider', () => {
+      const client = new Knowhere({ authTokenProvider: () => 'jwt_test' });
+      expect(client).toBeDefined();
+      expect(client.jobs).toBeDefined();
     });
 
     it('should use default base URL when not provided', () => {

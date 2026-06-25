@@ -1,3 +1,3 @@
 import { releaseUtils } from './release-utils.mjs';
 
-releaseUtils.runCommand('npx', ['changeset', 'version']);
+releaseUtils.runCommand('pnpm', ['exec', 'changeset', 'version']);

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
-const baseRef = process.argv[2] ?? 'origin/main';
+const baseRef = process.argv.slice(2).find((arg) => arg !== '--') ?? 'origin/main';
 
 const changedFilesOutput = execFileSync('git', [
   'diff',

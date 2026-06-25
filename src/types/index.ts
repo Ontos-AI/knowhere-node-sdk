@@ -5,3 +5,4 @@ export * from './params.js';
 export * from './result.js';
 export * from './retrieval.js';
 export * from './document.js';
+export * from '../knowledge/types.js';

@@ -11,6 +11,7 @@
   ],
   "author": "Knowhere Team <team@knowhereto.ai>",
   "license": "MIT",
+  "packageManager": "pnpm@9.0.6",
   "homepage": "https://knowhereto.ai",
   "repository": {
     "type": "git",
@@ -39,25 +40,33 @@
   ],
   "engines": {
     "node": ">=20.19.0",
-    "npm": ">=10.0.0"
+    "npm": ">=10.0.0",
+    "pnpm": ">=9.0.0"
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build:all": "pnpm --include-workspace-root -r build",
     "changeset": "changeset",
     "changeset:publish": "changeset publish",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest",
+    "test:all": "pnpm --include-workspace-root -r exec vitest run",
     "test:ci": "vitest run --coverage",
     "lint": "eslint src",
+    "lint:all": "pnpm --include-workspace-root -r lint",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
+    "format:all": "pnpm --include-workspace-root -r format",
     "format:check": "prettier --check \"src/**/*.ts\"",
+    "format:check:all": "pnpm --include-workspace-root -r format:check",
     "release:check-changeset": "node ./scripts/require-changeset.mjs",
     "release:beta": "node ./scripts/publish-beta-release.mjs",
     "release:publish": "node ./scripts/publish-release.mjs",
     "release:version": "node ./scripts/release-version.mjs",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run test:ci && npm run build"
+    "typecheck:all": "pnpm run build && pnpm --include-workspace-root -r typecheck",
+    "check:all": "pnpm run lint:all && pnpm run typecheck:all && pnpm run test:all",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test:ci && pnpm run build"
   },
   "dependencies": {
     "axios": "^1.15.2",

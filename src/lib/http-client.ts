@@ -1,15 +1,24 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios';
 import type { Agent as HttpAgent } from 'http';
 import type { Agent as HttpsAgent } from 'https';
+import type { AuthTokenProvider } from '../types/client.js';
 import { VERSION } from '../version.js';
 import { DEFAULT_TIMEOUT, DEFAULT_MAX_RETRIES } from '../constants.js';
-import { NetworkError, TimeoutError, createAPIError } from '../errors/index.js';
+import { NetworkError, TimeoutError, ValidationError, createAPIError } from '../errors/index.js';
 import { keysToCamel, keysToSnake, parseDates } from './utils.js';
 import { withRetry, getRetryAfter } from './retry.js';
 
 export interface HttpClientOptions {
   baseURL: string;
-  apiKey: string;
+  apiKey?: string;
+  authTokenProvider?: AuthTokenProvider;
   timeout?: number;
   uploadTimeout?: number;
   maxRetries?: number;
@@ -27,19 +36,21 @@ export class HttpClient {
   private uploadTimeout: number;
   private httpAgent?: HttpAgent;
   private httpsAgent?: HttpsAgent;
+  private authTokenProvider?: AuthTokenProvider;
 
   constructor(options: HttpClientOptions) {
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.uploadTimeout = options.uploadTimeout ?? 600000;
     this.httpAgent = options.httpAgent;
     this.httpsAgent = options.httpsAgent;
+    this.authTokenProvider = options.authTokenProvider;
 
     this.axios = axios.create({
       baseURL: options.baseURL,
       timeout: options.timeout ?? DEFAULT_TIMEOUT,
       headers: {
         'User-Agent': `knowhere-node-sdk/${VERSION}`,
-        Authorization: `Bearer ${options.apiKey}`,
+        ...(options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
         'Content-Type': 'application/json',
         ...options.defaultHeaders,
       },
@@ -54,6 +65,10 @@ export class HttpClient {
     // Request interceptor - convert camelCase to snake_case
     this.axios.interceptors.request.use(
       (config) => {
+        if (this.authTokenProvider) {
+          return this.attachDynamicAuthorization(config);
+        }
+
         if (config.data && typeof config.data === 'object') {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unnecessary-type-assertion
           config.data = keysToSnake(config.data) as unknown as typeof config.data;
@@ -80,6 +95,26 @@ export class HttpClient {
         return Promise.reject(this.handleError(error));
       },
     );
+  }
+
+  private async attachDynamicAuthorization(
+    config: InternalAxiosRequestConfig,
+  ): Promise<InternalAxiosRequestConfig> {
+    const token = await this.authTokenProvider?.();
+    if (!token) {
+      throw new ValidationError('Authentication token provider returned an empty token');
+    }
+
+    const headers = AxiosHeaders.from(config.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    config.headers = headers;
+
+    if (config.data && typeof config.data === 'object') {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unnecessary-type-assertion
+      config.data = keysToSnake(config.data) as unknown as typeof config.data;
+    }
+
+    return config;
   }
 
   private handleError(error: AxiosError): Error {

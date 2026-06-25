@@ -1,0 +1,70 @@
+{
+  "name": "@ontos-ai/knowhere-mcp",
+  "version": "0.1.0",
+  "description": "MCP wrapper for the Knowhere Node.js SDK local knowledge tools",
+  "keywords": [
+    "knowhere",
+    "mcp",
+    "model-context-protocol",
+    "document-parsing"
+  ],
+  "author": "Knowhere Team <team@knowhereto.ai>",
+  "license": "MIT",
+  "homepage": "https://knowhereto.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ontos-AI/knowhere-node-sdk.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/Ontos-AI/knowhere-node-sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "knowhere-mcp": "./dist/stdio.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/stdio.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts src/stdio.ts --format cjs,esm --dts --watch",
+    "lint": "eslint src",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "test": "vitest",
+    "test:ci": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test:ci && pnpm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@ontos-ai/knowhere-sdk": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
+  }
+}

@@ -2,12 +2,14 @@ import path from 'path';
 import type { ReadStream } from 'fs';
 
 import type { KnowhereOptions } from './types/client.js';
-import type { ParseParams } from './types/params.js';
+import type { CreateJobParams, ParseParams } from './types/params.js';
+import type { Job } from './types/job.js';
 import type { ParseResult } from './types/result.js';
 import { HttpClient } from './lib/http-client.js';
 import { Jobs } from './resources/jobs.js';
 import { Retrieval } from './resources/retrieval.js';
 import { Documents } from './resources/documents.js';
+import { Knowledge } from './knowledge/index.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
 import { enrichParseResult } from './lib/utils.js';
@@ -34,6 +36,28 @@ function isReadStream(file: ParseParams['file']): file is ReadStream {
   );
 }
 
+function buildParsingParams(params: ParseParams): CreateJobParams['parsingParams'] {
+  const parsingParams = {
+    model: params.model,
+    ocrEnabled: params.ocr,
+    docType: params.docType,
+    smartTitleParse: params.smartTitleParse,
+    summaryImage: params.summaryImage,
+    summaryTable: params.summaryTable,
+    summaryTxt: params.summaryTxt,
+    addFragDesc: params.addFragDesc,
+    kbDir: params.kbDir,
+  };
+
+  Object.keys(parsingParams).forEach((key) => {
+    if (parsingParams[key as keyof typeof parsingParams] === undefined) {
+      delete parsingParams[key as keyof typeof parsingParams];
+    }
+  });
+
+  return Object.keys(parsingParams).length > 0 ? parsingParams : undefined;
+}
+
 /**
  * Main Knowhere SDK client
  */
@@ -44,6 +68,8 @@ export class Knowhere {
   public readonly retrieval: Retrieval;
   /** Documents resource for canonical document lifecycle operations */
   public readonly documents: Documents;
+  /** Client-side local knowledge tools over parsed Knowhere results */
+  public readonly knowledge: Knowledge;
 
   private httpClient: HttpClient;
 
@@ -51,11 +77,12 @@ export class Knowhere {
    * Create a new Knowhere client
    */
   constructor(options: KnowhereOptions = {}) {
-    // Resolve API key
+    // Resolve API authentication
     const apiKey = options.apiKey ?? process.env[ENV.API_KEY];
-    if (!apiKey) {
+    const authTokenProvider = apiKey ? undefined : options.authTokenProvider;
+    if (!apiKey && !authTokenProvider) {
       throw new ValidationError(
-        `API key is required. Provide it via options.apiKey or ${ENV.API_KEY} environment variable.`,
+        `API authentication is required. Provide it via options.apiKey, options.authTokenProvider, or ${ENV.API_KEY} environment variable.`,
       );
     }
 
@@ -66,6 +93,7 @@ export class Knowhere {
     this.httpClient = new HttpClient({
       baseURL,
       apiKey,
+      authTokenProvider,
       timeout: options.timeout,
       uploadTimeout: options.uploadTimeout,
       maxRetries: options.maxRetries,
@@ -78,6 +106,7 @@ export class Knowhere {
     this.jobs = new Jobs(this.httpClient);
     this.retrieval = new Retrieval(this.httpClient);
     this.documents = new Documents(this.httpClient);
+    this.knowledge = new Knowledge(this);
   }
 
   /**
@@ -101,6 +130,30 @@ export class Knowhere {
    * ```
    */
   async parse(params: ParseParams): Promise<ParseResult> {
+    const job = await this.startParse(params);
+
+    // Wait for completion
+    const jobResult = await this.jobs.wait(job.jobId, {
+      pollInterval: params.pollInterval,
+      pollTimeout: params.pollTimeout,
+      onProgress: params.onPollProgress,
+      signal: params.signal,
+    });
+
+    // Load result
+    const result = await this.jobs.load(jobResult, {
+      verifyChecksum: params.verifyChecksum,
+    });
+
+    return enrichParseResult(result, jobResult);
+  }
+
+  /**
+   * Start a parse job and return immediately after the URL job is created or
+   * the local file is uploaded. Use jobs.get()/jobs.wait() and jobs.load()
+   * to inspect completion and load results later.
+   */
+  async startParse(params: ParseParams): Promise<Job> {
     // Validate params
     if (!params.url && !params.file) {
       throw new ValidationError('Either url or file must be provided');
@@ -120,26 +173,6 @@ export class Knowhere {
       );
     }
 
-    // Build parsing params
-    const parsingParams = {
-      model: params.model,
-      ocrEnabled: params.ocr,
-      docType: params.docType,
-      smartTitleParse: params.smartTitleParse,
-      summaryImage: params.summaryImage,
-      summaryTable: params.summaryTable,
-      summaryTxt: params.summaryTxt,
-      addFragDesc: params.addFragDesc,
-      kbDir: params.kbDir,
-    };
-
-    // Remove undefined values
-    Object.keys(parsingParams).forEach((key) => {
-      if (parsingParams[key as keyof typeof parsingParams] === undefined) {
-        delete parsingParams[key as keyof typeof parsingParams];
-      }
-    });
-
     // Build webhook config
     const webhook = params.webhook;
 
@@ -151,7 +184,7 @@ export class Knowhere {
       dataId: params.dataId,
       namespace: params.namespace,
       documentId: params.documentId,
-      parsingParams: Object.keys(parsingParams).length > 0 ? parsingParams : undefined,
+      parsingParams: buildParsingParams(params),
       webhook,
     });
 
@@ -164,20 +197,7 @@ export class Knowhere {
       });
     }
 
-    // Wait for completion
-    const jobResult = await this.jobs.wait(job.jobId, {
-      pollInterval: params.pollInterval,
-      pollTimeout: params.pollTimeout,
-      onProgress: params.onPollProgress,
-      signal: params.signal,
-    });
-
-    // Load result
-    const result = await this.jobs.load(jobResult, {
-      verifyChecksum: params.verifyChecksum,
-    });
-
-    return enrichParseResult(result, jobResult);
+    return job;
   }
 }
 

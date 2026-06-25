@@ -1,12 +1,16 @@
 import type { Agent as HttpAgent } from 'http';
 import type { Agent as HttpsAgent } from 'https';
 
+export type AuthTokenProvider = () => string | Promise<string>;
+
 /**
  * Configuration options for the Knowhere client
  */
 export interface KnowhereOptions {
   /** API authentication key (defaults to KNOWHERE_API_KEY env var) */
   apiKey?: string;
+  /** Dynamic bearer token provider for short-lived non-API-key auth flows */
+  authTokenProvider?: AuthTokenProvider;
   /** API base URL (defaults to https://api.knowhereto.ai) */
   baseURL?: string;
   /** Request timeout in milliseconds (default: 60000) */

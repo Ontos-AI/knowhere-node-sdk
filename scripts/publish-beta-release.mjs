@@ -3,14 +3,15 @@ import { releaseUtils } from './release-utils.mjs';
 const distTag = process.env.BETA_DIST_TAG ?? 'beta';
 
 try {
-  releaseUtils.runCommand('npx', ['changeset', 'status']);
+  releaseUtils.runCommand('pnpm', ['exec', 'changeset', 'status']);
 } catch {
   throw new Error(
     'Beta publish requires at least one pending changeset on the selected ref before a snapshot can be generated',
   );
 }
 
-releaseUtils.runCommand('npx', [
+releaseUtils.runCommand('pnpm', [
+  'exec',
   'changeset',
   'version',
   '--snapshot',
@@ -28,13 +29,9 @@ if (!version.includes(`-${distTag}.`)) {
   throw new Error(`Beta publish expected ${version} to include prerelease tag ${distTag}`);
 }
 
-if (!releaseUtils.hasPublishedVersion(packageName, version)) {
-  // npm provenance is disabled while this repository is private.
-  // Re-enable `--provenance` when the source repository becomes public.
-  releaseUtils.runCommand('npm', ['publish', '--tag', distTag, '--access', 'public']);
-} else {
-  console.log(`${packageName}@${version} is already on npm, skipping npm publish`);
-}
+// npm provenance is disabled while this repository is private.
+// Re-enable `--provenance` when the source repository becomes public.
+releaseUtils.publishWorkspacePackages({ tag: distTag });
 
 if (releaseUtils.doesGitHubReleaseExist(tagName)) {
   console.log(`GitHub prerelease ${tagName} already exists, skipping release creation`);
