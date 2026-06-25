@@ -31,7 +31,7 @@ describe('McpCredentialManager', () => {
     const fetchMock = vi.fn(
       (input: string | URL | Request, _init?: RequestInit): Promise<Response> => {
         const url = getRequestUrl(input);
-        if (url.pathname === '/api/mcp/token') {
+        if (url.pathname === '/api/oauth/token') {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -46,7 +46,7 @@ describe('McpCredentialManager', () => {
             ),
           );
         }
-        if (url.pathname === '/api/mcp/revoke') {
+        if (url.pathname === '/api/oauth/revoke') {
           return Promise.resolve(
             new Response(JSON.stringify({ revoked: true }), {
               status: 200,
@@ -62,14 +62,14 @@ describe('McpCredentialManager', () => {
     global.fetch = fetchMock;
 
     const result = await manager.login({
-      dashboardUrl: 'https://dashboard.example',
-      baseURL: 'https://api.example',
+      baseUrl: 'https://app.example',
       openBrowser: false,
       onLoginUrl: (loginUrl) => {
         const url = new URL(loginUrl);
+        expect(url.pathname).toBe('/mcp/login');
         const redirectUri = url.searchParams.get('redirect_uri');
         const state = url.searchParams.get('state');
-        expect(url.searchParams.get('client_name')).toBe('knowhere-cli');
+        expect(url.searchParams.get('client_name')).toBe('knowhere-mcp');
         if (!redirectUri || !state) {
           throw new Error('login URL missing callback params');
         }
@@ -89,13 +89,12 @@ describe('McpCredentialManager', () => {
       source: 'stored_login',
     });
     expect(JSON.parse(await readFile(authFilePath, 'utf8'))).toMatchObject({
-      dashboardUrl: 'https://dashboard.example/',
-      apiBaseUrl: 'https://api.example',
+      baseUrl: 'https://app.example',
       permission: 'read_only',
       refreshToken: 'refresh_secret',
     });
     const tokenRequest = fetchMock.mock.calls.find(
-      ([input]) => getRequestUrl(input).pathname === '/api/mcp/token',
+      ([input]) => getRequestUrl(input).pathname === '/api/oauth/token',
     );
     const tokenRequestInit = tokenRequest?.[1];
     if (!tokenRequestInit || typeof tokenRequestInit.body !== 'string') {
@@ -104,7 +103,7 @@ describe('McpCredentialManager', () => {
     const tokenRequestBody: unknown = JSON.parse(tokenRequestInit.body);
     expect(tokenRequestBody).toMatchObject({
       grant_type: 'authorization_code',
-      client_name: 'knowhere-cli',
+      client_name: 'knowhere-mcp',
     });
 
     const logoutResult = await manager.logout();

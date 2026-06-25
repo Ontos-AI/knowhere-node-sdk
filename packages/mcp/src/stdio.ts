@@ -50,8 +50,7 @@ async function runLogin(args: readonly string[]): Promise<void> {
   const options = parseLoginArgs(args);
   const credentialManager = new McpCredentialManager(options.authFilePath);
   const result = await credentialManager.login({
-    dashboardUrl: options.dashboardUrl,
-    baseURL: options.baseURL,
+    baseUrl: options.baseUrl,
     openBrowser: options.openBrowser,
     clientName: options.clientName,
     onLoginUrl: (url) => {
@@ -88,15 +87,13 @@ async function runStatus(): Promise<void> {
 }
 
 function parseLoginArgs(args: readonly string[]): {
-  dashboardUrl?: string;
-  baseURL?: string;
+  baseUrl?: string;
   authFilePath?: string;
   clientName?: string;
   openBrowser: boolean;
 } {
   const options: {
-    dashboardUrl?: string;
-    baseURL?: string;
+    baseUrl?: string;
     authFilePath?: string;
     clientName?: string;
     openBrowser: boolean;
@@ -107,12 +104,8 @@ function parseLoginArgs(args: readonly string[]): {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     switch (arg) {
-      case '--dashboard-url':
-        options.dashboardUrl = readFlagValue(args, index, arg);
-        index += 1;
-        break;
       case '--base-url':
-        options.baseURL = readFlagValue(args, index, arg);
+        options.baseUrl = readFlagValue(args, index, arg);
         index += 1;
         break;
       case '--auth-file':
@@ -154,8 +147,7 @@ function formatStatus(status: McpAuthStatus): string {
       return [
         'Knowhere MCP is authenticated with dashboard login',
         `Auth file: ${status.authFilePath}`,
-        `Dashboard: ${status.dashboardUrl ?? 'unknown'}`,
-        `API base URL: ${status.apiBaseUrl ?? 'default'}`,
+        `Base URL: ${status.baseUrl ?? 'unknown'}`,
         `Permission: ${status.permission ?? 'full_access'}`,
         `Refresh token expires: ${status.refreshTokenExpiresAt ?? 'unknown'}`,
         `Access token expires: ${status.accessTokenExpiresAt ?? 'not cached'}`,
@@ -174,8 +166,7 @@ function printHelp(): void {
   knowhere-mcp logout          Remove and revoke local MCP login
 
 Login options:
-  --dashboard-url <url>        Dashboard URL, defaults to KNOWHERE_DASHBOARD_URL or https://knowhereto.ai
-  --base-url <url>             Knowhere API URL, defaults to KNOWHERE_BASE_URL or SDK default
+  --base-url <url>             Knowhere site base URL, defaults to KNOWHERE_BASE_URL or https://knowhereto.ai
   --auth-file <path>           Override local auth file path
   --client-name <name>         Label shown in dashboard token records
   --no-open                    Print login URL without opening a browser`);
