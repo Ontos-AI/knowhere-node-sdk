@@ -180,7 +180,7 @@ describe('Jobs Resource', () => {
       );
     });
 
-    it('should send document scope without exposing documentId on the create response', async () => {
+    it('should send document scope and keep planned documentId on the create response', async () => {
       mockHttpClient.post.mockResolvedValue({
         jobId: 'job-scoped',
         status: 'pending',
@@ -198,12 +198,40 @@ describe('Jobs Resource', () => {
       });
 
       expect(result.namespace).toBe('support-center');
-      expect(Object.prototype.hasOwnProperty.call(result, 'documentId')).toBe(false);
+      expect(result.documentId).toBe('doc-123');
       expect(mockHttpClient.post).toHaveBeenCalledWith(
         '/v1/jobs',
         expect.objectContaining({
           namespace: 'support-center',
           documentId: 'doc-123',
+        }),
+      );
+    });
+
+    it('should include document metadata when provided', async () => {
+      mockHttpClient.post.mockResolvedValue({
+        jobId: 'job-metadata',
+        status: 'pending',
+        sourceType: 'url',
+        createdAt: new Date(),
+      });
+
+      await jobs.create({
+        sourceType: 'url',
+        sourceUrl: 'https://example.com/doc.pdf',
+        documentMetadata: {
+          createdByClient: 'notebook',
+          title: 'Document.pdf',
+        },
+      });
+
+      expect(mockHttpClient.post).toHaveBeenCalledWith(
+        '/v1/jobs',
+        expect.objectContaining({
+          documentMetadata: {
+            createdByClient: 'notebook',
+            title: 'Document.pdf',
+          },
         }),
       );
     });

@@ -12,6 +12,8 @@ export interface Document {
   currentJobResultId?: string;
   /** Original source file name */
   sourceFileName?: string;
+  /** Client-provided display metadata copied from the publishing job */
+  documentMetadata?: Record<string, unknown>;
   /** Document creation timestamp */
   createdAt?: Date;
   /** Last update timestamp */

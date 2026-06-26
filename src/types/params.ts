@@ -43,6 +43,11 @@ export interface WebhookConfig {
 }
 
 /**
+ * Client-provided display metadata copied onto the published document.
+ */
+export type DocumentMetadata = Record<string, unknown>;
+
+/**
  * Job creation parameters
  */
 export interface CreateJobParams {
@@ -58,6 +63,8 @@ export interface CreateJobParams {
   namespace?: string;
   /** Existing document identifier when updating a published document */
   documentId?: string;
+  /** Display metadata to copy onto the published document */
+  documentMetadata?: DocumentMetadata;
   /** Parsing configuration */
   parsingParams?: ParsingParams;
   /** Webhook configuration */
@@ -128,6 +135,8 @@ export interface ParseParams {
   namespace?: string;
   /** Existing document identifier when updating a published document */
   documentId?: string;
+  /** Display metadata to copy onto the published document */
+  documentMetadata?: DocumentMetadata;
   /** Additional fragment description */
   addFragDesc?: string;
   /** Knowledge base directory */

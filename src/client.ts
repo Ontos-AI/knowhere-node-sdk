@@ -184,6 +184,7 @@ export class Knowhere {
       dataId: params.dataId,
       namespace: params.namespace,
       documentId: params.documentId,
+      documentMetadata: params.documentMetadata,
       parsingParams: buildParsingParams(params),
       webhook,
     });
