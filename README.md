@@ -147,6 +147,10 @@ For granular control over the job lifecycle:
 const job = await client.jobs.create({
   sourceType: 'file',
   fileName: 'document.pdf',
+  documentMetadata: {
+    createdByClient: 'cli',
+    sourceFileName: 'document.pdf',
+  },
   parsingParams: { model: 'advanced', ocrEnabled: true },
 });
 
@@ -168,19 +172,23 @@ const result = await client.jobs.load(jobResult);
 ### Retrieval and Document Lifecycle
 
 Published documents are queryable through the retrieval API after a job
-finishes. `client.jobs.create(...)` does not return a usable `documentId`;
-persist `jobResult.documentId` after publication if you need to update or
-archive the same document later.
+finishes. `client.jobs.create(...)` may return a planned `documentId`; persist
+`jobResult.documentId` after publication as the canonical value if you need to
+update or archive the same document later.
 
 ```typescript
 const job = await client.jobs.create({
   sourceType: 'url',
   sourceUrl: 'https://example.com/manual.pdf',
   namespace: 'support-center',
+  documentMetadata: {
+    createdByClient: 'notebook',
+    title: 'Support manual',
+  },
 });
 
 const jobResult = await client.jobs.wait(job.jobId);
-const documentId = jobResult.documentId;
+const documentId = jobResult.documentId ?? job.documentId;
 
 if (!documentId) {
   throw new Error('Expected documentId after successful publication.');

@@ -17,6 +17,8 @@ export interface Job {
   dataId?: string;
   /** Retrieval namespace for the canonical document */
   namespace?: string;
+  /** Planned stable document identifier for this job, when returned by the API */
+  documentId?: string;
   /** Job creation timestamp */
   createdAt: Date;
   /** Presigned URL for file upload (if sourceType is 'file') */

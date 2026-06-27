@@ -37,6 +37,7 @@ export type {
   ParsingParams,
   ParsingModel,
   DocType,
+  DocumentMetadata,
   WebhookConfig,
   CreateJobParams,
   UploadParams,

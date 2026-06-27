@@ -412,6 +412,25 @@ describe('Knowhere Client', () => {
       );
     });
 
+    it('should pass document metadata to job creation', async () => {
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        documentMetadata: {
+          createdByClient: 'cli',
+          sourceFileName: 'doc.pdf',
+        },
+      });
+
+      expect(client.jobs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          documentMetadata: {
+            createdByClient: 'cli',
+            sourceFileName: 'doc.pdf',
+          },
+        }),
+      );
+    });
+
     it('should pass addFragDesc to parsing params', async () => {
       await client.parse({
         url: 'https://example.com/doc.pdf',
