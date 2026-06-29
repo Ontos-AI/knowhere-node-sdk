@@ -313,6 +313,30 @@ console.log(serverSearch.references);
 Local grep and reads use the cached parse result, not server-side chunk scans.
 Search uses the Knowhere API retrieval query; local document IDs only help map
 returned server document IDs back to local cache IDs when available.
+If a search result only has a published `documentId`, or an async parse flow only
+has a completed `jobId`, read-oriented helpers can accept that remote identifier
+directly and will sync the result into the local cache before reading. For a
+`documentId`, the SDK resolves the document's current published `jobId` and then
+downloads the parser result ZIP through the same `cacheJobResult(...)` path:
+
+```typescript
+const remoteRead = await client.knowledge.readChunks({
+  documentId: 'doc_123',
+  sectionPath: 'Overview',
+  limit: 5,
+});
+
+const remoteOutline = await client.knowledge.getDocumentOutline({
+  documentId: 'doc_123',
+});
+
+const jobRead = await client.knowledge.readChunks({
+  jobId: jobResult.jobId,
+  localDocumentId: 'manual-v1',
+  limit: 5,
+});
+```
+
 The MCP package is a wrapper over this SDK interface; install it only when an
 agent host needs an MCP server. See the MCP package README for Codex, Claude
 Code, Claude Desktop, and generic stdio MCP host configuration examples.

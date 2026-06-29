@@ -12,7 +12,6 @@ describe('knowhere MCP wrapper', () => {
     const toolNames = tools.tools.map((tool) => tool.name).sort();
 
     expect(toolNames).toEqual([
-      'knowhere_async_cache_job_result',
       'knowhere_async_get_job_status',
       'knowhere_async_parse_file',
       'knowhere_async_parse_url',
@@ -35,7 +34,6 @@ describe('knowhere MCP wrapper', () => {
     const toolNames = tools.tools.map((tool) => tool.name).sort();
 
     expect(toolNames).toEqual([
-      'knowhere_async_cache_job_result',
       'knowhere_async_get_job_status',
       'knowhere_get_document_outline',
       'knowhere_grep_chunks',
@@ -109,7 +107,97 @@ describe('knowhere MCP wrapper', () => {
     await server.close();
   });
 
-  it('should delegate async parse, status, and cache calls to the SDK knowledge module', async () => {
+  it('should pass remote document ids through read-related tools', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    await client.callTool({
+      name: 'knowhere_get_document_outline',
+      arguments: {
+        documentId: 'doc_remote',
+      },
+    });
+    await client.callTool({
+      name: 'knowhere_read_chunks',
+      arguments: {
+        documentId: 'doc_remote',
+        sectionPath: 'Overview',
+        limit: 3,
+      },
+    });
+    await client.callTool({
+      name: 'knowhere_grep_chunks',
+      arguments: {
+        documentId: 'doc_remote',
+        pattern: 'revenue',
+      },
+    });
+
+    expect(knowhereClient.knowledge.getDocumentOutline).toHaveBeenCalledWith({
+      documentId: 'doc_remote',
+    });
+    expect(knowhereClient.knowledge.readChunks).toHaveBeenCalledWith({
+      documentId: 'doc_remote',
+      sectionPath: 'Overview',
+      limit: 3,
+    });
+    expect(knowhereClient.knowledge.grepChunks).toHaveBeenCalledWith({
+      documentId: 'doc_remote',
+      pattern: 'revenue',
+    });
+    await client.close();
+    await server.close();
+  });
+
+  it('should pass completed job ids through read-related tools', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    await client.callTool({
+      name: 'knowhere_get_document_outline',
+      arguments: {
+        jobId: 'job_remote',
+        localDocumentId: 'local-from-job',
+      },
+    });
+    await client.callTool({
+      name: 'knowhere_read_chunks',
+      arguments: {
+        jobId: 'job_remote',
+        localDocumentId: 'local-from-job',
+        sectionPath: 'Overview',
+        limit: 3,
+      },
+    });
+    await client.callTool({
+      name: 'knowhere_grep_chunks',
+      arguments: {
+        jobId: 'job_remote',
+        localDocumentId: 'local-from-job',
+        pattern: 'revenue',
+      },
+    });
+
+    expect(knowhereClient.knowledge.getDocumentOutline).toHaveBeenCalledWith({
+      jobId: 'job_remote',
+      localDocumentId: 'local-from-job',
+    });
+    expect(knowhereClient.knowledge.readChunks).toHaveBeenCalledWith({
+      jobId: 'job_remote',
+      localDocumentId: 'local-from-job',
+      sectionPath: 'Overview',
+      limit: 3,
+    });
+    expect(knowhereClient.knowledge.grepChunks).toHaveBeenCalledWith({
+      jobId: 'job_remote',
+      localDocumentId: 'local-from-job',
+      pattern: 'revenue',
+    });
+    await client.close();
+    await server.close();
+  });
+
+  it('should delegate async parse and status calls to the SDK knowledge module', async () => {
     const knowhereClient = createClient();
     const { client, server } = await connectTestClient(knowhereClient);
 
@@ -129,14 +217,6 @@ describe('knowhere MCP wrapper', () => {
         jobId: 'job-async',
       },
     });
-    const cacheResponse = await client.callTool({
-      name: 'knowhere_async_cache_job_result',
-      arguments: {
-        jobId: 'job-async',
-        localDocumentId: 'local-report',
-        verifyChecksum: false,
-      },
-    });
 
     expect(knowhereClient.knowledge.startParse).toHaveBeenCalledWith({
       url: 'https://example.com/report.pdf',
@@ -154,11 +234,6 @@ describe('knowhere MCP wrapper', () => {
       kbDir: undefined,
     });
     expect(knowhereClient.knowledge.getJobStatus).toHaveBeenCalledWith('job-async');
-    expect(knowhereClient.knowledge.cacheJobResult).toHaveBeenCalledWith({
-      jobId: 'job-async',
-      localDocumentId: 'local-report',
-      verifyChecksum: false,
-    });
     expect(parseResponse.structuredContent).toEqual({
       result: {
         job: {
@@ -179,13 +254,6 @@ describe('knowhere MCP wrapper', () => {
         job: {
           jobId: 'job-async',
           status: 'done',
-        },
-      },
-    });
-    expect(cacheResponse.structuredContent).toEqual({
-      result: {
-        document: {
-          localDocumentId: 'local-report',
         },
       },
     });
