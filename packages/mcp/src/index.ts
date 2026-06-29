@@ -191,11 +191,19 @@ export async function createKnowhereMcpServer(
   server.registerTool(
     'knowhere_list_documents',
     {
-      description: 'List parse results cached locally by this SDK-backed MCP server.',
-      inputSchema: {},
+      description:
+        'List published Knowhere documents from the remote API, optionally filtered by namespace. Returned documentIds can be passed to outline/read/grep tools.',
+      inputSchema: {
+        namespace: z.string().optional(),
+      },
       outputSchema: objectOutputSchema,
     },
-    async () => createToolResult({ documents: await knowledge.listDocuments() }),
+    async (input) =>
+      createToolResult(
+        await client.documents.list({
+          namespace: input.namespace,
+        }),
+      ),
   );
 
   if (hasWritePermission) {
@@ -219,7 +227,7 @@ export async function createKnowhereMcpServer(
     'knowhere_get_document_outline',
     {
       description:
-        'Return the outline for a cached local document, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Return the outline for a parsed document. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -234,7 +242,7 @@ export async function createKnowhereMcpServer(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from a cached local parse result, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Read exact chunks from a parsed document. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -255,7 +263,7 @@ export async function createKnowhereMcpServer(
     'knowhere_grep_chunks',
     {
       description:
-        'Run grep-style literal or regex matching against cached local chunks, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Run grep-style literal or regex matching against parsed document chunks. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
