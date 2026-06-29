@@ -5,7 +5,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 
 import { Knowledge } from '../knowledge.js';
 import type { Knowhere } from '../../client.js';
-import type { ParseResult, TextChunk, TableChunk } from '../../types/index.js';
+import type {
+  DocumentChunkListResponse,
+  ParseResult,
+  TextChunk,
+  TableChunk,
+} from '../../types/index.js';
 
 describe('Knowledge', () => {
   const tempDirectories: string[] = [];
@@ -198,6 +203,102 @@ describe('Knowledge', () => {
     expect(read.nextChunk).toBeUndefined();
   });
 
+  it('should sync a remote document id into the local cache before reads', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, documentsListChunks, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const read = await knowledge.readChunks({
+      documentId: 'doc_remote',
+      sectionPath: 'Intro',
+      limit: 5,
+    });
+    const outline = await knowledge.getDocumentOutline('doc_remote');
+    const grep = await knowledge.grepChunks({
+      localDocumentId: 'doc_remote',
+      pattern: 'Alpha',
+      maxResults: 5,
+    });
+    const documents = await knowledge.listDocuments();
+
+    expect(documentsListChunks).toHaveBeenCalledWith('doc_remote', {
+      page: 1,
+      pageSize: 1,
+    });
+    expect(jobsLoad).toHaveBeenCalledWith('job_remote', { verifyChecksum: undefined });
+    expect(read.document).toMatchObject({
+      localDocumentId: 'doc_remote',
+      documentId: 'doc_remote',
+      namespace: 'support-center',
+      jobId: 'job_remote',
+      sourceFileName: 'job_remote.md',
+      chunkCount: 3,
+    });
+    expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['chunk-intro']);
+    expect(outline.sections.map((section) => section.sectionPath)).toEqual(['Intro', 'Revenue']);
+    expect(grep.matches[0]).toMatchObject({
+      chunkId: 'chunk-intro',
+      sectionPath: 'Intro',
+    });
+    expect(documents).toHaveLength(1);
+    await expectFileExists(path.join(cacheDirectory, 'documents', 'doc_remote', 'manifest.json'));
+    await expectFileExists(path.join(cacheDirectory, 'documents', 'doc_remote', 'chunks.json'));
+  });
+
+  it('should fail clearly when a remote document id has no published job id', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, documentsListChunks } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    documentsListChunks.mockResolvedValueOnce({
+      documentId: 'doc_missing_job',
+      namespace: 'support-center',
+      jobId: null,
+      jobResultId: null,
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    await expect(
+      knowledge.readChunks({
+        documentId: 'doc_missing_job',
+        limit: 5,
+      }),
+    ).rejects.toThrow('Cannot sync server document doc_missing_job');
+  });
+
+  it('should sync a completed job id into the local cache before reads', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const read = await knowledge.readChunks({
+      jobId: 'job-from-read',
+      localDocumentId: 'local-from-job',
+      sectionPath: 'Intro',
+      limit: 1,
+    });
+    const documents = await knowledge.listDocuments();
+
+    expect(jobsLoad).toHaveBeenCalledWith('job-from-read', { verifyChecksum: undefined });
+    expect(read.document).toMatchObject({
+      localDocumentId: 'local-from-job',
+      jobId: 'job-from-read',
+      sourceFileName: 'job-from-read.md',
+      chunkCount: 3,
+    });
+    expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['chunk-intro']);
+    expect(documents.map((document) => document.localDocumentId)).toEqual(['local-from-job']);
+    await expectFileExists(
+      path.join(cacheDirectory, 'documents', 'local-from-job', 'manifest.json'),
+    );
+  });
+
   it('should normalize parser-style doc navigation paths for outline and reads', async () => {
     const knowledge = await createKnowledgeWithCachedResult(createParseResultWithFullPaths());
 
@@ -346,6 +447,7 @@ function createClient(parseResult: ParseResult): {
   startParse: ReturnType<typeof vi.fn>;
   jobsGet: ReturnType<typeof vi.fn>;
   jobsLoad: ReturnType<typeof vi.fn>;
+  documentsListChunks: ReturnType<typeof vi.fn>;
   retrievalQuery: ReturnType<typeof vi.fn>;
 } {
   const parse = vi.fn().mockResolvedValue(parseResult);
@@ -375,12 +477,29 @@ function createClient(parseResult: ParseResult): {
     Promise.resolve({
       ...parseResult,
       jobId,
+      documentId: jobId === 'job_remote' ? 'doc_remote' : parseResult.documentId,
       manifest: {
         ...parseResult.manifest,
         jobId,
         sourceFileName: `${jobId}.md`,
       },
     }),
+  );
+  const documentsListChunks = vi.fn().mockImplementation(
+    (_documentId: string): Promise<DocumentChunkListResponse> =>
+      Promise.resolve({
+        documentId: 'doc_remote',
+        namespace: 'support-center',
+        jobId: 'job_remote',
+        jobResultId: 'jres_remote',
+        chunks: [],
+        pagination: {
+          page: 1,
+          pageSize: 1,
+          total: 0,
+          totalPages: 1,
+        },
+      }),
   );
   const retrievalQuery = vi.fn().mockResolvedValue({
     namespace: 'support-center',
@@ -417,6 +536,9 @@ function createClient(parseResult: ParseResult): {
         get: jobsGet,
         load: jobsLoad,
       },
+      documents: {
+        listChunks: documentsListChunks,
+      },
       retrieval: {
         query: retrievalQuery,
       },
@@ -425,6 +547,7 @@ function createClient(parseResult: ParseResult): {
     startParse,
     jobsGet,
     jobsLoad,
+    documentsListChunks,
     retrievalQuery,
   };
 }

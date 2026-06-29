@@ -78,6 +78,22 @@ export interface KnowledgeCacheJobResultParams {
   verifyChecksum?: boolean;
 }
 
+export interface KnowledgeCacheDocumentParams {
+  /** Canonical Knowhere document identifier from published retrieval results. */
+  documentId: string;
+  /** Optional local cache identifier to use for the localized document copy. */
+  localDocumentId?: string;
+}
+
+export interface KnowledgeDocumentReference {
+  /** Stable local identifier used by cached outline/read/grep methods. */
+  localDocumentId?: string;
+  /** Canonical Knowhere document identifier from published retrieval results. */
+  documentId?: string;
+  /** Server parse job identifier whose completed result should be cached before reading. */
+  jobId?: string;
+}
+
 export interface KnowledgeSection {
   sectionPath: string;
   sectionTitle: string;
@@ -98,8 +114,7 @@ export interface KnowledgeOutline {
   sectionTree: KnowledgeSection[];
 }
 
-export interface KnowledgeReadParams {
-  localDocumentId: string;
+export interface KnowledgeReadParams extends KnowledgeDocumentReference {
   sectionPath?: string;
   startChunk?: number;
   endChunk?: number;
@@ -125,8 +140,7 @@ export interface KnowledgeReadResponse {
   nextChunk?: number;
 }
 
-export interface KnowledgeGrepParams {
-  localDocumentId: string;
+export interface KnowledgeGrepParams extends KnowledgeDocumentReference {
   pattern: string;
   isRegex?: boolean;
   isCaseSensitive?: boolean;

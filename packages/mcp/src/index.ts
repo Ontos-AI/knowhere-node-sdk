@@ -189,28 +189,6 @@ export async function createKnowhereMcpServer(
   );
 
   server.registerTool(
-    'knowhere_async_cache_job_result',
-    {
-      description:
-        'Manually load a completed Knowhere parse job result and cache it locally. Usually not needed for jobs started by async parse tools because knowhere_async_get_job_status auto-caches them when done.',
-      inputSchema: {
-        jobId: z.string(),
-        localDocumentId: z.string().optional(),
-        verifyChecksum: z.boolean().optional(),
-      },
-      outputSchema: objectOutputSchema,
-    },
-    async (input) =>
-      createToolResult(
-        await knowledge.cacheJobResult({
-          jobId: input.jobId,
-          localDocumentId: input.localDocumentId,
-          verifyChecksum: input.verifyChecksum,
-        }),
-      ),
-  );
-
-  server.registerTool(
     'knowhere_list_documents',
     {
       description: 'List parse results cached locally by this SDK-backed MCP server.',
@@ -240,21 +218,27 @@ export async function createKnowhereMcpServer(
   server.registerTool(
     'knowhere_get_document_outline',
     {
-      description: 'Return the local outline for a cached parsed document.',
+      description:
+        'Return the outline for a cached local document, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first.',
       inputSchema: {
-        localDocumentId: z.string(),
+        localDocumentId: z.string().optional(),
+        documentId: z.string().optional(),
+        jobId: z.string().optional(),
       },
       outputSchema: objectOutputSchema,
     },
-    async (input) => createToolResult(await knowledge.getDocumentOutline(input.localDocumentId)),
+    async (input) => createToolResult(await knowledge.getDocumentOutline(input)),
   );
 
   server.registerTool(
     'knowhere_read_chunks',
     {
-      description: 'Read exact chunks from a cached local parse result.',
+      description:
+        'Read exact chunks from a cached local parse result, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first.',
       inputSchema: {
-        localDocumentId: z.string(),
+        localDocumentId: z.string().optional(),
+        documentId: z.string().optional(),
+        jobId: z.string().optional(),
         sectionPath: z.string().optional(),
         startChunk: z.number().int().positive().optional(),
         endChunk: z.number().int().positive().optional(),
@@ -270,9 +254,12 @@ export async function createKnowhereMcpServer(
   server.registerTool(
     'knowhere_grep_chunks',
     {
-      description: 'Run grep-style literal or regex matching against cached local chunks.',
+      description:
+        'Run grep-style literal or regex matching against cached local chunks, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first.',
       inputSchema: {
-        localDocumentId: z.string(),
+        localDocumentId: z.string().optional(),
+        documentId: z.string().optional(),
+        jobId: z.string().optional(),
         pattern: z.string(),
         isRegex: z.boolean().optional(),
         isCaseSensitive: z.boolean().optional(),

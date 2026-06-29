@@ -1,5 +1,13 @@
+import { createHash } from 'crypto';
+
 import type { Knowhere } from '../client.js';
-import type { ParseResult, Chunk, DocNavSection, RetrievalResult } from '../types/index.js';
+import type {
+  Chunk,
+  DocNavSection,
+  DocumentChunkListResponse,
+  ParseResult,
+  RetrievalResult,
+} from '../types/index.js';
 import { ValidationError } from '../errors/index.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
@@ -9,6 +17,8 @@ import type {
   KnowledgeAsyncParseParams,
   KnowledgeAsyncParseResponse,
   KnowledgeCacheJobResultParams,
+  KnowledgeCacheDocumentParams,
+  KnowledgeDocumentReference,
   KnowledgeGrepMatch,
   KnowledgeGrepParams,
   KnowledgeGrepResponse,
@@ -33,6 +43,8 @@ const MAX_READ_LIMIT = 40;
 const DEFAULT_GREP_LIMIT = 20;
 const MAX_GREP_LIMIT = 50;
 const DEFAULT_CONTEXT_CHARS = 80;
+const SAFE_LOCAL_DOCUMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const REMOTE_DOCUMENT_ID_PATTERN = /^doc[_-]/;
 
 export class Knowledge {
   private readonly client: Knowhere;
@@ -97,6 +109,24 @@ export class Knowledge {
       localDocumentId: params.localDocumentId,
     });
     return { document, result };
+  }
+
+  async cacheDocument(params: KnowledgeCacheDocumentParams): Promise<LocalKnowledgeParseResponse> {
+    if (!params.documentId) {
+      throw new ValidationError('documentId is required');
+    }
+
+    const existing: LocalKnowledgeDocument | undefined = await this.findLocalDocumentByRemoteId(
+      params.documentId,
+    );
+    const jobId: string = await this.getPublishedDocumentJobId(params.documentId);
+    return this.cacheJobResult({
+      jobId,
+      localDocumentId:
+        params.localDocumentId ??
+        existing?.localDocumentId ??
+        createLocalDocumentIdForRemote(params.documentId),
+    });
   }
 
   private async resolveAsyncCache(
@@ -165,8 +195,10 @@ export class Knowledge {
     return this.store.listDocuments();
   }
 
-  async getDocumentOutline(localDocumentId: string): Promise<KnowledgeOutline> {
-    const { document, result } = await this.store.loadResult(localDocumentId);
+  async getDocumentOutline(
+    reference: string | KnowledgeDocumentReference,
+  ): Promise<KnowledgeOutline> {
+    const { document, result } = await this.loadReadableResult(reference);
     const chunks = indexChunks(result);
     const sections = buildFlatSections(result, chunks);
     const sectionTree =
@@ -186,7 +218,7 @@ export class Knowledge {
   }
 
   async readChunks(params: KnowledgeReadParams): Promise<KnowledgeReadResponse> {
-    const { document, result } = await this.store.loadResult(params.localDocumentId);
+    const { document, result } = await this.loadReadableResult(params);
     const limit = clampLimit(params.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT);
     const chunks = indexChunks(result).filter((chunk) => matchesReadScope(chunk, params));
     const selected = selectReadWindow(chunks, params, limit);
@@ -208,7 +240,7 @@ export class Knowledge {
       throw new ValidationError('pattern is required');
     }
 
-    const { document, result } = await this.store.loadResult(params.localDocumentId);
+    const { document, result } = await this.loadReadableResult(params);
     const maxResults = clampLimit(params.maxResults, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
     const contextChars = params.contextChars ?? DEFAULT_CONTEXT_CHARS;
     const matcher = createMatcher(params);
@@ -290,6 +322,91 @@ export class Knowledge {
     const requested = new Set(localDocumentIds);
     return documents.filter((document) => requested.has(document.localDocumentId));
   }
+
+  private async loadReadableResult(reference: string | KnowledgeDocumentReference): Promise<{
+    document: LocalKnowledgeDocument;
+    result: ParseResult;
+  }> {
+    const normalized: KnowledgeDocumentReference = normalizeDocumentReference(reference);
+    if (normalized.documentId) {
+      return this.cacheDocument({
+        documentId: normalized.documentId,
+        localDocumentId: normalized.localDocumentId,
+      });
+    }
+
+    if (normalized.jobId) {
+      return this.cacheJobResult({
+        jobId: normalized.jobId,
+        localDocumentId: normalized.localDocumentId,
+      });
+    }
+
+    if (!normalized.localDocumentId) {
+      throw new ValidationError('localDocumentId, documentId, or jobId is required');
+    }
+
+    const document = await this.store.getDocument(normalized.localDocumentId);
+    if (document) {
+      return this.store.loadResult(normalized.localDocumentId);
+    }
+
+    if (looksLikeRemoteDocumentId(normalized.localDocumentId)) {
+      return this.cacheDocument({
+        documentId: normalized.localDocumentId,
+        localDocumentId: createLocalDocumentIdForRemote(normalized.localDocumentId),
+      });
+    }
+
+    throw new Error(`Local Knowhere document not found: ${normalized.localDocumentId}`);
+  }
+
+  private async findLocalDocumentByRemoteId(
+    documentId: string,
+  ): Promise<LocalKnowledgeDocument | undefined> {
+    const documents = await this.store.listDocuments();
+    return documents.find((document) => document.documentId === documentId);
+  }
+
+  private async getPublishedDocumentJobId(documentId: string): Promise<string> {
+    const response: DocumentChunkListResponse = await this.client.documents.listChunks(documentId, {
+      page: 1,
+      pageSize: 1,
+    });
+    if (!response.jobId) {
+      throw new Error(
+        `Cannot sync server document ${documentId}: current published job id was not returned.`,
+      );
+    }
+    return response.jobId;
+  }
+}
+
+function normalizeDocumentReference(
+  reference: string | KnowledgeDocumentReference,
+): KnowledgeDocumentReference {
+  if (typeof reference === 'string') {
+    return { localDocumentId: reference };
+  }
+  return reference;
+}
+
+function looksLikeRemoteDocumentId(value: string): boolean {
+  return REMOTE_DOCUMENT_ID_PATTERN.test(value);
+}
+
+function createLocalDocumentIdForRemote(documentId: string): string {
+  if (
+    SAFE_LOCAL_DOCUMENT_ID_PATTERN.test(documentId) &&
+    !documentId.includes('..') &&
+    !documentId.includes('/') &&
+    !documentId.includes('\\')
+  ) {
+    return documentId;
+  }
+
+  const hash = createHash('sha256').update(documentId).digest('hex').slice(0, 16);
+  return `remote_${hash}`;
 }
 
 function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {

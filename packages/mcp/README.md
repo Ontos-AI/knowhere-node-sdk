@@ -174,8 +174,7 @@ Host documentation:
 When logged in with Read only permission, the MCP server exposes only
 `knowhere_search`, `knowhere_list_documents`,
 `knowhere_get_document_outline`, `knowhere_read_chunks`,
-`knowhere_grep_chunks`, `knowhere_async_get_job_status`, and
-`knowhere_async_cache_job_result`.
+`knowhere_grep_chunks`, and `knowhere_async_get_job_status`.
 
 - `knowhere_parse_url`: blocking parse for a remote URL; waits for completion
   and caches the result locally.
@@ -187,14 +186,18 @@ When logged in with Read only permission, the MCP server exposes only
   needed, and return the job immediately.
 - `knowhere_async_get_job_status`: check a parse job status; completed jobs
   started by async parse tools are cached locally automatically.
-- `knowhere_async_cache_job_result`: manually cache a completed parse job result
-  locally, mainly for recovery or jobs started outside the async parse tools.
 - `knowhere_list_documents`: list locally cached parse results.
 - `knowhere_delete_document`: archive, or soft-delete, a published Knowhere
   document through the Knowhere API.
-- `knowhere_get_document_outline`: inspect a cached document outline.
-- `knowhere_read_chunks`: read exact chunks from a cached result.
-- `knowhere_grep_chunks`: run local literal or regex grep over cached chunks.
+- `knowhere_get_document_outline`: inspect a cached document outline, or pass a
+  published `documentId` or completed `jobId` to sync it into the local cache
+  first through the parser result ZIP.
+- `knowhere_read_chunks`: read exact chunks from a cached result, or pass a
+  published `documentId` or completed `jobId` to sync it into the local cache
+  first through the parser result ZIP.
+- `knowhere_grep_chunks`: run local literal or regex grep over cached chunks, or
+  pass a published `documentId` or completed `jobId` to sync it into the local
+  cache first through the parser result ZIP.
 - `knowhere_search`: search published documents through the Knowhere API
   retrieval query.
 
