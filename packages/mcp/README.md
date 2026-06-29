@@ -177,15 +177,20 @@ When logged in with Read only permission, the MCP server exposes only
 `knowhere_grep_chunks`, and `knowhere_async_get_job_status`.
 
 - `knowhere_parse_url`: blocking parse for a remote URL; waits for completion
-  and caches the result locally.
+  and makes the parsed document available to outline/read/grep/search tools.
 - `knowhere_parse_file`: blocking parse for a file path available to the MCP
-  process; waits for completion and caches the result locally.
+  process; waits for completion and makes the parsed document available to
+  outline/read/grep/search tools.
 - `knowhere_async_parse_url`: start parsing a remote URL and return the job
-  immediately.
+  immediately. When checking status, use exponential backoff.
 - `knowhere_async_parse_file`: start parsing a local file path, upload it if
-  needed, and return the job immediately.
-- `knowhere_async_get_job_status`: check a parse job status; completed jobs
-  started by async parse tools are cached locally automatically.
+  needed, and return the job immediately. When checking status, use exponential
+  backoff.
+- `knowhere_async_get_job_status`: check a parse job status. For large PDFs or
+  OCR-heavy files, parsing can take 10+ minutes; poll with `5s`, `10s`, `20s`,
+  `40s`, `80s`, then cap at `120s` between follow-up status checks. After
+  completion, use the returned `localDocumentId`, `documentId`, or `jobId` with
+  outline/read/grep tools.
 - `knowhere_list_documents`: list locally cached parse results.
 - `knowhere_delete_document`: archive, or soft-delete, a published Knowhere
   document through the Knowhere API.
@@ -200,6 +205,10 @@ When logged in with Read only permission, the MCP server exposes only
   cache first through the parser result ZIP.
 - `knowhere_search`: search published documents through the Knowhere API
   retrieval query.
+
+Read-related tool responses include `document.resultDirectoryPath`; expanded
+chunks are stored at `<resultDirectoryPath>/chunks.json` for direct filesystem
+reads when needed.
 
 ## Package Boundary
 
