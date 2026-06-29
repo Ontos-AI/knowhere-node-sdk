@@ -70,7 +70,7 @@ export async function createKnowhereMcpServer(
       'knowhere_parse_url',
       {
         description:
-          'Blocking parse: submit a remote URL to Knowhere, wait for completion, then cache the parse result locally for outline/read/grep/search tools.',
+          'Blocking parse: submit a remote URL to Knowhere, wait for completion, then make the parsed document available to outline/read/grep/search tools.',
         inputSchema: {
           url: z.string().url(),
           namespace: z.string().optional(),
@@ -96,7 +96,7 @@ export async function createKnowhereMcpServer(
       'knowhere_parse_file',
       {
         description:
-          'Blocking parse: submit a local file path available to this MCP process, wait for completion, then cache the parse result locally.',
+          'Blocking parse: submit a local file path available to this MCP process, wait for completion, then make the parsed document available to outline/read/grep/search tools.',
         inputSchema: {
           file: z.string().describe('Local file path available to this MCP server process.'),
           fileName: z.string().optional(),
@@ -124,7 +124,7 @@ export async function createKnowhereMcpServer(
       'knowhere_async_parse_url',
       {
         description:
-          'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
+          'Start parsing a remote URL through Knowhere and return immediately with the parse job. When checking status, call knowhere_async_get_job_status with exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large or OCR-heavy documents can take 10+ minutes; prefer sparse follow-up status checks over rapid repeated calls. After completion, use the returned localDocumentId, documentId, or jobId with outline/read/grep tools.',
         inputSchema: {
           url: z.string().url(),
           namespace: z.string().optional(),
@@ -150,7 +150,7 @@ export async function createKnowhereMcpServer(
       'knowhere_async_parse_file',
       {
         description:
-          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
+          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. When checking status, call knowhere_async_get_job_status with exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large PDFs or OCR-heavy files can take 10+ minutes; prefer sparse follow-up status checks over rapid repeated calls. After completion, use the returned localDocumentId, documentId, or jobId with outline/read/grep tools.',
         inputSchema: {
           file: z.string().describe('Local file path available to this MCP server process.'),
           fileName: z.string().optional(),
@@ -179,7 +179,7 @@ export async function createKnowhereMcpServer(
     'knowhere_async_get_job_status',
     {
       description:
-        'Fetch the current status for a Knowhere parse job. If the job was started by an async parse tool and is done, this also caches the result locally for outline/read/grep/search.',
+        'Fetch the current status for a Knowhere parse job. For follow-up status checks on non-completed jobs, use exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large PDFs or OCR-heavy files can take 10+ minutes; do not treat unchanged progress as failure unless the job reports isFailed or an explicit error. After completion, use the returned localDocumentId, documentId, or jobId with outline/read/grep tools.',
       inputSchema: {
         jobId: z.string(),
       },
@@ -219,7 +219,7 @@ export async function createKnowhereMcpServer(
     'knowhere_get_document_outline',
     {
       description:
-        'Return the outline for a cached local document, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first.',
+        'Return the outline for a cached local document, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -234,7 +234,7 @@ export async function createKnowhereMcpServer(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from a cached local parse result, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first.',
+        'Read exact chunks from a cached local parse result, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -255,7 +255,7 @@ export async function createKnowhereMcpServer(
     'knowhere_grep_chunks',
     {
       description:
-        'Run grep-style literal or regex matching against cached local chunks, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first.',
+        'Run grep-style literal or regex matching against cached local chunks, or provide a published Knowhere documentId or completed jobId to sync it into the local cache first. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
