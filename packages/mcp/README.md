@@ -181,11 +181,14 @@ When logged in with Read only permission, the MCP server exposes only
 - `knowhere_parse_file`: blocking parse for a file path available to the MCP
   process; waits for completion and caches the result locally.
 - `knowhere_async_parse_url`: start parsing a remote URL and return the job
-  immediately.
+  immediately. Poll the returned job with exponential backoff.
 - `knowhere_async_parse_file`: start parsing a local file path, upload it if
-  needed, and return the job immediately.
+  needed, and return the job immediately. Poll the returned job with exponential
+  backoff.
 - `knowhere_async_get_job_status`: check a parse job status; completed jobs
-  started by async parse tools are cached locally automatically.
+  started by async parse tools are cached locally automatically. For large PDFs
+  or OCR-heavy files, parsing can take 10+ minutes; poll with `5s`, `10s`,
+  `20s`, `40s`, `80s`, then cap at `120s` until the job is terminal.
 - `knowhere_list_documents`: list locally cached parse results.
 - `knowhere_delete_document`: archive, or soft-delete, a published Knowhere
   document through the Knowhere API.

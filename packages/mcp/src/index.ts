@@ -124,7 +124,7 @@ export async function createKnowhereMcpServer(
       'knowhere_async_parse_url',
       {
         description:
-          'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
+          'Start parsing a remote URL through Knowhere and return immediately with the parse job. Poll with knowhere_async_get_job_status using exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large or OCR-heavy documents can take 10+ minutes; keep polling until the job is terminal. Completed tracked jobs are cached locally automatically.',
         inputSchema: {
           url: z.string().url(),
           namespace: z.string().optional(),
@@ -150,7 +150,7 @@ export async function createKnowhereMcpServer(
       'knowhere_async_parse_file',
       {
         description:
-          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status; completed tracked jobs are cached locally automatically.',
+          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. Poll with knowhere_async_get_job_status using exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large PDFs or OCR-heavy files can take 10+ minutes; keep polling until the job is terminal. Completed tracked jobs are cached locally automatically.',
         inputSchema: {
           file: z.string().describe('Local file path available to this MCP server process.'),
           fileName: z.string().optional(),
@@ -179,7 +179,7 @@ export async function createKnowhereMcpServer(
     'knowhere_async_get_job_status',
     {
       description:
-        'Fetch the current status for a Knowhere parse job. If the job was started by an async parse tool and is done, this also caches the result locally for outline/read/grep/search.',
+        'Fetch the current status for a Knowhere parse job. If the job is not terminal, continue polling with exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large PDFs or OCR-heavy files can take 10+ minutes; do not treat unchanged progress as failure unless the job reports isFailed or an explicit error. If the job was started by an async parse tool and is done, this also caches the result locally for outline/read/grep/search.',
       inputSchema: {
         jobId: z.string(),
       },

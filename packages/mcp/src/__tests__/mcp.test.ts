@@ -10,6 +10,7 @@ describe('knowhere MCP wrapper', () => {
     const { client, server } = await connectTestClient(createClient());
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name).sort();
+    const statusTool = tools.tools.find((tool) => tool.name === 'knowhere_async_get_job_status');
 
     expect(toolNames).toEqual([
       'knowhere_async_get_job_status',
@@ -24,6 +25,8 @@ describe('knowhere MCP wrapper', () => {
       'knowhere_read_chunks',
       'knowhere_search',
     ]);
+    expect(statusTool?.description).toContain('5s, 10s, 20s, 40s, 80s');
+    expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
     await client.close();
     await server.close();
   });
