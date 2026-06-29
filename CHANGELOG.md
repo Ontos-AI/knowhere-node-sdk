@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- [#101](https://github.com/Ontos-AI/knowhere-node-sdk/pull/101) [`ae30b28`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/ae30b28036b31e1c9f3c1a22b49f282d73e7d2a3) Thanks [@suguanYang](https://github.com/suguanYang)! - Add remote document and completed job references to local read helpers. Published document IDs now resolve the current published job ID and cache the parser result ZIP before outline/read/grep operations, and the MCP read tools accept document IDs and job IDs directly while no longer exposing the redundant manual cache-job tool.
+
 ## 0.8.0
 
 ### Minor Changes
