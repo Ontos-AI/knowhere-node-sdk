@@ -89,7 +89,7 @@ export interface DocumentChunkListParams {
   pageSize?: number;
   /** Optional chunk type filter */
   chunkType?: DocumentChunkType;
-  /** Generate asset URLs for media chunks (default: false) */
+  /** Include 7-day asset URLs for media chunks (server default: true) */
   includeAssetUrls?: boolean;
 }
 
@@ -97,7 +97,7 @@ export interface DocumentChunkListParams {
  * Query parameters for GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkGetParams {
-  /** Generate asset URLs for media chunks (default: false) */
+  /** Include 7-day asset URLs for media chunks (server default: true) */
   includeAssetUrls?: boolean;
 }
 
@@ -125,7 +125,7 @@ export interface DocumentChunk {
   sortOrder: number;
   /** Chunk metadata returned by the API */
   metadata: Record<string, unknown>;
-  /** Generated asset URL when requested and available */
+  /** 7-day asset URL for media chunks when available */
   assetUrl?: string | null;
   /** Chunk creation timestamp */
   createdAt?: Date;

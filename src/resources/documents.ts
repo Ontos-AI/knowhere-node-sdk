@@ -104,21 +104,21 @@ export class Documents extends BaseResource {
     if (params.chunkType !== undefined) {
       queryParams.chunk_type = params.chunkType;
     }
-    if (params.includeAssetUrls === true) {
-      queryParams.include_asset_urls = true;
+    if (params.includeAssetUrls !== undefined) {
+      queryParams.include_asset_urls = params.includeAssetUrls;
     }
 
     return Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined;
   }
 
   private createChunkGetRequestConfig(params?: DocumentChunkGetParams): RequestConfig | undefined {
-    if (params?.includeAssetUrls !== true) {
+    if (params?.includeAssetUrls === undefined) {
       return undefined;
     }
 
     return {
       params: {
-        include_asset_urls: true,
+        include_asset_urls: params.includeAssetUrls,
       },
     };
   }

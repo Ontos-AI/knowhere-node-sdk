@@ -149,7 +149,33 @@ describe('Documents Resource', () => {
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', undefined);
   });
 
-  it('should get one document chunk and request asset URLs only when needed', async () => {
+  it('should allow opting out of document chunk asset URLs', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobResultId: 'result-123',
+      jobId: 'job-123',
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    await documents.listChunks('doc-123', {
+      includeAssetUrls: false,
+    });
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', {
+      params: {
+        include_asset_urls: false,
+      },
+    });
+  });
+
+  it('should get one document chunk with explicit asset URL control', async () => {
     mockHttpClient.get.mockResolvedValue({
       documentId: 'doc-123',
       namespace: 'support-center',
