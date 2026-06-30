@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+
+### Minor Changes
+
+- [#106](https://github.com/Ontos-AI/knowhere-node-sdk/pull/106) [`85bdcc2`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/85bdcc277c75d60cd9a470eb67c5927c09b187cf) Thanks [@suguanYang](https://github.com/suguanYang)! - Add document list pagination parameters and response typing, plus document chunk media asset URL fields.
+
 ## 0.9.0
 
 ### Minor Changes

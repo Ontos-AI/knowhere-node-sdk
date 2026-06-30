@@ -1,6 +1,6 @@
 {
   "name": "@ontos-ai/knowhere-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "MCP wrapper for the Knowhere Node.js SDK local knowledge tools",
   "keywords": [
     "knowhere",
