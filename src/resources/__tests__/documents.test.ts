@@ -171,7 +171,7 @@ describe('Documents Resource', () => {
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', undefined);
   });
 
-  it('should allow opting out of document chunk asset URLs', async () => {
+  it('should allow explicit document chunk asset URL control', async () => {
     mockHttpClient.get.mockResolvedValue({
       documentId: 'doc-123',
       namespace: 'support-center',

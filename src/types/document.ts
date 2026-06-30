@@ -89,7 +89,7 @@ export interface DocumentChunkListParams {
   pageSize?: number;
   /** Optional chunk type filter */
   chunkType?: DocumentChunkType;
-  /** Include 7-day asset URLs for media chunks (server default: true) */
+  /** Set true to include 7-day asset URLs for media chunks */
   includeAssetUrls?: boolean;
 }
 
@@ -97,7 +97,7 @@ export interface DocumentChunkListParams {
  * Query parameters for GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkGetParams {
-  /** Include 7-day asset URLs for media chunks (server default: true) */
+  /** Set true to include 7-day asset URLs for media chunks */
   includeAssetUrls?: boolean;
 }
 

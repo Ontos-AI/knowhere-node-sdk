@@ -261,9 +261,9 @@ const document = await client.documents.get(documentId);
 const chunks = await client.documents.listChunks(documentId, {
   page: 1,
   pageSize: 50,
-  chunkType: 'text',
+  chunkType: 'image',
+  includeAssetUrls: true,
 });
-// Image/table chunks include 7-day assetUrl values by default.
 const archived = await client.documents.archive(documentId);
 
 console.log(documents.documents.length);
@@ -271,7 +271,9 @@ console.log(documents.pagination.totalPages);
 console.log(document.status);
 console.log(chunks.pagination.total);
 if (chunks.chunks[0]) {
-  const chunk = await client.documents.getChunk(documentId, chunks.chunks[0].id);
+  const chunk = await client.documents.getChunk(documentId, chunks.chunks[0].id, {
+    includeAssetUrls: true,
+  });
   console.log(chunk.chunk.content);
   console.log(chunk.chunk.assetUrl);
 }
