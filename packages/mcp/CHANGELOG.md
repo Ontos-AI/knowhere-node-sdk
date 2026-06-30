@@ -1,5 +1,12 @@
 # @ontos-ai/knowhere-mcp
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [[`85bdcc2`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/85bdcc277c75d60cd9a470eb67c5927c09b187cf)]:
+  - @ontos-ai/knowhere-sdk@0.10.0
+
 ## 0.4.1
 
 ### Patch Changes
