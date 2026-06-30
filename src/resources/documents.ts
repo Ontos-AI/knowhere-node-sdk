@@ -13,6 +13,9 @@ type RequestConfig = {
   params: Record<string, string | number | boolean>;
 };
 
+type MaybePaginatedDocumentListResponse = Omit<DocumentListResponse, 'pagination'> &
+  Partial<Pick<DocumentListResponse, 'pagination'>>;
+
 /**
  * Resource for canonical document lifecycle operations.
  */
@@ -21,10 +24,11 @@ export class Documents extends BaseResource {
    * List canonical documents in a namespace.
    */
   async list(params?: DocumentListParams): Promise<DocumentListResponse> {
-    return this.httpClient.get<DocumentListResponse>(
+    const response = await this.httpClient.get<DocumentListResponse>(
       '/v1/documents',
       this.createDocumentListRequestConfig(params),
     );
+    return this.normalizeDocumentListResponse(response);
   }
 
   /**
@@ -85,6 +89,24 @@ export class Documents extends BaseResource {
     }
 
     return Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined;
+  }
+
+  private normalizeDocumentListResponse(response: DocumentListResponse): DocumentListResponse {
+    const maybePaginatedResponse = response as MaybePaginatedDocumentListResponse;
+    if (maybePaginatedResponse.pagination) {
+      return response;
+    }
+
+    const total = response.documents.length;
+    return {
+      ...response,
+      pagination: {
+        page: 1,
+        pageSize: total,
+        total,
+        totalPages: total > 0 ? 1 : 0,
+      },
+    };
   }
 
   private createChunkListRequestConfig(

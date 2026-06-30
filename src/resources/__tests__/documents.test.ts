@@ -67,6 +67,28 @@ describe('Documents Resource', () => {
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents', undefined);
   });
 
+  it('should synthesize document pagination for legacy API responses', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      namespace: 'default',
+      documents: [
+        {
+          documentId: 'doc-123',
+          namespace: 'default',
+          status: 'active',
+        },
+      ],
+    });
+
+    const response = await documents.list();
+
+    expect(response.pagination).toEqual({
+      page: 1,
+      pageSize: 1,
+      total: 1,
+      totalPages: 1,
+    });
+  });
+
   it('should get one document by id', async () => {
     mockHttpClient.get.mockResolvedValue({
       documentId: 'doc-123',
