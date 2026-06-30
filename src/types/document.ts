@@ -23,6 +23,32 @@ export interface Document {
 }
 
 /**
+ * Pagination metadata returned by document list endpoints.
+ */
+export interface DocumentListPagination {
+  /** Current page number */
+  page: number;
+  /** Number of items requested per page */
+  pageSize: number;
+  /** Total matching documents */
+  total: number;
+  /** Total number of pages */
+  totalPages: number;
+}
+
+/**
+ * Query parameters for GET /v1/documents.
+ */
+export interface DocumentListParams {
+  /** Retrieval namespace */
+  namespace?: string;
+  /** Page number (default: 1) */
+  page?: number;
+  /** Items per page (default: 50, maximum: 200) */
+  pageSize?: number;
+}
+
+/**
  * Response from GET /v1/documents.
  */
 export interface DocumentListResponse {
@@ -30,6 +56,8 @@ export interface DocumentListResponse {
   namespace: string;
   /** Documents visible in the namespace */
   documents: Document[];
+  /** Pagination metadata */
+  pagination: DocumentListPagination;
 }
 
 /**

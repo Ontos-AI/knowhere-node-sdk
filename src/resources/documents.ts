@@ -5,6 +5,7 @@ import type {
   DocumentChunkListParams,
   DocumentChunkListResponse,
   DocumentChunkResponse,
+  DocumentListParams,
   DocumentListResponse,
 } from '../types/document.js';
 
@@ -19,16 +20,11 @@ export class Documents extends BaseResource {
   /**
    * List canonical documents in a namespace.
    */
-  async list(params?: { namespace?: string }): Promise<DocumentListResponse> {
-    const requestConfig = params?.namespace
-      ? {
-          params: {
-            namespace: params.namespace,
-          },
-        }
-      : undefined;
-
-    return this.httpClient.get<DocumentListResponse>('/v1/documents', requestConfig);
+  async list(params?: DocumentListParams): Promise<DocumentListResponse> {
+    return this.httpClient.get<DocumentListResponse>(
+      '/v1/documents',
+      this.createDocumentListRequestConfig(params),
+    );
   }
 
   /**
@@ -70,6 +66,25 @@ export class Documents extends BaseResource {
    */
   async archive(documentId: string): Promise<Document> {
     return this.httpClient.post<Document>(`/v1/documents/${documentId}/archive`);
+  }
+
+  private createDocumentListRequestConfig(params?: DocumentListParams): RequestConfig | undefined {
+    if (!params) {
+      return undefined;
+    }
+
+    const queryParams: Record<string, string | number | boolean> = {};
+    if (params.namespace !== undefined) {
+      queryParams.namespace = params.namespace;
+    }
+    if (params.page !== undefined) {
+      queryParams.page = params.page;
+    }
+    if (params.pageSize !== undefined) {
+      queryParams.page_size = params.pageSize;
+    }
+
+    return Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined;
   }
 
   private createChunkListRequestConfig(

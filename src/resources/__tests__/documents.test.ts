@@ -29,20 +29,37 @@ describe('Documents Resource', () => {
           sourceFileName: 'refund-policy.md',
         },
       ],
+      pagination: {
+        page: 2,
+        pageSize: 25,
+        total: 26,
+        totalPages: 2,
+      },
     });
 
-    const response = await documents.list({ namespace: 'support-center' });
+    const response = await documents.list({
+      namespace: 'support-center',
+      page: 2,
+      pageSize: 25,
+    });
 
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents', {
-      params: { namespace: 'support-center' },
+      params: { namespace: 'support-center', page: 2, page_size: 25 },
     });
     expect(response.documents[0]?.documentId).toBe('doc-123');
+    expect(response.pagination.totalPages).toBe(2);
   });
 
   it('should omit namespace query params when not provided', async () => {
     mockHttpClient.get.mockResolvedValue({
       namespace: 'default',
       documents: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
     });
 
     await documents.list();

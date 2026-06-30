@@ -252,7 +252,11 @@ const updateJob = await client.jobs.create({
   documentId,
 });
 
-const documents = await client.documents.list({ namespace: 'support-center' });
+const documents = await client.documents.list({
+  namespace: 'support-center',
+  page: 1,
+  pageSize: 50,
+});
 const document = await client.documents.get(documentId);
 const chunks = await client.documents.listChunks(documentId, {
   page: 1,
@@ -262,6 +266,7 @@ const chunks = await client.documents.listChunks(documentId, {
 const archived = await client.documents.archive(documentId);
 
 console.log(documents.documents.length);
+console.log(documents.pagination.totalPages);
 console.log(document.status);
 console.log(chunks.pagination.total);
 if (chunks.chunks[0]) {
