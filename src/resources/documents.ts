@@ -5,12 +5,16 @@ import type {
   DocumentChunkListParams,
   DocumentChunkListResponse,
   DocumentChunkResponse,
+  DocumentListParams,
   DocumentListResponse,
 } from '../types/document.js';
 
 type RequestConfig = {
   params: Record<string, string | number | boolean>;
 };
+
+type MaybePaginatedDocumentListResponse = Omit<DocumentListResponse, 'pagination'> &
+  Partial<Pick<DocumentListResponse, 'pagination'>>;
 
 /**
  * Resource for canonical document lifecycle operations.
@@ -19,16 +23,12 @@ export class Documents extends BaseResource {
   /**
    * List canonical documents in a namespace.
    */
-  async list(params?: { namespace?: string }): Promise<DocumentListResponse> {
-    const requestConfig = params?.namespace
-      ? {
-          params: {
-            namespace: params.namespace,
-          },
-        }
-      : undefined;
-
-    return this.httpClient.get<DocumentListResponse>('/v1/documents', requestConfig);
+  async list(params?: DocumentListParams): Promise<DocumentListResponse> {
+    const response = await this.httpClient.get<DocumentListResponse>(
+      '/v1/documents',
+      this.createDocumentListRequestConfig(params),
+    );
+    return this.normalizeDocumentListResponse(response);
   }
 
   /**
@@ -72,6 +72,43 @@ export class Documents extends BaseResource {
     return this.httpClient.post<Document>(`/v1/documents/${documentId}/archive`);
   }
 
+  private createDocumentListRequestConfig(params?: DocumentListParams): RequestConfig | undefined {
+    if (!params) {
+      return undefined;
+    }
+
+    const queryParams: Record<string, string | number | boolean> = {};
+    if (params.namespace !== undefined) {
+      queryParams.namespace = params.namespace;
+    }
+    if (params.page !== undefined) {
+      queryParams.page = params.page;
+    }
+    if (params.pageSize !== undefined) {
+      queryParams.page_size = params.pageSize;
+    }
+
+    return Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined;
+  }
+
+  private normalizeDocumentListResponse(response: DocumentListResponse): DocumentListResponse {
+    const maybePaginatedResponse = response as MaybePaginatedDocumentListResponse;
+    if (maybePaginatedResponse.pagination) {
+      return response;
+    }
+
+    const total = response.documents.length;
+    return {
+      ...response,
+      pagination: {
+        page: 1,
+        pageSize: total,
+        total,
+        totalPages: total > 0 ? 1 : 0,
+      },
+    };
+  }
+
   private createChunkListRequestConfig(
     params?: DocumentChunkListParams,
   ): RequestConfig | undefined {
@@ -89,21 +126,21 @@ export class Documents extends BaseResource {
     if (params.chunkType !== undefined) {
       queryParams.chunk_type = params.chunkType;
     }
-    if (params.includeAssetUrls === true) {
-      queryParams.include_asset_urls = true;
+    if (params.includeAssetUrls !== undefined) {
+      queryParams.include_asset_urls = params.includeAssetUrls;
     }
 
     return Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined;
   }
 
   private createChunkGetRequestConfig(params?: DocumentChunkGetParams): RequestConfig | undefined {
-    if (params?.includeAssetUrls !== true) {
+    if (params?.includeAssetUrls === undefined) {
       return undefined;
     }
 
     return {
       params: {
-        include_asset_urls: true,
+        include_asset_urls: params.includeAssetUrls,
       },
     };
   }

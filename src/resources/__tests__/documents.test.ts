@@ -29,25 +29,64 @@ describe('Documents Resource', () => {
           sourceFileName: 'refund-policy.md',
         },
       ],
+      pagination: {
+        page: 2,
+        pageSize: 25,
+        total: 26,
+        totalPages: 2,
+      },
     });
 
-    const response = await documents.list({ namespace: 'support-center' });
+    const response = await documents.list({
+      namespace: 'support-center',
+      page: 2,
+      pageSize: 25,
+    });
 
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents', {
-      params: { namespace: 'support-center' },
+      params: { namespace: 'support-center', page: 2, page_size: 25 },
     });
     expect(response.documents[0]?.documentId).toBe('doc-123');
+    expect(response.pagination.totalPages).toBe(2);
   });
 
   it('should omit namespace query params when not provided', async () => {
     mockHttpClient.get.mockResolvedValue({
       namespace: 'default',
       documents: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
     });
 
     await documents.list();
 
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents', undefined);
+  });
+
+  it('should synthesize document pagination for legacy API responses', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      namespace: 'default',
+      documents: [
+        {
+          documentId: 'doc-123',
+          namespace: 'default',
+          status: 'active',
+        },
+      ],
+    });
+
+    const response = await documents.list();
+
+    expect(response.pagination).toEqual({
+      page: 1,
+      pageSize: 1,
+      total: 1,
+      totalPages: 1,
+    });
   });
 
   it('should get one document by id', async () => {
@@ -132,7 +171,33 @@ describe('Documents Resource', () => {
     expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', undefined);
   });
 
-  it('should get one document chunk and request asset URLs only when needed', async () => {
+  it('should allow explicit document chunk asset URL control', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobResultId: 'result-123',
+      jobId: 'job-123',
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    await documents.listChunks('doc-123', {
+      includeAssetUrls: false,
+    });
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', {
+      params: {
+        include_asset_urls: false,
+      },
+    });
+  });
+
+  it('should get one document chunk with explicit asset URL control', async () => {
     mockHttpClient.get.mockResolvedValue({
       documentId: 'doc-123',
       namespace: 'support-center',

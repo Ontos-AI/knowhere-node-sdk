@@ -23,6 +23,32 @@ export interface Document {
 }
 
 /**
+ * Pagination metadata returned by document list endpoints.
+ */
+export interface DocumentListPagination {
+  /** Current page number */
+  page: number;
+  /** Number of items requested per page */
+  pageSize: number;
+  /** Total matching documents */
+  total: number;
+  /** Total number of pages */
+  totalPages: number;
+}
+
+/**
+ * Query parameters for GET /v1/documents.
+ */
+export interface DocumentListParams {
+  /** Retrieval namespace */
+  namespace?: string;
+  /** Page number (default: 1) */
+  page?: number;
+  /** Items per page (default: 50, maximum: 200) */
+  pageSize?: number;
+}
+
+/**
  * Response from GET /v1/documents.
  */
 export interface DocumentListResponse {
@@ -30,6 +56,8 @@ export interface DocumentListResponse {
   namespace: string;
   /** Documents visible in the namespace */
   documents: Document[];
+  /** Pagination metadata */
+  pagination: DocumentListPagination;
 }
 
 /**
@@ -61,7 +89,7 @@ export interface DocumentChunkListParams {
   pageSize?: number;
   /** Optional chunk type filter */
   chunkType?: DocumentChunkType;
-  /** Generate asset URLs for media chunks (default: false) */
+  /** Set true to include 7-day asset URLs for media chunks */
   includeAssetUrls?: boolean;
 }
 
@@ -69,7 +97,7 @@ export interface DocumentChunkListParams {
  * Query parameters for GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkGetParams {
-  /** Generate asset URLs for media chunks (default: false) */
+  /** Set true to include 7-day asset URLs for media chunks */
   includeAssetUrls?: boolean;
 }
 
@@ -97,7 +125,7 @@ export interface DocumentChunk {
   sortOrder: number;
   /** Chunk metadata returned by the API */
   metadata: Record<string, unknown>;
-  /** Generated asset URL when requested and available */
+  /** 7-day asset URL for media chunks when available */
   assetUrl?: string | null;
   /** Chunk creation timestamp */
   createdAt?: Date;

@@ -23,6 +23,8 @@ export type {
   DocumentChunkPagination,
   DocumentChunkResponse,
   DocumentChunkType,
+  DocumentListPagination,
+  DocumentListParams,
   DocumentListResponse,
   // Retrieval types
   RetrievalChannel,
