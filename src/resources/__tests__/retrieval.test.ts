@@ -59,7 +59,7 @@ describe('Retrieval Resource', () => {
       ],
     });
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
       namespace: 'support-center',
       query: 'refund policy',
       topK: 5,
@@ -108,30 +108,8 @@ describe('Retrieval Resource', () => {
 
     await retrieval.query({ query: 'refund policy' });
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
-      query: 'refund policy',
-    });
-  });
-
-  it('should send v2 retrieval requests without apiVersion in the body', async () => {
-    mockHttpClient.post.mockResolvedValue({
-      namespace: 'default',
-      query: 'page memory',
-      routerUsed: 'workflow_single_step',
-      answerText: null,
-      referencedChunks: [],
-      results: [],
-    });
-
-    await retrieval.query({
-      apiVersion: 'v2',
-      query: 'page memory',
-      chunkTypes: ['page'],
-    });
-
     expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
-      query: 'page memory',
-      chunkTypes: ['page'],
+      query: 'refund policy',
     });
   });
 
@@ -157,7 +135,7 @@ describe('Retrieval Resource', () => {
 
     await retrieval.query({ query: 'test', useAgentic: true });
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
       query: 'test',
       useAgentic: true,
     });

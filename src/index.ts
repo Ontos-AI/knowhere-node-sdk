@@ -8,7 +8,6 @@ export { VERSION } from './version.js';
 export type {
   // Client types
   AuthTokenProvider,
-  KnowhereApiVersion,
   KnowhereOptions,
   // Job types
   Job,
@@ -38,7 +37,6 @@ export type {
   RetrievalReferencedChunk,
   RetrievalQueryResponse,
   // Parameter types
-  ApiVersionOptions,
   ParsingParams,
   ParsingModel,
   DocType,

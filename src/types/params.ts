@@ -1,10 +1,4 @@
 import type { ReadStream } from 'fs';
-import type { KnowhereApiVersion } from './client.js';
-
-export interface ApiVersionOptions {
-  /** API route version to use for this request */
-  apiVersion?: KnowhereApiVersion;
-}
 
 /**
  * Parsing model options
@@ -56,7 +50,7 @@ export type DocumentMetadata = Record<string, unknown>;
 /**
  * Job creation parameters
  */
-export interface CreateJobParams extends ApiVersionOptions {
+export interface CreateJobParams {
   /** Source type: 'file' for upload, 'url' for remote document */
   sourceType: 'file' | 'url';
   /** Source URL (required if sourceType is 'url') */
@@ -92,7 +86,7 @@ export interface UploadParams {
 /**
  * Wait options for polling
  */
-export interface WaitOptions extends ApiVersionOptions {
+export interface WaitOptions {
   /** Polling interval in milliseconds (default: 10000) */
   pollInterval?: number;
   /** Maximum wait time in milliseconds (default: 1800000 = 30 minutes) */
@@ -106,7 +100,7 @@ export interface WaitOptions extends ApiVersionOptions {
 /**
  * Load options for result parsing
  */
-export interface LoadOptions extends ApiVersionOptions {
+export interface LoadOptions {
   /** Whether to verify ZIP checksum (default: true) */
   verifyChecksum?: boolean;
 }
@@ -114,7 +108,7 @@ export interface LoadOptions extends ApiVersionOptions {
 /**
  * High-level parse parameters
  */
-export interface ParseParams extends ApiVersionOptions {
+export interface ParseParams {
   /** Source URL (mutually exclusive with file) */
   url?: string;
   /** File to parse (path, Buffer, Stream, or Uint8Array) */

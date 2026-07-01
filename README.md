@@ -35,7 +35,6 @@ import Knowhere from '@ontos-ai/knowhere-sdk';
 // Initialize client
 const client = new Knowhere({
   apiKey: process.env.KNOWHERE_API_KEY,
-  apiVersion: 'v2', // Opt into the v2 page-memory API.
 });
 
 // Parse a document from URL
@@ -84,7 +83,6 @@ const client = new Knowhere({
   timeout: 60000, // Request timeout (ms)
   uploadTimeout: 600000, // Upload timeout (ms)
   maxRetries: 5, // Max retry attempts
-  apiVersion: 'v2', // 'v1' by default; use 'v2' for page-memory ingestion
 });
 ```
 
@@ -122,7 +120,6 @@ const result = await client.parse({
 ```typescript
 const result = await client.parse({
   url: 'https://example.com/doc.pdf',
-  apiVersion: 'v2',
   model: 'advanced', // 'base' | 'advanced'
   ocr: true, // Enable OCR
   docType: 'pdf', // Document type hint
@@ -157,7 +154,6 @@ For granular control over the job lifecycle:
 const job = await client.jobs.create({
   sourceType: 'file',
   fileName: 'document.pdf',
-  apiVersion: 'v2',
   documentMetadata: {
     createdByClient: 'cli',
     sourceFileName: 'document.pdf',
@@ -174,11 +170,10 @@ await client.jobs.upload(job, {
 // 3. Wait for completion
 const jobResult = await client.jobs.wait(job.jobId, {
   pollInterval: 10000,
-  apiVersion: 'v2',
 });
 
 // 4. Load results
-const result = await client.jobs.load(jobResult, { apiVersion: 'v2' });
+const result = await client.jobs.load(jobResult);
 ```
 
 ### Retrieval and Document Lifecycle
@@ -212,7 +207,6 @@ console.log(documentId);
 const response = await client.retrieval.query({
   namespace: 'support-center',
   query: 'How do I reset Bluetooth pairing?',
-  apiVersion: 'v2',
   chunkTypes: ['page'],
   topK: 5,
   useAgentic: true,
@@ -284,7 +278,6 @@ const chunks = await client.documents.listChunks(documentId, {
   pageSize: 50,
   chunkType: 'page',
   includeAssetUrls: true,
-  apiVersion: 'v2',
 });
 const archived = await client.documents.archive(documentId);
 
@@ -313,7 +306,7 @@ tools over that cached copy. This is the implementation used by the separate
 ```typescript
 const parsed = await client.knowledge.parse({
   file: './manual.pdf',
-  localDocumentId: 'manual-v1',
+  localDocumentId: 'manual',
 });
 
 const outline = await client.knowledge.getDocumentOutline(parsed.document.localDocumentId);
@@ -363,7 +356,7 @@ const remoteOutline = await client.knowledge.getDocumentOutline({
 
 const jobRead = await client.knowledge.readChunks({
   jobId: jobResult.jobId,
-  localDocumentId: 'manual-v1',
+  localDocumentId: 'manual',
   limit: 5,
 });
 ```
@@ -378,7 +371,7 @@ job completes:
 ```typescript
 const started = await client.knowledge.startParse({
   file: './manual.pdf',
-  localDocumentId: 'manual-v1',
+  localDocumentId: 'manual',
 });
 
 const status = await client.knowledge.getJobStatus(started.job.jobId);

@@ -74,29 +74,9 @@ describe('Jobs Resource', () => {
 
       expect(result.jobId).toBe('job-123');
       expect(result.status).toBe('pending');
-      expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/jobs', {
-        sourceType: 'url',
-        sourceUrl: 'https://example.com/doc.pdf',
-      });
-    });
-
-    it('should create v2 jobs without sending apiVersion in the request body', async () => {
-      mockHttpClient.post.mockResolvedValue({
-        jobId: 'job-v2',
-        status: 'pending',
-        sourceType: 'url',
-        createdAt: new Date('2026-07-01T10:00:00Z'),
-      });
-
-      await jobs.create({
-        apiVersion: 'v2',
-        sourceType: 'url',
-        sourceUrl: 'https://example.com/manual.pdf',
-      });
-
       expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/jobs', {
         sourceType: 'url',
-        sourceUrl: 'https://example.com/manual.pdf',
+        sourceUrl: 'https://example.com/doc.pdf',
       });
     });
 
@@ -143,7 +123,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           parsingParams: {
             model: 'advanced',
@@ -171,7 +151,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           webhook: { url: 'https://myapp.com/webhook' },
         }),
@@ -193,7 +173,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           dataId: 'custom-123',
         }),
@@ -220,7 +200,7 @@ describe('Jobs Resource', () => {
       expect(result.namespace).toBe('support-center');
       expect(result.documentId).toBe('doc-123');
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           namespace: 'support-center',
           documentId: 'doc-123',
@@ -246,7 +226,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           documentMetadata: {
             createdByClient: 'notebook',
@@ -273,21 +253,8 @@ describe('Jobs Resource', () => {
 
       expect(result.jobId).toBe('job-123');
       expect(result.status).toBe('running');
-      expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/jobs/job-123');
+      expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/jobs/job-123');
       expect(enrichJobResult).toHaveBeenCalledWith(mockResponse);
-    });
-
-    it('should fetch v2 job status when requested', async () => {
-      mockHttpClient.get.mockResolvedValue({
-        jobId: 'job-v2',
-        status: 'running',
-        sourceType: 'url',
-        createdAt: new Date('2026-07-01T10:00:00Z'),
-      });
-
-      await jobs.get('job-v2', { apiVersion: 'v2' });
-
-      expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/jobs/job-v2');
     });
 
     it('should enrich JobResult with computed properties', async () => {

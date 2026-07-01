@@ -3,8 +3,6 @@ import type { Agent as HttpsAgent } from 'https';
 
 export type AuthTokenProvider = () => string | Promise<string>;
 
-export type KnowhereApiVersion = 'v1' | 'v2';
-
 /**
  * Configuration options for the Knowhere client
  */
@@ -15,8 +13,6 @@ export interface KnowhereOptions {
   authTokenProvider?: AuthTokenProvider;
   /** API base URL (defaults to https://api.knowhereto.ai) */
   baseURL?: string;
-  /** API route version to use by default (default: 'v1') */
-  apiVersion?: KnowhereApiVersion;
   /** Request timeout in milliseconds (default: 60000) */
   timeout?: number;
   /** Upload timeout in milliseconds (default: 600000) */

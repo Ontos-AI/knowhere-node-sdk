@@ -11,10 +11,6 @@ import {
 import { PollingTimeoutError, JobFailedError } from '../errors/index.js';
 import { enrichJobResult, sleep } from './utils.js';
 
-function createJobEndpoint(jobId: string, apiVersion: WaitOptions['apiVersion']): string {
-  return `/${apiVersion ?? 'v1'}/jobs/${jobId}`;
-}
-
 /**
  * Poll job status until completion or timeout
  */
@@ -38,9 +34,7 @@ export async function pollJobStatus(
     }
 
     // Get job status
-    const jobResult = await httpClient.get<JobResult>(
-      createJobEndpoint(jobId, options?.apiVersion),
-    );
+    const jobResult = await httpClient.get<JobResult>(`/v2/jobs/${jobId}`);
     enrichJobResult(jobResult);
 
     const elapsed = Date.now() - startTime;

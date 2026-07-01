@@ -1,5 +1,3 @@
-import type { ApiVersionOptions } from './params.js';
-
 /**
  * Canonical document state returned by document lifecycle endpoints.
  */
@@ -39,9 +37,9 @@ export interface DocumentListPagination {
 }
 
 /**
- * Query parameters for GET /v1/documents.
+ * Query parameters for GET /v2/documents.
  */
-export interface DocumentListParams extends ApiVersionOptions {
+export interface DocumentListParams {
   /** Retrieval namespace */
   namespace?: string;
   /** Page number (default: 1) */
@@ -51,7 +49,7 @@ export interface DocumentListParams extends ApiVersionOptions {
 }
 
 /**
- * Response from GET /v1/documents.
+ * Response from GET /v2/documents.
  */
 export interface DocumentListResponse {
   /** Namespace listed by the API */
@@ -82,9 +80,9 @@ export interface DocumentChunkPagination {
 }
 
 /**
- * Query parameters for GET /v1/documents/{document_id}/chunks.
+ * Query parameters for GET /v2/documents/{document_id}/chunks.
  */
-export interface DocumentChunkListParams extends ApiVersionOptions {
+export interface DocumentChunkListParams {
   /** Page number (default: 1) */
   page?: number;
   /** Items per page (default: 50, maximum: 200) */
@@ -96,9 +94,9 @@ export interface DocumentChunkListParams extends ApiVersionOptions {
 }
 
 /**
- * Query parameters for GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
+ * Query parameters for GET /v2/documents/{document_id}/chunks/{document_chunk_id}.
  */
-export interface DocumentChunkGetParams extends ApiVersionOptions {
+export interface DocumentChunkGetParams {
   /** Set true to include 7-day asset URLs for media chunks */
   includeAssetUrls?: boolean;
 }
@@ -136,7 +134,7 @@ export interface DocumentChunk {
 }
 
 /**
- * Response from GET /v1/documents/{document_id}/chunks.
+ * Response from GET /v2/documents/{document_id}/chunks.
  */
 export interface DocumentChunkListResponse {
   /** Stable document identifier */
@@ -154,7 +152,7 @@ export interface DocumentChunkListResponse {
 }
 
 /**
- * Response from GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
+ * Response from GET /v2/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkResponse {
   /** Stable document identifier */

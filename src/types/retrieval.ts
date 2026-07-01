@@ -1,5 +1,3 @@
-import type { ApiVersionOptions } from './params.js';
-
 /**
  * Section exclusion for follow-up retrieval queries.
  */
@@ -25,7 +23,7 @@ export type RetrievalChunkType = 'text' | 'image' | 'table' | 'page';
 /**
  * Retrieval query parameters.
  */
-export interface RetrievalQueryParams extends ApiVersionOptions {
+export interface RetrievalQueryParams {
   /** Search query text */
   query: string;
   /** Retrieval namespace. Defaults to the server's default namespace when omitted. */
@@ -129,7 +127,7 @@ export interface RetrievalReferencedChunk {
 }
 
 /**
- * Response from POST /v1/retrieval/query.
+ * Response from POST /v2/retrieval/query.
  *
  * Three PRIMARY output fields for downstream agent consumption:
  * - `evidenceText`: hierarchical evidence tree for LLM context

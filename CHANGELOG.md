@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- Move the SDK to the v2 page-memory API as the only parse/API flow. Parse, job,
+  document, and retrieval requests now always use `/v2`; the public v1 API
+  version switching surface is removed. The SDK adds page chunks, content
+  sources, retrieval `chunkTypes`, and page chunk metadata while retaining
+  legacy parsed-result chunk inspection for existing v1 result ZIPs.
+
 ## 0.10.0
 
 ### Minor Changes
