@@ -1,7 +1,14 @@
 import { BaseResource } from './base.js';
 import type { Job, JobResult } from '../types/job.js';
-import type { CreateJobParams, UploadParams, WaitOptions, LoadOptions } from '../types/params.js';
+import type {
+  ApiVersionOptions,
+  CreateJobParams,
+  UploadParams,
+  WaitOptions,
+  LoadOptions,
+} from '../types/params.js';
 import type { ParseResult } from '../types/result.js';
+import type { KnowhereApiVersion } from '../types/client.js';
 import { uploadFile } from '../lib/upload.js';
 import { pollJobStatus } from '../lib/polling.js';
 import { parseResult } from '../lib/result-parser.js';
@@ -13,12 +20,16 @@ import { InvalidStateError, NotFoundError } from '../errors/index.js';
  */
 export class Jobs extends BaseResource {
   private pendingUploadJobs = new Map<string, Job>();
+  private jobApiVersions = new Map<string, KnowhereApiVersion>();
 
   /**
    * Create a new parsing job
    */
   async create(params: CreateJobParams): Promise<Job> {
-    const job = await this.httpClient.post<Job>('/v1/jobs', params);
+    const { apiVersion, ...body } = params;
+    const resolvedApiVersion = this.getApiVersion(apiVersion);
+    const job = await this.httpClient.post<Job>(this.endpoint('/jobs', resolvedApiVersion), body);
+    this.jobApiVersions.set(job.jobId, resolvedApiVersion);
     if (job.uploadUrl) {
       this.pendingUploadJobs.set(job.jobId, job);
     }
@@ -28,8 +39,11 @@ export class Jobs extends BaseResource {
   /**
    * Get job status
    */
-  async get(jobId: string): Promise<JobResult> {
-    const jobResult = await this.httpClient.get<JobResult>(`/v1/jobs/${jobId}`);
+  async get(jobId: string, options?: ApiVersionOptions): Promise<JobResult> {
+    const apiVersion = this.resolveJobApiVersion(jobId, options?.apiVersion);
+    const jobResult = await this.httpClient.get<JobResult>(
+      this.endpoint(`/jobs/${jobId}`, apiVersion),
+    );
     enrichJobResult(jobResult);
     return jobResult;
   }
@@ -60,14 +74,17 @@ export class Jobs extends BaseResource {
    * Wait for job completion
    */
   async wait(jobId: string, options?: WaitOptions): Promise<JobResult> {
-    return pollJobStatus(this.httpClient, jobId, options);
+    return pollJobStatus(this.httpClient, jobId, {
+      ...options,
+      apiVersion: this.resolveJobApiVersion(jobId, options?.apiVersion),
+    });
   }
 
   /**
    * Load parse result from completed job
    */
   async load(jobResultOrIdOrUrl: JobResult | string, options?: LoadOptions): Promise<ParseResult> {
-    const jobResult = await this.resolveLoadJobResult(jobResultOrIdOrUrl);
+    const jobResult = await this.resolveLoadJobResult(jobResultOrIdOrUrl, options);
 
     // Check if job is done
     if (!jobResult.isDone) {
@@ -116,7 +133,10 @@ export class Jobs extends BaseResource {
     );
   }
 
-  private async resolveLoadJobResult(jobResultOrIdOrUrl: JobResult | string): Promise<JobResult> {
+  private async resolveLoadJobResult(
+    jobResultOrIdOrUrl: JobResult | string,
+    options?: LoadOptions,
+  ): Promise<JobResult> {
     if (typeof jobResultOrIdOrUrl !== 'string') {
       enrichJobResult(jobResultOrIdOrUrl);
       return jobResultOrIdOrUrl;
@@ -136,6 +156,10 @@ export class Jobs extends BaseResource {
       };
     }
 
-    return this.get(jobResultOrIdOrUrl);
+    return this.get(jobResultOrIdOrUrl, options);
+  }
+
+  private resolveJobApiVersion(jobId: string, apiVersion?: KnowhereApiVersion): KnowhereApiVersion {
+    return this.getApiVersion(apiVersion ?? this.jobApiVersions.get(jobId));
   }
 }

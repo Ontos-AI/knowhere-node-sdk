@@ -44,7 +44,7 @@ describe('Knowledge', () => {
     expect(response.document.localDocumentId).toBe('local-report');
     expect(response.document.jobId).toBe('job-1');
     expect(response.document.documentId).toBe('doc-1');
-    expect(response.document.typeCounts).toEqual({ text: 2, image: 0, table: 1 });
+    expect(response.document.typeCounts).toEqual({ text: 2, image: 0, table: 1, page: 0 });
     expect(response.document.resultDirectoryPath).toBe(
       path.join(cacheDirectory, 'documents', 'local-report'),
     );
@@ -627,6 +627,7 @@ function createParseResult(): ParseResult {
     textChunks: chunks.filter((chunk): chunk is TextChunk => chunk.type === 'text'),
     imageChunks: [],
     tableChunks: chunks.filter((chunk): chunk is TableChunk => chunk.type === 'table'),
+    pageChunks: [],
     jobId: 'job-1',
     statistics: {
       totalChunks: 3,

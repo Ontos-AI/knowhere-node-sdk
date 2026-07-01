@@ -165,6 +165,7 @@ describe('Knowhere Client', () => {
         textChunks: [textChunk],
         imageChunks: [],
         tableChunks: [],
+        pageChunks: [],
         statistics: {
           totalChunks: 1,
           textChunks: 1,

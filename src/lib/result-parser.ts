@@ -10,6 +10,7 @@ import type {
   TextChunk,
   ImageChunk,
   TableChunk,
+  PageChunk,
   Statistics,
   SlimChunk,
   DocNav,
@@ -21,6 +22,7 @@ import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils
 type RawChunk = {
   chunkId?: string;
   type?: string;
+  contentSource?: string;
   content?: string;
   path?: string;
   filePath?: string;
@@ -344,6 +346,10 @@ function createParseResult(parts: ParseResultParts): ParseResult {
       return chunks.filter((c): c is TableChunk => c.type === 'table');
     },
 
+    get pageChunks(): PageChunk[] {
+      return chunks.filter((c): c is PageChunk => c.type === 'page');
+    },
+
     get jobId(): string {
       return manifest.jobId;
     },
@@ -454,6 +460,18 @@ function buildTextChunk(chunkData: RawChunk): TextChunk {
   return {
     chunkId: chunkData.chunkId ?? '',
     type: 'text',
+    contentSource: chunkData.contentSource ?? 'content',
+    content: chunkData.content ?? '',
+    path: chunkData.path ?? '',
+    metadata: chunkData.metadata ?? {},
+  };
+}
+
+function buildPageChunk(chunkData: RawChunk): PageChunk {
+  return {
+    chunkId: chunkData.chunkId ?? '',
+    type: 'page',
+    contentSource: chunkData.contentSource ?? 'summary',
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     metadata: chunkData.metadata ?? {},
@@ -464,6 +482,7 @@ function buildImageChunk(chunkData: RawChunk, filePath: string, imageBuffer: Buf
   return {
     chunkId: chunkData.chunkId ?? '',
     type: 'image',
+    contentSource: chunkData.contentSource,
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     filePath,
@@ -484,6 +503,7 @@ function buildTableChunk(chunkData: RawChunk, filePath: string, html: string): T
   return {
     chunkId: chunkData.chunkId ?? '',
     type: 'table',
+    contentSource: chunkData.contentSource,
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     filePath,
@@ -499,6 +519,10 @@ function buildTableChunk(chunkData: RawChunk, filePath: string, html: string): T
 async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
   if (chunkData.type === 'text') {
     return buildTextChunk(chunkData);
+  }
+
+  if (chunkData.type === 'page') {
+    return buildPageChunk(chunkData);
   }
 
   if (chunkData.type === 'image') {
@@ -543,6 +567,10 @@ async function processChunk(zip: JSZip, chunkData: RawChunk): Promise<Chunk> {
 async function processDirectoryChunk(directory: string, chunkData: RawChunk): Promise<Chunk> {
   if (chunkData.type === 'text') {
     return buildTextChunk(chunkData);
+  }
+
+  if (chunkData.type === 'page') {
+    return buildPageChunk(chunkData);
   }
 
   if (chunkData.type === 'image') {
@@ -590,6 +618,7 @@ function serializeChunks(chunks: Chunk[]): { chunks: RawChunk[] } {
       const rawChunk: RawChunk = {
         chunkId: chunk.chunkId,
         type: chunk.type,
+        contentSource: chunk.contentSource,
         content: chunk.content,
         path: chunk.path,
         metadata: chunk.metadata,

@@ -8,6 +8,7 @@ export { VERSION } from './version.js';
 export type {
   // Client types
   AuthTokenProvider,
+  KnowhereApiVersion,
   KnowhereOptions,
   // Job types
   Job,
@@ -28,6 +29,7 @@ export type {
   DocumentListResponse,
   // Retrieval types
   RetrievalChannel,
+  RetrievalChunkType,
   RetrievalFilterMode,
   RetrievalSectionExclusion,
   RetrievalQueryParams,
@@ -36,6 +38,7 @@ export type {
   RetrievalReferencedChunk,
   RetrievalQueryResponse,
   // Parameter types
+  ApiVersionOptions,
   ParsingParams,
   ParsingModel,
   DocType,
@@ -58,6 +61,7 @@ export type {
   TextChunk,
   ImageChunk,
   TableChunk,
+  PageChunk,
   KnowledgeChunkType,
   KnowledgeAsyncJobStatusResponse,
   KnowledgeAsyncParseParams,

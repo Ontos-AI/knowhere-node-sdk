@@ -10,6 +10,8 @@ export interface Statistics {
   imageChunks: number;
   /** Number of table chunks */
   tableChunks: number;
+  /** Number of page chunks */
+  pageChunks?: number;
   /** Total number of pages (if applicable) */
   totalPages?: number;
 }
@@ -138,6 +140,7 @@ export interface DocNav {
 export interface ChunkMetadata {
   length?: number;
   pageNums?: number[];
+  entities?: Record<string, unknown>[];
   tokens?: string[];
   keywords?: string[];
   summary?: string;
@@ -157,7 +160,9 @@ export interface BaseChunk {
   /** Unique chunk identifier */
   chunkId: string;
   /** Chunk type */
-  type: 'text' | 'image' | 'table';
+  type: 'text' | 'image' | 'table' | 'page';
+  /** Content source marker. Page chunks normally expose summaries as content. */
+  contentSource?: string;
   /** Main content */
   content: string;
   /** Relative path in ZIP */
@@ -170,7 +175,7 @@ export interface BaseChunk {
  * Minimal chunk representation emitted in chunks_slim.json (legacy).
  */
 export interface SlimChunk {
-  type: 'text' | 'image' | 'table';
+  type: 'text' | 'image' | 'table' | 'page';
   path: string;
   content: string;
 }
@@ -211,9 +216,16 @@ export interface TableChunk extends BaseChunk {
 }
 
 /**
+ * Page chunk
+ */
+export interface PageChunk extends BaseChunk {
+  type: 'page';
+}
+
+/**
  * Union type of all chunk types
  */
-export type Chunk = TextChunk | ImageChunk | TableChunk;
+export type Chunk = TextChunk | ImageChunk | TableChunk | PageChunk;
 
 /**
  * Complete parse result
@@ -248,6 +260,8 @@ export interface ParseResult {
   readonly imageChunks: ImageChunk[];
   /** Table chunks only */
   readonly tableChunks: TableChunk[];
+  /** Page chunks only */
+  readonly pageChunks: PageChunk[];
   /** Job ID */
   readonly jobId: string;
   /** Effective retrieval namespace when loaded from a job result */

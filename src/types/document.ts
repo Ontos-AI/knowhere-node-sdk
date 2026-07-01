@@ -1,3 +1,5 @@
+import type { ApiVersionOptions } from './params.js';
+
 /**
  * Canonical document state returned by document lifecycle endpoints.
  */
@@ -39,7 +41,7 @@ export interface DocumentListPagination {
 /**
  * Query parameters for GET /v1/documents.
  */
-export interface DocumentListParams {
+export interface DocumentListParams extends ApiVersionOptions {
   /** Retrieval namespace */
   namespace?: string;
   /** Page number (default: 1) */
@@ -63,7 +65,7 @@ export interface DocumentListResponse {
 /**
  * Document chunk types supported by document chunk endpoints.
  */
-export type DocumentChunkType = 'text' | 'image' | 'table';
+export type DocumentChunkType = 'text' | 'image' | 'table' | 'page';
 
 /**
  * Pagination metadata returned by chunk list endpoints.
@@ -82,7 +84,7 @@ export interface DocumentChunkPagination {
 /**
  * Query parameters for GET /v1/documents/{document_id}/chunks.
  */
-export interface DocumentChunkListParams {
+export interface DocumentChunkListParams extends ApiVersionOptions {
   /** Page number (default: 1) */
   page?: number;
   /** Items per page (default: 50, maximum: 200) */
@@ -96,7 +98,7 @@ export interface DocumentChunkListParams {
 /**
  * Query parameters for GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
  */
-export interface DocumentChunkGetParams {
+export interface DocumentChunkGetParams extends ApiVersionOptions {
   /** Set true to include 7-day asset URLs for media chunks */
   includeAssetUrls?: boolean;
 }
@@ -111,6 +113,8 @@ export interface DocumentChunk {
   chunkId: string;
   /** Chunk content type */
   chunkType: DocumentChunkType;
+  /** Content source marker. Page chunks normally expose summaries as content. */
+  contentSource?: string | null;
   /** Chunk text or generated summary content */
   content?: string | null;
   /** Parent section identifier */

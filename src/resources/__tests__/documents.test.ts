@@ -112,15 +112,16 @@ describe('Documents Resource', () => {
         {
           id: 'dchk-123',
           chunkId: 'parser-chunk-1',
-          chunkType: 'table',
-          content: '| A | B |',
+          chunkType: 'page',
+          contentSource: 'summary',
+          content: 'Revenue rose across the covered pages.',
           sectionId: 'sec-123',
           sectionPath: 'Chapter 1',
-          sourceChunkPath: 'Chapter 1/Table',
-          filePath: 'tables/table-1.html',
+          sourceChunkPath: 'Chapter 1/Pages 4-6',
+          filePath: null,
           sortOrder: 0,
-          metadata: { summary: 'Table' },
-          assetUrl: 'https://assets.example/table-1.html',
+          metadata: { summary: 'Revenue rose across the covered pages.', pageNums: [4, 5, 6] },
+          assetUrl: null,
           createdAt: new Date('2026-04-27T04:00:00Z'),
         },
       ],
@@ -135,7 +136,7 @@ describe('Documents Resource', () => {
     const response = await documents.listChunks('doc-123', {
       page: 2,
       pageSize: 10,
-      chunkType: 'table',
+      chunkType: 'page',
       includeAssetUrls: true,
     });
 
@@ -143,12 +144,41 @@ describe('Documents Resource', () => {
       params: {
         page: 2,
         page_size: 10,
-        chunk_type: 'table',
+        chunk_type: 'page',
         include_asset_urls: true,
       },
     });
     expect(response.chunks[0]?.id).toBe('dchk-123');
+    expect(response.chunks[0]?.chunkType).toBe('page');
+    expect(response.chunks[0]?.contentSource).toBe('summary');
     expect(response.pagination.totalPages).toBe(2);
+  });
+
+  it('should route document chunk reads to v2 when requested', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobResultId: null,
+      jobId: null,
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    await documents.listChunks('doc-123', {
+      apiVersion: 'v2',
+      chunkType: 'page',
+    });
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents/doc-123/chunks', {
+      params: {
+        chunk_type: 'page',
+      },
+    });
   });
 
   it('should omit chunk query params when defaults are used', async () => {

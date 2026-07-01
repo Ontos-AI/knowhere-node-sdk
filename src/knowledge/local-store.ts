@@ -294,7 +294,7 @@ function countChunkTypes(result: ParseResult): Record<KnowledgeChunkType, number
       counts[chunk.type] += 1;
       return counts;
     },
-    { text: 0, image: 0, table: 0 },
+    { text: 0, image: 0, table: 0, page: 0 },
   );
 }
 

@@ -1,7 +1,7 @@
 import path from 'path';
 import type { ReadStream } from 'fs';
 
-import type { KnowhereOptions } from './types/client.js';
+import type { KnowhereApiVersion, KnowhereOptions } from './types/client.js';
 import type { CreateJobParams, ParseParams } from './types/params.js';
 import type { Job } from './types/job.js';
 import type { ParseResult } from './types/result.js';
@@ -72,6 +72,7 @@ export class Knowhere {
   public readonly knowledge: Knowledge;
 
   private httpClient: HttpClient;
+  private defaultApiVersion: KnowhereApiVersion;
 
   /**
    * Create a new Knowhere client
@@ -88,6 +89,7 @@ export class Knowhere {
 
     // Resolve base URL
     const baseURL = options.baseURL ?? process.env[ENV.BASE_URL] ?? DEFAULT_BASE_URL;
+    this.defaultApiVersion = options.apiVersion ?? 'v1';
 
     // Create HTTP client
     this.httpClient = new HttpClient({
@@ -103,9 +105,9 @@ export class Knowhere {
     });
 
     // Initialize resources
-    this.jobs = new Jobs(this.httpClient);
-    this.retrieval = new Retrieval(this.httpClient);
-    this.documents = new Documents(this.httpClient);
+    this.jobs = new Jobs(this.httpClient, this.defaultApiVersion);
+    this.retrieval = new Retrieval(this.httpClient, this.defaultApiVersion);
+    this.documents = new Documents(this.httpClient, this.defaultApiVersion);
     this.knowledge = new Knowledge(this);
   }
 
@@ -134,6 +136,7 @@ export class Knowhere {
 
     // Wait for completion
     const jobResult = await this.jobs.wait(job.jobId, {
+      apiVersion: params.apiVersion,
       pollInterval: params.pollInterval,
       pollTimeout: params.pollTimeout,
       onProgress: params.onPollProgress,
@@ -179,6 +182,7 @@ export class Knowhere {
     // Create job
     const job = await this.jobs.create({
       sourceType,
+      apiVersion: params.apiVersion,
       sourceUrl: params.url,
       fileName: resolvedFileName,
       dataId: params.dataId,

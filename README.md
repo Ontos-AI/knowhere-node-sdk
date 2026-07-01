@@ -35,6 +35,7 @@ import Knowhere from '@ontos-ai/knowhere-sdk';
 // Initialize client
 const client = new Knowhere({
   apiKey: process.env.KNOWHERE_API_KEY,
+  apiVersion: 'v2', // Opt into the v2 page-memory API.
 });
 
 // Parse a document from URL
@@ -46,12 +47,19 @@ const result = await client.parse({
 console.log(`Found ${result.textChunks.length} text chunks`);
 console.log(`Found ${result.imageChunks.length} images`);
 console.log(`Found ${result.tableChunks.length} tables`);
+console.log(`Found ${result.pageChunks.length} page chunks`);
 
 // Work with chunks — worker metadata is in chunk.metadata
 result.textChunks.forEach((chunk) => {
   console.log(chunk.content);
   console.log(chunk.metadata.keywords);
   console.log(chunk.metadata.summary);
+});
+
+result.pageChunks.forEach((chunk) => {
+  console.log(chunk.contentSource); // "summary"
+  console.log(chunk.content); // page-level summary
+  console.log(chunk.metadata.pageNums); // citation pages
 });
 
 // Save results to disk
@@ -76,6 +84,7 @@ const client = new Knowhere({
   timeout: 60000, // Request timeout (ms)
   uploadTimeout: 600000, // Upload timeout (ms)
   maxRetries: 5, // Max retry attempts
+  apiVersion: 'v2', // 'v1' by default; use 'v2' for page-memory ingestion
 });
 ```
 
@@ -113,6 +122,7 @@ const result = await client.parse({
 ```typescript
 const result = await client.parse({
   url: 'https://example.com/doc.pdf',
+  apiVersion: 'v2',
   model: 'advanced', // 'base' | 'advanced'
   ocr: true, // Enable OCR
   docType: 'pdf', // Document type hint
@@ -147,6 +157,7 @@ For granular control over the job lifecycle:
 const job = await client.jobs.create({
   sourceType: 'file',
   fileName: 'document.pdf',
+  apiVersion: 'v2',
   documentMetadata: {
     createdByClient: 'cli',
     sourceFileName: 'document.pdf',
@@ -163,10 +174,11 @@ await client.jobs.upload(job, {
 // 3. Wait for completion
 const jobResult = await client.jobs.wait(job.jobId, {
   pollInterval: 10000,
+  apiVersion: 'v2',
 });
 
 // 4. Load results
-const result = await client.jobs.load(jobResult);
+const result = await client.jobs.load(jobResult, { apiVersion: 'v2' });
 ```
 
 ### Retrieval and Document Lifecycle
@@ -200,6 +212,8 @@ console.log(documentId);
 const response = await client.retrieval.query({
   namespace: 'support-center',
   query: 'How do I reset Bluetooth pairing?',
+  apiVersion: 'v2',
+  chunkTypes: ['page'],
   topK: 5,
   useAgentic: true,
 });
@@ -212,7 +226,9 @@ console.log(response.failureReason); // no-answer reason, when returned
 
 for (const result of response.results) {
   console.log(result.content);
+  console.log(result.contentSource);
   console.log(result.score);
+  console.log(result.metadata?.pageNums);
   console.log(result.source.sourceFileName, result.source.sectionPath);
 }
 ```
@@ -221,9 +237,12 @@ Retrieval results use one canonical source object:
 
 ```typescript
 result.content;
+result.chunkId;
 result.chunkType;
+result.contentSource;
 result.score;
 result.assetUrl;
+result.metadata;
 result.source.documentId;
 result.source.sourceFileName;
 result.source.sectionPath;
@@ -237,10 +256,12 @@ const reference = response.referencedChunks[0];
 reference.chunkId;
 reference.documentId;
 reference.chunkType;
+reference.contentSource;
 reference.sectionPath;
 reference.filePath;
 reference.jobId;
 reference.assetUrl;
+reference.metadata;
 ```
 
 Use `documentId` to update or archive a document:
@@ -261,8 +282,9 @@ const document = await client.documents.get(documentId);
 const chunks = await client.documents.listChunks(documentId, {
   page: 1,
   pageSize: 50,
-  chunkType: 'image',
+  chunkType: 'page',
   includeAssetUrls: true,
+  apiVersion: 'v2',
 });
 const archived = await client.documents.archive(documentId);
 
@@ -275,6 +297,8 @@ if (chunks.chunks[0]) {
     includeAssetUrls: true,
   });
   console.log(chunk.chunk.content);
+  console.log(chunk.chunk.contentSource);
+  console.log(chunk.chunk.metadata.pageNums);
   console.log(chunk.chunk.assetUrl);
 }
 console.log(archived.status);

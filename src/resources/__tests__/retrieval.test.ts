@@ -42,6 +42,7 @@ describe('Retrieval Resource', () => {
       query: 'refund policy',
       topK: 5,
       dataType: 6,
+      chunkTypes: ['text', 'table', 'page'],
       signalPaths: ['Billing', 'Refunds'],
       filterMode: 'keep',
       channels: ['path', 'term'],
@@ -63,6 +64,7 @@ describe('Retrieval Resource', () => {
       query: 'refund policy',
       topK: 5,
       dataType: 6,
+      chunkTypes: ['text', 'table', 'page'],
       signalPaths: ['Billing', 'Refunds'],
       filterMode: 'keep',
       channels: ['path', 'term'],
@@ -108,6 +110,28 @@ describe('Retrieval Resource', () => {
 
     expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
       query: 'refund policy',
+    });
+  });
+
+  it('should send v2 retrieval requests without apiVersion in the body', async () => {
+    mockHttpClient.post.mockResolvedValue({
+      namespace: 'default',
+      query: 'page memory',
+      routerUsed: 'workflow_single_step',
+      answerText: null,
+      referencedChunks: [],
+      results: [],
+    });
+
+    await retrieval.query({
+      apiVersion: 'v2',
+      query: 'page memory',
+      chunkTypes: ['page'],
+    });
+
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
+      query: 'page memory',
+      chunkTypes: ['page'],
     });
   });
 
