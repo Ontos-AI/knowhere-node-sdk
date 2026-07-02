@@ -1,5 +1,11 @@
 # @ontos-ai/knowhere-mcp
 
+## 2.1.0
+
+### Minor Changes
+
+- [#105](https://github.com/Ontos-AI/knowhere-node-sdk/pull/105) [`7d8f05b`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/7d8f05ba7b6dddd252206347be31a568abca22bb) Thanks [@suguanYang](https://github.com/suguanYang)! - Change `knowhere_list_documents` to list published documents from the remote Knowhere API instead of local cache entries.
+
 ## 2.0.0
 
 ### Major Changes
