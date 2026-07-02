@@ -9,6 +9,6 @@ export class Retrieval extends BaseResource {
    * Query published documents.
    */
   async query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse> {
-    return this.httpClient.post<RetrievalQueryResponse>('/v1/retrieval/query', params);
+    return this.httpClient.post<RetrievalQueryResponse>(this.endpoint('/retrieval/query'), params);
   }
 }

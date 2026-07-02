@@ -74,7 +74,7 @@ describe('Jobs Resource', () => {
 
       expect(result.jobId).toBe('job-123');
       expect(result.status).toBe('pending');
-      expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/jobs', {
+      expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/jobs', {
         sourceType: 'url',
         sourceUrl: 'https://example.com/doc.pdf',
       });
@@ -123,7 +123,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           parsingParams: {
             model: 'advanced',
@@ -151,7 +151,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           webhook: { url: 'https://myapp.com/webhook' },
         }),
@@ -173,7 +173,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           dataId: 'custom-123',
         }),
@@ -200,7 +200,7 @@ describe('Jobs Resource', () => {
       expect(result.namespace).toBe('support-center');
       expect(result.documentId).toBe('doc-123');
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           namespace: 'support-center',
           documentId: 'doc-123',
@@ -226,7 +226,7 @@ describe('Jobs Resource', () => {
       });
 
       expect(mockHttpClient.post).toHaveBeenCalledWith(
-        '/v1/jobs',
+        '/v2/jobs',
         expect.objectContaining({
           documentMetadata: {
             createdByClient: 'notebook',
@@ -253,7 +253,7 @@ describe('Jobs Resource', () => {
 
       expect(result.jobId).toBe('job-123');
       expect(result.status).toBe('running');
-      expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/jobs/job-123');
+      expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/jobs/job-123');
       expect(enrichJobResult).toHaveBeenCalledWith(mockResponse);
     });
 

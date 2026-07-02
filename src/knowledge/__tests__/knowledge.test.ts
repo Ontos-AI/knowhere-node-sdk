@@ -44,7 +44,7 @@ describe('Knowledge', () => {
     expect(response.document.localDocumentId).toBe('local-report');
     expect(response.document.jobId).toBe('job-1');
     expect(response.document.documentId).toBe('doc-1');
-    expect(response.document.typeCounts).toEqual({ text: 2, image: 0, table: 1 });
+    expect(response.document.typeCounts).toEqual({ text: 2, image: 0, table: 1, page: 0 });
     expect(response.document.resultDirectoryPath).toBe(
       path.join(cacheDirectory, 'documents', 'local-report'),
     );
@@ -378,10 +378,16 @@ describe('Knowledge', () => {
     expect(response.results[0]).toMatchObject({
       localDocumentId: 'local-report',
       documentId: 'doc-1',
+      chunkId: 'chunk-margin',
       sectionPath: 'Revenue',
       score: 0.42,
     });
     expect(response.references[0]).toMatchObject({
+      localDocumentId: 'local-report',
+      documentId: 'doc-1',
+      chunkId: 'chunk-margin',
+    });
+    expect(response.references[1]).toMatchObject({
       localDocumentId: 'local-report',
       documentId: 'doc-1',
       chunkId: 'chunk-margin',
@@ -517,6 +523,7 @@ function createClient(parseResult: ParseResult): {
     ],
     results: [
       {
+        chunkId: 'chunk-margin',
         content: 'Margin guidance improved.',
         chunkType: 'text',
         score: 0.42,
@@ -627,6 +634,7 @@ function createParseResult(): ParseResult {
     textChunks: chunks.filter((chunk): chunk is TextChunk => chunk.type === 'text'),
     imageChunks: [],
     tableChunks: chunks.filter((chunk): chunk is TableChunk => chunk.type === 'table'),
+    pageChunks: [],
     jobId: 'job-1',
     statistics: {
       totalChunks: 3,

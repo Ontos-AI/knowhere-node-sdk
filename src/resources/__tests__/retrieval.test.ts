@@ -42,6 +42,7 @@ describe('Retrieval Resource', () => {
       query: 'refund policy',
       topK: 5,
       dataType: 6,
+      chunkTypes: ['text', 'table', 'page'],
       signalPaths: ['Billing', 'Refunds'],
       filterMode: 'keep',
       channels: ['path', 'term'],
@@ -58,11 +59,12 @@ describe('Retrieval Resource', () => {
       ],
     });
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
       namespace: 'support-center',
       query: 'refund policy',
       topK: 5,
       dataType: 6,
+      chunkTypes: ['text', 'table', 'page'],
       signalPaths: ['Billing', 'Refunds'],
       filterMode: 'keep',
       channels: ['path', 'term'],
@@ -106,7 +108,7 @@ describe('Retrieval Resource', () => {
 
     await retrieval.query({ query: 'refund policy' });
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
       query: 'refund policy',
     });
   });
@@ -133,7 +135,7 @@ describe('Retrieval Resource', () => {
 
     await retrieval.query({ query: 'test', useAgentic: true });
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/retrieval/query', {
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
       query: 'test',
       useAgentic: true,
     });

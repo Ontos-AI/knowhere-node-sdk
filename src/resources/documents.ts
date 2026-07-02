@@ -25,7 +25,7 @@ export class Documents extends BaseResource {
    */
   async list(params?: DocumentListParams): Promise<DocumentListResponse> {
     const response = await this.httpClient.get<DocumentListResponse>(
-      '/v1/documents',
+      this.endpoint('/documents'),
       this.createDocumentListRequestConfig(params),
     );
     return this.normalizeDocumentListResponse(response);
@@ -35,7 +35,7 @@ export class Documents extends BaseResource {
    * Get one canonical document by ID.
    */
   async get(documentId: string): Promise<Document> {
-    return this.httpClient.get<Document>(`/v1/documents/${documentId}`);
+    return this.httpClient.get<Document>(this.endpoint(`/documents/${documentId}`));
   }
 
   /**
@@ -46,7 +46,7 @@ export class Documents extends BaseResource {
     params?: DocumentChunkListParams,
   ): Promise<DocumentChunkListResponse> {
     return this.httpClient.get<DocumentChunkListResponse>(
-      `/v1/documents/${documentId}/chunks`,
+      this.endpoint(`/documents/${documentId}/chunks`),
       this.createChunkListRequestConfig(params),
     );
   }
@@ -60,7 +60,7 @@ export class Documents extends BaseResource {
     params?: DocumentChunkGetParams,
   ): Promise<DocumentChunkResponse> {
     return this.httpClient.get<DocumentChunkResponse>(
-      `/v1/documents/${documentId}/chunks/${documentChunkId}`,
+      this.endpoint(`/documents/${documentId}/chunks/${documentChunkId}`),
       this.createChunkGetRequestConfig(params),
     );
   }
@@ -69,7 +69,7 @@ export class Documents extends BaseResource {
    * Archive one canonical document by ID.
    */
   async archive(documentId: string): Promise<Document> {
-    return this.httpClient.post<Document>(`/v1/documents/${documentId}/archive`);
+    return this.httpClient.post<Document>(this.endpoint(`/documents/${documentId}/archive`));
   }
 
   private createDocumentListRequestConfig(params?: DocumentListParams): RequestConfig | undefined {

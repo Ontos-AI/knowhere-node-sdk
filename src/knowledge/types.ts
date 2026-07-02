@@ -127,10 +127,15 @@ export interface KnowledgeReadChunk {
   position: number;
   chunkId: string;
   chunkType: KnowledgeChunkType;
+  /** Content source marker. Page chunks normally expose summaries as content. */
+  contentSource?: string;
   content: string;
+  /** Display-safe text. For page chunks this prefers metadata.summary. */
+  readableContent: string;
   sectionPath: string;
   sourceChunkPath: string;
   filePath?: string;
+  pageNumbers?: number[];
   metadata: Record<string, unknown>;
 }
 
@@ -211,9 +216,12 @@ export interface IndexedKnowledgeChunk {
   position: number;
   chunkId: string;
   chunkType: KnowledgeChunkType;
+  contentSource?: string;
   content: string;
+  readableContent: string;
   sectionPath: string;
   sourceChunkPath: string;
   filePath?: string;
+  pageNumbers?: number[];
   metadata: Record<string, unknown>;
 }

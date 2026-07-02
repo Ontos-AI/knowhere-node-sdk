@@ -43,7 +43,7 @@ describe('Documents Resource', () => {
       pageSize: 25,
     });
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents', {
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents', {
       params: { namespace: 'support-center', page: 2, page_size: 25 },
     });
     expect(response.documents[0]?.documentId).toBe('doc-123');
@@ -64,7 +64,7 @@ describe('Documents Resource', () => {
 
     await documents.list();
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents', undefined);
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents', undefined);
   });
 
   it('should synthesize document pagination for legacy API responses', async () => {
@@ -98,7 +98,7 @@ describe('Documents Resource', () => {
 
     const document = await documents.get('doc-123');
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123');
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents/doc-123');
     expect(document.documentId).toBe('doc-123');
   });
 
@@ -112,15 +112,16 @@ describe('Documents Resource', () => {
         {
           id: 'dchk-123',
           chunkId: 'parser-chunk-1',
-          chunkType: 'table',
-          content: '| A | B |',
+          chunkType: 'page',
+          contentSource: 'summary',
+          content: 'Revenue rose across the covered pages.',
           sectionId: 'sec-123',
           sectionPath: 'Chapter 1',
-          sourceChunkPath: 'Chapter 1/Table',
-          filePath: 'tables/table-1.html',
+          sourceChunkPath: 'Chapter 1/Pages 4-6',
+          filePath: null,
           sortOrder: 0,
-          metadata: { summary: 'Table' },
-          assetUrl: 'https://assets.example/table-1.html',
+          metadata: { summary: 'Revenue rose across the covered pages.', pageNums: [4, 5, 6] },
+          assetUrl: null,
           createdAt: new Date('2026-04-27T04:00:00Z'),
         },
       ],
@@ -135,19 +136,21 @@ describe('Documents Resource', () => {
     const response = await documents.listChunks('doc-123', {
       page: 2,
       pageSize: 10,
-      chunkType: 'table',
+      chunkType: 'page',
       includeAssetUrls: true,
     });
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', {
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents/doc-123/chunks', {
       params: {
         page: 2,
         page_size: 10,
-        chunk_type: 'table',
+        chunk_type: 'page',
         include_asset_urls: true,
       },
     });
     expect(response.chunks[0]?.id).toBe('dchk-123');
+    expect(response.chunks[0]?.chunkType).toBe('page');
+    expect(response.chunks[0]?.contentSource).toBe('summary');
     expect(response.pagination.totalPages).toBe(2);
   });
 
@@ -168,7 +171,7 @@ describe('Documents Resource', () => {
 
     await documents.listChunks('doc-123');
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', undefined);
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents/doc-123/chunks', undefined);
   });
 
   it('should allow explicit document chunk asset URL control', async () => {
@@ -190,7 +193,7 @@ describe('Documents Resource', () => {
       includeAssetUrls: false,
     });
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks', {
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents/doc-123/chunks', {
       params: {
         include_asset_urls: false,
       },
@@ -223,7 +226,7 @@ describe('Documents Resource', () => {
       includeAssetUrls: true,
     });
 
-    expect(mockHttpClient.get).toHaveBeenCalledWith('/v1/documents/doc-123/chunks/dchk-123', {
+    expect(mockHttpClient.get).toHaveBeenCalledWith('/v2/documents/doc-123/chunks/dchk-123', {
       params: {
         include_asset_urls: true,
       },
@@ -241,7 +244,7 @@ describe('Documents Resource', () => {
 
     const document = await documents.archive('doc-123');
 
-    expect(mockHttpClient.post).toHaveBeenCalledWith('/v1/documents/doc-123/archive');
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/documents/doc-123/archive');
     expect(document.status).toBe('archived');
     expect(document.archivedAt).toBeInstanceOf(Date);
   });

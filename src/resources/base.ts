@@ -9,4 +9,8 @@ export abstract class BaseResource {
   constructor(httpClient: HttpClient) {
     this.httpClient = httpClient;
   }
+
+  protected endpoint(path: string): string {
+    return `/v2${path.startsWith('/') ? path : `/${path}`}`;
+  }
 }

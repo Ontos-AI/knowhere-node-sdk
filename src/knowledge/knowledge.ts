@@ -412,18 +412,45 @@ function createLocalDocumentIdForRemote(documentId: string): string {
 function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {
   return result.chunks.map((chunk, index) => {
     const filePath = getChunkFilePath(chunk);
+    const readableContent = getReadableChunkContent(chunk);
     return {
       source: chunk,
       position: index + 1,
       chunkId: chunk.chunkId,
       chunkType: chunk.type,
+      contentSource: chunk.contentSource,
       content: chunk.content,
+      readableContent,
       sectionPath: normalizeSectionPath(chunk.path, result.manifest.sourceFileName),
       sourceChunkPath: chunk.path,
       filePath,
+      pageNumbers: getChunkPageNumbers(chunk.metadata),
       metadata: chunk.metadata,
     };
   });
+}
+
+function getReadableChunkContent(chunk: Chunk): string {
+  if (chunk.type !== 'page') {
+    return chunk.content;
+  }
+
+  const summary = chunk.metadata.summary;
+  return typeof summary === 'string' && summary.trim().length > 0 ? summary : chunk.content;
+}
+
+function getChunkPageNumbers(metadata: Record<string, unknown>): number[] | undefined {
+  const value = metadata.pageNums;
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const pageNumbers = value.filter(
+    (pageNumber): pageNumber is number => Number.isInteger(pageNumber) && pageNumber > 0,
+  );
+  return pageNumbers.length > 0
+    ? [...new Set(pageNumbers)].sort((left, right) => left - right)
+    : undefined;
 }
 
 function getChunkFilePath(chunk: Chunk): string | undefined {
@@ -513,7 +540,7 @@ function createSectionFromChunk(pathValue: string, chunk: IndexedKnowledgeChunk)
     startChunk: chunk.position,
     endChunk: chunk.position,
     chunkCount: 1,
-    typeCounts: { text: 0, image: 0, table: 0, [chunk.chunkType]: 1 },
+    typeCounts: { text: 0, image: 0, table: 0, page: 0, [chunk.chunkType]: 1 },
     children: [],
   };
 }
@@ -584,7 +611,7 @@ function countIndexedTypes(chunks: IndexedKnowledgeChunk[]): Record<KnowledgeChu
       counts[chunk.chunkType] += 1;
       return counts;
     },
-    { text: 0, image: 0, table: 0 },
+    { text: 0, image: 0, table: 0, page: 0 },
   );
 }
 
@@ -633,10 +660,13 @@ function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {
     position: chunk.position,
     chunkId: chunk.chunkId,
     chunkType: chunk.chunkType,
+    contentSource: chunk.contentSource,
     content: chunk.content,
+    readableContent: chunk.readableContent,
     sectionPath: chunk.sectionPath,
     sourceChunkPath: chunk.sourceChunkPath,
     filePath: chunk.filePath,
+    pageNumbers: chunk.pageNumbers,
     metadata: chunk.metadata,
   };
 }
@@ -708,6 +738,7 @@ function toResultReference(
   return {
     localDocumentId: documentId ? documentByServerId.get(documentId)?.localDocumentId : undefined,
     documentId,
+    chunkId: result.chunkId,
     sectionPath: result.source.sectionPath ?? undefined,
     chunkType: result.chunkType,
     score: result.score,
@@ -722,6 +753,7 @@ function toRemoteSearchResult(
   return {
     localDocumentId: documentId ? documentByServerId.get(documentId)?.localDocumentId : undefined,
     documentId,
+    chunkId: result.chunkId,
     chunkType: result.chunkType,
     content: result.content,
     score: result.score,

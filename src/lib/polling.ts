@@ -34,7 +34,7 @@ export async function pollJobStatus(
     }
 
     // Get job status
-    const jobResult = await httpClient.get<JobResult>(`/v1/jobs/${jobId}`);
+    const jobResult = await httpClient.get<JobResult>(`/v2/jobs/${jobId}`);
     enrichJobResult(jobResult);
 
     const elapsed = Date.now() - startTime;

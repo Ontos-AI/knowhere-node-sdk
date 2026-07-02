@@ -28,6 +28,7 @@ export type {
   DocumentListResponse,
   // Retrieval types
   RetrievalChannel,
+  RetrievalChunkType,
   RetrievalFilterMode,
   RetrievalSectionExclusion,
   RetrievalQueryParams,
@@ -58,6 +59,7 @@ export type {
   TextChunk,
   ImageChunk,
   TableChunk,
+  PageChunk,
   KnowledgeChunkType,
   KnowledgeAsyncJobStatusResponse,
   KnowledgeAsyncParseParams,

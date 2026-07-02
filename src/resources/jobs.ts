@@ -18,7 +18,7 @@ export class Jobs extends BaseResource {
    * Create a new parsing job
    */
   async create(params: CreateJobParams): Promise<Job> {
-    const job = await this.httpClient.post<Job>('/v1/jobs', params);
+    const job = await this.httpClient.post<Job>(this.endpoint('/jobs'), params);
     if (job.uploadUrl) {
       this.pendingUploadJobs.set(job.jobId, job);
     }
@@ -29,7 +29,7 @@ export class Jobs extends BaseResource {
    * Get job status
    */
   async get(jobId: string): Promise<JobResult> {
-    const jobResult = await this.httpClient.get<JobResult>(`/v1/jobs/${jobId}`);
+    const jobResult = await this.httpClient.get<JobResult>(this.endpoint(`/jobs/${jobId}`));
     enrichJobResult(jobResult);
     return jobResult;
   }

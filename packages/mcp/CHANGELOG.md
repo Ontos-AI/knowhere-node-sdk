@@ -1,5 +1,14 @@
 # @ontos-ai/knowhere-mcp
 
+## 2.0.0
+
+### Major Changes
+
+- Move the MCP wrapper to the SDK 2.0.0 v2-only page-memory API behavior. MCP
+  parse operations now follow the SDK's `/v2` API flow, while local read,
+  outline, grep, and search tools can still inspect legacy v1 result ZIP chunk
+  formats.
+
 ## 0.4.2
 
 ### Patch Changes

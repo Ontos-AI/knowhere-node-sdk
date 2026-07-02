@@ -37,7 +37,7 @@ export interface DocumentListPagination {
 }
 
 /**
- * Query parameters for GET /v1/documents.
+ * Query parameters for GET /v2/documents.
  */
 export interface DocumentListParams {
   /** Retrieval namespace */
@@ -49,7 +49,7 @@ export interface DocumentListParams {
 }
 
 /**
- * Response from GET /v1/documents.
+ * Response from GET /v2/documents.
  */
 export interface DocumentListResponse {
   /** Namespace listed by the API */
@@ -63,7 +63,7 @@ export interface DocumentListResponse {
 /**
  * Document chunk types supported by document chunk endpoints.
  */
-export type DocumentChunkType = 'text' | 'image' | 'table';
+export type DocumentChunkType = 'text' | 'image' | 'table' | 'page';
 
 /**
  * Pagination metadata returned by chunk list endpoints.
@@ -80,7 +80,7 @@ export interface DocumentChunkPagination {
 }
 
 /**
- * Query parameters for GET /v1/documents/{document_id}/chunks.
+ * Query parameters for GET /v2/documents/{document_id}/chunks.
  */
 export interface DocumentChunkListParams {
   /** Page number (default: 1) */
@@ -94,7 +94,7 @@ export interface DocumentChunkListParams {
 }
 
 /**
- * Query parameters for GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
+ * Query parameters for GET /v2/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkGetParams {
   /** Set true to include 7-day asset URLs for media chunks */
@@ -111,6 +111,8 @@ export interface DocumentChunk {
   chunkId: string;
   /** Chunk content type */
   chunkType: DocumentChunkType;
+  /** Content source marker. Page chunks normally expose summaries as content. */
+  contentSource?: string | null;
   /** Chunk text or generated summary content */
   content?: string | null;
   /** Parent section identifier */
@@ -132,7 +134,7 @@ export interface DocumentChunk {
 }
 
 /**
- * Response from GET /v1/documents/{document_id}/chunks.
+ * Response from GET /v2/documents/{document_id}/chunks.
  */
 export interface DocumentChunkListResponse {
   /** Stable document identifier */
@@ -150,7 +152,7 @@ export interface DocumentChunkListResponse {
 }
 
 /**
- * Response from GET /v1/documents/{document_id}/chunks/{document_chunk_id}.
+ * Response from GET /v2/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkResponse {
   /** Stable document identifier */

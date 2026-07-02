@@ -429,6 +429,54 @@ describe('Result Parser', () => {
       expect(result.tableChunks[0].html).toContain('<table>');
     });
 
+    it('should expose page chunks and content source metadata', async () => {
+      const zip = new JSZip();
+      zip.file(
+        'manifest.json',
+        JSON.stringify({
+          job_id: 'job-page-123',
+          source_file_name: 'manual.pdf',
+          statistics: {
+            total_chunks: 1,
+            text_chunks: 0,
+            image_chunks: 0,
+            table_chunks: 0,
+            page_chunks: 1,
+          },
+        }),
+      );
+      zip.file(
+        'chunks.json',
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'page-4-6',
+              type: 'page',
+              content_source: 'summary',
+              content: 'Summary for pages 4 through 6.',
+              path: 'manual.pdf/Chapter 1',
+              metadata: {
+                summary: 'Summary for pages 4 through 6.',
+                page_nums: [4, 5, 6],
+                entities: [{ text: 'Knowhere', type: 'product' }],
+              },
+            },
+          ],
+        }),
+      );
+      const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+      mockHttpClient.download.mockResolvedValue(zipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.statistics.pageChunks).toBe(1);
+      expect(result.pageChunks).toHaveLength(1);
+      expect(result.pageChunks[0].type).toBe('page');
+      expect(result.pageChunks[0].contentSource).toBe('summary');
+      expect(result.pageChunks[0].metadata.pageNums).toEqual([4, 5, 6]);
+      expect(result.textChunks).toHaveLength(0);
+    });
+
     it('should extract full markdown if present', async () => {
       const mockZipBuffer = await createMockResultZip({
         includeFullMarkdown: true,

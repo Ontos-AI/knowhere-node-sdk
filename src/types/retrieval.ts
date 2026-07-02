@@ -18,6 +18,8 @@ export type RetrievalChannel = 'path' | 'content' | 'term';
  */
 export type RetrievalFilterMode = 'delete' | 'keep';
 
+export type RetrievalChunkType = 'text' | 'image' | 'table' | 'page';
+
 /**
  * Retrieval query parameters.
  */
@@ -36,8 +38,10 @@ export interface RetrievalQueryParams {
    * - ``undefined`` / omitted — server default
    */
   useAgentic?: boolean;
-  /** Chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table */
-  dataType?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** Chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table, 7=page, 8=text+image+table */
+  dataType?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  /** Allowed chunk types. Overrides dataType when provided. */
+  chunkTypes?: RetrievalChunkType[];
   /** Path keywords for include/exclude filtering */
   signalPaths?: string[];
   /** Signal path filter mode */
@@ -74,14 +78,24 @@ export interface RetrievalSource {
  * Canonical chunk result returned by retrieval query.
  */
 export interface RetrievalResult {
+  /** Parser-provided chunk identifier when included by the API */
+  chunkId?: string;
   /** Knowledge content to use directly in the caller's answer */
   content: string;
-  /** Chunk type, for example text, image, or table */
+  /** Chunk type, for example text, image, table, or page */
   chunkType: string;
+  /** Content source marker. Page chunks normally expose summaries as content. */
+  contentSource?: string;
   /** Retrieval score returned by the API. Null when no score is available (agentic navigation-only results). */
   score: number | null;
   /** Presigned asset URL for media chunks when available */
   assetUrl?: string;
+  /** Source chunk path when returned by the API */
+  sourceChunkPath?: string | null;
+  /** Generated artifact file path for media chunks */
+  filePath?: string | null;
+  /** Chunk metadata returned by the API */
+  metadata?: Record<string, unknown>;
   /** Source reference for this result */
   source: RetrievalSource;
 }
@@ -94,20 +108,26 @@ export interface RetrievalReferencedChunk {
   chunkId: string;
   /** Stable document identifier */
   documentId: string;
-  /** Chunk type, for example text, image, or table */
+  /** Chunk type, for example text, image, table, or page */
   chunkType: string;
+  /** Content source marker. Page chunks normally expose summaries as content. */
+  contentSource?: string | null;
   /** Human-readable section path */
   sectionPath: string;
+  /** Source chunk path when returned by the API */
+  sourceChunkPath?: string | null;
   /** Generated artifact file path for media chunks */
   filePath?: string | null;
   /** Published job identifier for the referenced chunk */
   jobId?: string | null;
   /** Presigned asset URL for media chunks when available */
   assetUrl?: string | null;
+  /** Chunk metadata returned by the API */
+  metadata?: Record<string, unknown>;
 }
 
 /**
- * Response from POST /v1/retrieval/query.
+ * Response from POST /v2/retrieval/query.
  *
  * Three PRIMARY output fields for downstream agent consumption:
  * - `evidenceText`: hierarchical evidence tree for LLM context
