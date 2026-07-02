@@ -10,6 +10,7 @@ import type {
 } from '../types/index.js';
 import { ValidationError } from '../errors/index.js';
 import { LocalKnowledgeStore } from './local-store.js';
+import { loadPageCitationAssetWorkflow } from '../page-citation-assets/workflow-loader.js';
 import type {
   IndexedKnowledgeChunk,
   KnowledgeAsyncCacheResult,
@@ -64,7 +65,11 @@ export class Knowledge {
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });
-    return { document, result };
+    return {
+      document,
+      result,
+      pageCitationAssetWarnings: result.pageCitationAssetWarnings,
+    };
   }
 
   async startParse(params: KnowledgeAsyncParseParams): Promise<KnowledgeAsyncParseResponse> {
@@ -102,13 +107,20 @@ export class Knowledge {
   async cacheJobResult(
     params: KnowledgeCacheJobResultParams,
   ): Promise<LocalKnowledgeParseResponse> {
-    const result = await this.client.jobs.load(params.jobId, {
+    const loadedResult = await this.client.jobs.load(params.jobId, {
       verifyChecksum: params.verifyChecksum,
     });
+    const result = params.pageCitationAssets
+      ? await this.enrichResultWithPageCitationAssets(loadedResult, params.pageCitationAssets)
+      : loadedResult;
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });
-    return { document, result };
+    return {
+      document,
+      result,
+      pageCitationAssetWarnings: result.pageCitationAssetWarnings,
+    };
   }
 
   async cacheDocument(params: KnowledgeCacheDocumentParams): Promise<LocalKnowledgeParseResponse> {
@@ -323,6 +335,19 @@ export class Knowledge {
     return documents.filter((document) => requested.has(document.localDocumentId));
   }
 
+  private async enrichResultWithPageCitationAssets(
+    result: ParseResult,
+    options: NonNullable<KnowledgeCacheJobResultParams['pageCitationAssets']>,
+  ): Promise<ParseResult> {
+    const workflow = await loadPageCitationAssetWorkflow();
+    return workflow.enrichParseResultWithPageCitationAssets({
+      result,
+      options,
+      documents: this.client.documents,
+      fallbackDocumentId: result.documentId,
+    });
+  }
+
   private async loadReadableResult(reference: string | KnowledgeDocumentReference): Promise<{
     document: LocalKnowledgeDocument;
     result: ParseResult;
@@ -425,6 +450,7 @@ function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {
       sourceChunkPath: chunk.path,
       filePath,
       pageNumbers: getChunkPageNumbers(chunk.metadata),
+      pageAssets: chunk.type === 'page' ? chunk.pageAssets : undefined,
       metadata: chunk.metadata,
     };
   });
@@ -440,13 +466,11 @@ function getReadableChunkContent(chunk: Chunk): string {
 }
 
 function getChunkPageNumbers(metadata: Record<string, unknown>): number[] | undefined {
-  const value = metadata.pageNums;
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const pageNumbers = value.filter(
-    (pageNumber): pageNumber is number => Number.isInteger(pageNumber) && pageNumber > 0,
+  const values = [metadata.pageNums, metadata.page_nums].filter(Array.isArray);
+  const pageNumbers = values.flatMap((value) =>
+    value.filter(
+      (pageNumber): pageNumber is number => Number.isInteger(pageNumber) && pageNumber > 0,
+    ),
   );
   return pageNumbers.length > 0
     ? [...new Set(pageNumbers)].sort((left, right) => left - right)
@@ -667,6 +691,7 @@ function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {
     sourceChunkPath: chunk.sourceChunkPath,
     filePath: chunk.filePath,
     pageNumbers: chunk.pageNumbers,
+    pageAssets: chunk.pageAssets,
     metadata: chunk.metadata,
   };
 }

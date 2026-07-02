@@ -1,3 +1,5 @@
+import type { PageCitationAsset } from './page-citation-assets.js';
+
 /**
  * Canonical document state returned by document lifecycle endpoints.
  */
@@ -129,8 +131,25 @@ export interface DocumentChunk {
   metadata: Record<string, unknown>;
   /** 7-day asset URL for media chunks when available */
   assetUrl?: string | null;
+  /** Rendered source-page citation assets attached by SDK-side generation when available. */
+  pageAssets?: readonly PageCitationAsset[];
   /** Chunk creation timestamp */
   createdAt?: Date;
+}
+
+/**
+ * Response from GET /v2/documents/{document_id}/files/page-citation-source.
+ */
+export interface DocumentPageCitationSource {
+  documentId: string;
+  namespace?: string;
+  jobId?: string;
+  jobResultId?: string;
+  variant?: string;
+  fileName: string;
+  contentType: string;
+  url: string;
+  expiresAt?: Date;
 }
 
 /**

@@ -15,6 +15,7 @@ import type {
   SlimChunk,
   DocNav,
 } from '../types/result.js';
+import type { PageCitationAsset } from '../types/page-citation-assets.js';
 import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
 import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils.js';
@@ -27,6 +28,7 @@ type RawChunk = {
   path?: string;
   filePath?: string;
   metadata?: Record<string, unknown>;
+  pageAssets?: readonly PageCitationAsset[];
 };
 
 type ChunkPayload = RawChunk[] | { chunks?: RawChunk[] };
@@ -223,7 +225,7 @@ export async function saveExpandedParseResult(
   result: ParseResult,
   directory: string,
 ): Promise<string> {
-  if (result.rawZip.length > 0) {
+  if (result.rawZip.length > 0 && !hasEnrichedPageAssets(result)) {
     const didExtractZip = await tryExtractRawZip(result.rawZip, directory);
     if (didExtractZip) {
       return directory;
@@ -475,6 +477,7 @@ function buildPageChunk(chunkData: RawChunk): PageChunk {
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     metadata: chunkData.metadata ?? {},
+    pageAssets: chunkData.pageAssets,
   };
 }
 
@@ -622,6 +625,7 @@ function serializeChunks(chunks: Chunk[]): { chunks: RawChunk[] } {
         content: chunk.content,
         path: chunk.path,
         metadata: chunk.metadata,
+        pageAssets: chunk.type === 'page' ? chunk.pageAssets : undefined,
       };
 
       if (chunk.type === 'image' || chunk.type === 'table') {
@@ -631,6 +635,10 @@ function serializeChunks(chunks: Chunk[]): { chunks: RawChunk[] } {
       return rawChunk;
     }),
   };
+}
+
+function hasEnrichedPageAssets(result: ParseResult): boolean {
+  return result.chunks.some((chunk) => chunk.type === 'page' && chunk.pageAssets !== undefined);
 }
 
 async function readRequiredTextFile(directory: string, fileName: string): Promise<string> {

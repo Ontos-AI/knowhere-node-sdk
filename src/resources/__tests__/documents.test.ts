@@ -234,6 +234,39 @@ describe('Documents Resource', () => {
     expect(response.chunk.assetUrl).toBe('https://assets.example/figure-1.png');
   });
 
+  it('should get the page citation source through the canonical v2 route', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      namespace: 'support-center',
+      jobId: 'job-123',
+      jobResultId: 'jres-123',
+      variant: 'normalized_pdf',
+      fileName: 'report.pdf',
+      contentType: 'application/pdf',
+      url: 'https://assets.example/report.pdf',
+      expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    const source = await documents.getPageCitationSource('doc-123');
+
+    expect(mockHttpClient.get).toHaveBeenCalledWith(
+      '/v2/documents/doc-123/files/page-citation-source',
+    );
+    expect(source).toMatchObject({
+      documentId: 'doc-123',
+      jobResultId: 'jres-123',
+      contentType: 'application/pdf',
+      url: 'https://assets.example/report.pdf',
+    });
+  });
+
+  it('should propagate page citation source API errors', async () => {
+    const error = new Error('not found');
+    mockHttpClient.get.mockRejectedValue(error);
+
+    await expect(documents.getPageCitationSource('doc-404')).rejects.toBe(error);
+  });
+
   it('should archive using the canonical route', async () => {
     mockHttpClient.post.mockResolvedValue({
       documentId: 'doc-123',

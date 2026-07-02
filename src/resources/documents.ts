@@ -5,6 +5,7 @@ import type {
   DocumentChunkListParams,
   DocumentChunkListResponse,
   DocumentChunkResponse,
+  DocumentPageCitationSource,
   DocumentListParams,
   DocumentListResponse,
 } from '../types/document.js';
@@ -62,6 +63,15 @@ export class Documents extends BaseResource {
     return this.httpClient.get<DocumentChunkResponse>(
       this.endpoint(`/documents/${documentId}/chunks/${documentChunkId}`),
       this.createChunkGetRequestConfig(params),
+    );
+  }
+
+  /**
+   * Get a signed source file URL suitable for SDK-side page citation rendering.
+   */
+  async getPageCitationSource(documentId: string): Promise<DocumentPageCitationSource> {
+    return this.httpClient.get<DocumentPageCitationSource>(
+      this.endpoint(`/documents/${documentId}/files/page-citation-source`),
     );
   }
 

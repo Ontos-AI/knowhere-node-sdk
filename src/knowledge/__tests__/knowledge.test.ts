@@ -6,8 +6,16 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Knowledge } from '../knowledge.js';
 import type { Knowhere } from '../../client.js';
 import type {
+  Chunk,
   DocumentChunkListResponse,
+  KnowhereSdkStorage,
+  KnowhereSdkStorageHead,
+  KnowhereSdkStorageObject,
+  KnowhereSdkStorageWriteResult,
+  PageRenderer,
   ParseResult,
+  RenderedPage,
+  RenderPageInput,
   TextChunk,
   TableChunk,
 } from '../../types/index.js';
@@ -17,6 +25,7 @@ describe('Knowledge', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     await Promise.all(
       tempDirectories.map((directory) => rm(directory, { recursive: true, force: true })),
     );
@@ -427,6 +436,57 @@ describe('Knowledge', () => {
     expect(savedTable).toBe('<table><tr><td>Revenue</td></tr></table>');
   });
 
+  it('should persist page assets from parse results into local read chunks', async () => {
+    const knowledge = await createKnowledgeWithCachedResult(createPageParseResultWithAssets());
+
+    const read = await knowledge.readChunks({
+      localDocumentId: 'local-report',
+      chunkType: 'page',
+      limit: 1,
+    });
+
+    expect(read.chunks[0]?.pageAssets?.[0]).toMatchObject({
+      pageNum: 1,
+      key: 'page-assets/doc-1/page-1.png',
+      width: 120,
+      height: 240,
+    });
+  });
+
+  it('should enrich and cache completed job results with page assets', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = createPageParseResult();
+    const { client, jobsLoad, documentsGetPageCitationSource } = createClient(parseResult);
+    const knowledge = new Knowledge(client, { cacheDirectory });
+    const storage = new MemoryStorage();
+    const renderer = new FakeRenderer();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(new Response(new Uint8Array([37, 80, 68, 70]))),
+    );
+
+    const cached = await knowledge.cacheJobResult({
+      jobId: 'job-1',
+      localDocumentId: 'local-report',
+      pageCitationAssets: { storage, renderer },
+    });
+    const read = await knowledge.readChunks({
+      localDocumentId: 'local-report',
+      chunkType: 'page',
+      limit: 1,
+    });
+
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: undefined });
+    expect(documentsGetPageCitationSource).toHaveBeenCalledWith('doc-1');
+    expect(renderer.renderedPageNums).toEqual([1]);
+    expect(cached.pageCitationAssetWarnings).toBeUndefined();
+    expect(read.chunks[0]?.pageAssets?.[0]).toMatchObject({
+      pageNum: 1,
+      width: 101,
+      height: 201,
+    });
+  });
+
   async function createKnowledgeWithCachedResult(
     parseResult = createParseResult(),
   ): Promise<Knowledge> {
@@ -454,6 +514,7 @@ function createClient(parseResult: ParseResult): {
   jobsGet: ReturnType<typeof vi.fn>;
   jobsLoad: ReturnType<typeof vi.fn>;
   documentsListChunks: ReturnType<typeof vi.fn>;
+  documentsGetPageCitationSource: ReturnType<typeof vi.fn>;
   retrievalQuery: ReturnType<typeof vi.fn>;
 } {
   const parse = vi.fn().mockResolvedValue(parseResult);
@@ -507,6 +568,17 @@ function createClient(parseResult: ParseResult): {
         },
       }),
   );
+  const documentsGetPageCitationSource = vi.fn().mockResolvedValue({
+    documentId: 'doc-1',
+    namespace: 'support-center',
+    jobId: 'job-1',
+    jobResultId: 'jres-1',
+    variant: 'normalized_pdf',
+    fileName: 'report.pdf',
+    contentType: 'application/pdf',
+    url: 'https://assets.example/source.pdf',
+    expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+  });
   const retrievalQuery = vi.fn().mockResolvedValue({
     namespace: 'support-center',
     query: 'margin',
@@ -545,6 +617,7 @@ function createClient(parseResult: ParseResult): {
       },
       documents: {
         listChunks: documentsListChunks,
+        getPageCitationSource: documentsGetPageCitationSource,
       },
       retrieval: {
         query: retrievalQuery,
@@ -555,8 +628,61 @@ function createClient(parseResult: ParseResult): {
     jobsGet,
     jobsLoad,
     documentsListChunks,
+    documentsGetPageCitationSource,
     retrievalQuery,
   };
+}
+
+class MemoryStorage implements KnowhereSdkStorage {
+  private readonly objects = new Map<
+    string,
+    {
+      readonly body: Uint8Array;
+      readonly contentType?: string;
+      readonly metadata?: Readonly<Record<string, string>>;
+    }
+  >();
+
+  headObject(key: string): Promise<KnowhereSdkStorageHead | null> {
+    const object = this.objects.get(key);
+    return Promise.resolve(
+      object
+      ? {
+          key,
+          contentType: object.contentType,
+          contentLength: object.body.byteLength,
+          metadata: object.metadata,
+        }
+        : null,
+    );
+  }
+
+  writeObject(input: KnowhereSdkStorageObject): Promise<KnowhereSdkStorageWriteResult> {
+    this.objects.set(input.key, {
+      body: input.body instanceof Uint8Array ? input.body : new Uint8Array(),
+      contentType: input.contentType,
+      metadata: input.metadata,
+    });
+    return Promise.resolve({ key: input.key, url: `memory://${input.key}` });
+  }
+
+  getObjectUrl(key: string): Promise<string | null> {
+    return Promise.resolve(this.objects.has(key) ? `memory://${key}` : null);
+  }
+}
+
+class FakeRenderer implements PageRenderer {
+  readonly renderedPageNums: number[] = [];
+
+  renderPage(input: RenderPageInput): Promise<RenderedPage> {
+    this.renderedPageNums.push(input.pageNum);
+    return Promise.resolve({
+      body: new Uint8Array([input.pageNum]),
+      mimeType: input.format,
+      width: 100 + input.pageNum,
+      height: 200 + input.pageNum,
+    });
+  }
 }
 
 async function expectFileExists(filePath: string): Promise<void> {
@@ -674,4 +800,79 @@ function createParseResultWithFullPaths(): ParseResult {
     ],
   };
   return result;
+}
+
+function createPageParseResult(chunks: Chunk[] = [createPageChunk()]): ParseResult {
+  const pageChunks = chunks.filter((chunk): chunk is Extract<Chunk, { type: 'page' }> => chunk.type === 'page');
+
+  return {
+    manifest: {
+      version: '2.0',
+      jobId: 'job-1',
+      sourceFileName: 'report.pdf',
+      statistics: {
+        totalChunks: chunks.length,
+        textChunks: chunks.filter((chunk) => chunk.type === 'text').length,
+        imageChunks: chunks.filter((chunk) => chunk.type === 'image').length,
+        tableChunks: chunks.filter((chunk) => chunk.type === 'table').length,
+        pageChunks: pageChunks.length,
+      },
+    },
+    chunks,
+    rawZip: Buffer.from('not-used-in-tests'),
+    namespace: 'support-center',
+    documentId: 'doc-1',
+    textChunks: chunks.filter((chunk): chunk is TextChunk => chunk.type === 'text'),
+    imageChunks: [],
+    tableChunks: [],
+    pageChunks,
+    jobId: 'job-1',
+    statistics: {
+      totalChunks: chunks.length,
+      textChunks: chunks.filter((chunk) => chunk.type === 'text').length,
+      imageChunks: chunks.filter((chunk) => chunk.type === 'image').length,
+      tableChunks: chunks.filter((chunk) => chunk.type === 'table').length,
+      pageChunks: pageChunks.length,
+    },
+    getChunk: (chunkId: string) => chunks.find((chunk) => chunk.chunkId === chunkId),
+    save: vi.fn(),
+  };
+}
+
+function createPageChunk(): Chunk {
+  return {
+    chunkId: 'page-1',
+    type: 'page',
+    content: 'Page one summary.',
+    contentSource: 'summary',
+    path: 'report.pdf/Page 1',
+    metadata: { summary: 'Page one summary.', pageNums: [1] },
+  };
+}
+
+function createPageParseResultWithAssets(): ParseResult {
+  const chunks: Chunk[] = [
+    {
+      chunkId: 'page-1',
+      type: 'page',
+      content: 'Page one summary.',
+      contentSource: 'summary',
+      path: 'report.pdf/Page 1',
+      metadata: { summary: 'Page one summary.', pageNums: [1] },
+      pageAssets: [
+        {
+          pageNum: 1,
+          key: 'page-assets/doc-1/page-1.png',
+          assetUrl: 'https://assets.example/page-1.png',
+          mimeType: 'image/png',
+          width: 120,
+          height: 240,
+          source: 'client-rendered-pdf-page',
+          variant: 'default',
+        },
+      ],
+    },
+  ];
+
+  return createPageParseResult(chunks);
 }

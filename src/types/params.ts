@@ -1,4 +1,5 @@
 import type { ReadStream } from 'fs';
+import type { PageCitationAssetsOptions } from './page-citation-assets.js';
 
 /**
  * Parsing model options
@@ -155,6 +156,8 @@ export interface ParseParams {
   onPollProgress?: (status: PollProgress) => void;
   /** Abort signal */
   signal?: AbortSignal;
+  /** Generate rendered page citation assets for page chunks. */
+  pageCitationAssets?: PageCitationAssetsOptions;
 }
 
 /**
