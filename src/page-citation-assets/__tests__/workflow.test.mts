@@ -18,6 +18,7 @@ import type {
 
 describe('page citation asset workflow', () => {
   afterEach(() => {
+    vi.doUnmock('../../page-renderer-pdfjs.js');
     vi.unstubAllGlobals();
   });
 
@@ -228,6 +229,39 @@ describe('page citation asset workflow', () => {
     expect(documents.calls).toEqual([]);
     expect(renderer.renderedPageNums).toEqual([]);
   });
+
+  it('does not close a caller-provided closeable renderer', async () => {
+    const storage = new MemoryStorage();
+    const renderer = new CloseableFakeRenderer();
+    stubSourceFetch();
+
+    await enrichParseResultWithPageCitationAssets({
+      result: createParseResult([createPageChunk('page-1', [1])]),
+      documents: createDocumentsClient(),
+      options: { storage, renderer },
+    });
+
+    expect(renderer.renderedPageNums).toEqual([1]);
+    expect(renderer.closeCalls).toBe(0);
+  });
+
+  it('closes the SDK-created default renderer after generation', async () => {
+    const storage = new MemoryStorage();
+    const renderer = new CloseableFakeRenderer();
+    vi.doMock('../../page-renderer-pdfjs.js', () => ({
+      createPdfJsPageRenderer: (): CloseableFakeRenderer => renderer,
+    }));
+    stubSourceFetch();
+
+    await enrichParseResultWithPageCitationAssets({
+      result: createParseResult([createPageChunk('page-1', [1])]),
+      documents: createDocumentsClient(),
+      options: { storage },
+    });
+
+    expect(renderer.renderedPageNums).toEqual([1]);
+    expect(renderer.closeCalls).toBe(1);
+  });
 });
 
 class MemoryStorage implements KnowhereSdkStorage {
@@ -338,6 +372,15 @@ class FakeRenderer implements PageRenderer {
       width: 100 + input.pageNum,
       height: 200 + input.pageNum,
     });
+  }
+}
+
+class CloseableFakeRenderer extends FakeRenderer {
+  closeCalls: number = 0;
+
+  close(): Promise<void> {
+    this.closeCalls += 1;
+    return Promise.resolve();
   }
 }
 

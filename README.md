@@ -23,7 +23,7 @@ npm install @ontos-ai/knowhere-sdk
 
 **Requirements:**
 
-- Node.js >= 20.19.0
+- Node.js >= 22.13.0
 - npm >= 10.0.0
 - TypeScript >= 5.0 (optional, for type checking)
 
@@ -144,6 +144,122 @@ const result = await client.parse({
   },
 });
 ```
+
+### Page Citation Assets
+
+Page citation asset generation is opt-in and runs only when parsed results are
+materialized through `parse(...)` or `knowledge.cacheJobResult(...)`. Providing
+`pageCitationAssets` enables generation for page chunks only; text, image, and
+table chunks never trigger page rendering even when they contain page metadata.
+
+```typescript
+import Knowhere, { createLocalKnowhereSdkStorage } from '@ontos-ai/knowhere-sdk';
+import { createPdfJsPageRenderer } from '@ontos-ai/knowhere-sdk/page-renderer-pdfjs';
+
+const client = new Knowhere({ apiKey: process.env.KNOWHERE_API_KEY });
+const storage = createLocalKnowhereSdkStorage({
+  rootDirectory: '.knowhere/page-citation-assets',
+  publicBaseUrl: 'https://cdn.example.com/knowhere',
+});
+const renderer = createPdfJsPageRenderer({
+  maxThreads: 1,
+});
+
+try {
+  const result = await client.parse({
+    file: './manual.pdf',
+    pageCitationAssets: {
+      storage,
+      renderer,
+      maxPagesToRenderPerRun: 25,
+      strict: false,
+    },
+  });
+
+  for (const chunk of result.pageChunks) {
+    console.log(chunk.pageAssets);
+  }
+
+  console.log(result.pageCitationAssetWarnings);
+} finally {
+  await renderer.close();
+}
+```
+
+`pageAssets` entries are concrete stored page images. The durable identity is
+`key`; `assetUrl` is optional access metadata returned by the storage adapter
+and may be public, signed, or absent.
+
+```typescript
+type PageCitationAsset = {
+  pageNum: number;
+  key: string;
+  assetUrl?: string;
+  mimeType: 'image/png' | 'image/jpeg';
+  width: number;
+  height: number;
+  source: 'client-rendered-pdf-page';
+  variant: string;
+};
+```
+
+When page chunks exist and `pageCitationAssets` is provided, the parsed result
+must have a `documentId` so the SDK can call
+`documents.getPageCitationSource(documentId)` and fetch the normalized PDF
+source. Source fetch, render, and storage failures are tolerant by default and
+surface as `pageCitationAssetWarnings`; set `strict: true` to fail on generation
+warnings.
+
+`knowledge.cacheJobResult(...)` uses the same option and persists enriched
+chunks so `knowledge.readChunks(...)` returns `pageAssets` later.
+
+```typescript
+await client.knowledge.cacheJobResult({
+  jobId: 'job_123',
+  localDocumentId: 'manual',
+  pageCitationAssets: {
+    storage,
+    renderer,
+  },
+});
+```
+
+Custom object storage backends can implement `KnowhereSdkStorage`. `headObject`
+is required so the SDK can attach cached assets without downloading image
+bodies.
+
+```typescript
+import type {
+  KnowhereSdkStorage,
+  KnowhereSdkStorageHead,
+  KnowhereSdkStorageObject,
+  KnowhereSdkStorageReadResult,
+  KnowhereSdkStorageWriteResult,
+} from '@ontos-ai/knowhere-sdk';
+
+class BlobStorage implements KnowhereSdkStorage {
+  headObject(key: string): Promise<KnowhereSdkStorageHead | null> {
+    throw new Error('implement metadata lookup');
+  }
+
+  writeObject(input: KnowhereSdkStorageObject): Promise<KnowhereSdkStorageWriteResult> {
+    throw new Error('implement object write');
+  }
+
+  getObjectUrl(key: string): Promise<string | null> {
+    throw new Error('return a public or signed URL when available');
+  }
+
+  readObject(key: string): Promise<KnowhereSdkStorageReadResult | null> {
+    throw new Error('implement object read when needed');
+  }
+}
+```
+
+The built-in PDF.js renderer is exported from
+`@ontos-ai/knowhere-sdk/page-renderer-pdfjs` to keep the root import lightweight.
+It uses Piscina worker threads internally with `maxThreads: 1` by default and
+caps explicit `maxThreads` values at `2` for serverless-friendly CPU isolation.
 
 ### Low-Level API
 

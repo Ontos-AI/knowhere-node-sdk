@@ -6,21 +6,25 @@ import { createPdfJsPageRenderer } from '../../page-renderer-pdfjs.js';
 
 describe('createPdfJsPageRenderer', () => {
   it('renders a tiny PDF fixture page to PNG', async () => {
-    const renderer = createPdfJsPageRenderer();
+    const renderer = createPdfJsPageRenderer({ maxThreads: 1 });
     const source = await readFile(
       path.join(process.cwd(), 'src', 'page-citation-assets', '__fixtures__', 'tiny.pdf'),
     );
 
-    const rendered = await renderer.renderPage({
-      source,
-      pageNum: 1,
-      format: 'image/png',
-      scale: 1,
-    });
+    try {
+      const rendered = await renderer.renderPage({
+        source,
+        pageNum: 1,
+        format: 'image/png',
+        scale: 1,
+      });
 
-    expect(rendered.mimeType).toBe('image/png');
-    expect(rendered.width).toBeGreaterThan(0);
-    expect(rendered.height).toBeGreaterThan(0);
-    expect(Buffer.from(rendered.body).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+      expect(rendered.mimeType).toBe('image/png');
+      expect(rendered.width).toBeGreaterThan(0);
+      expect(rendered.height).toBeGreaterThan(0);
+      expect(Buffer.from(rendered.body).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+    } finally {
+      await renderer.close();
+    }
   });
 });

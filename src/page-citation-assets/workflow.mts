@@ -71,6 +71,15 @@ interface NormalizedPageCitationOptions {
   storageOperationMs: number;
 }
 
+interface CloseablePageRenderer extends PageRenderer {
+  close(): Promise<void>;
+}
+
+interface PageCitationRendererHandle {
+  getRenderer(): Promise<PageRenderer>;
+  closeOwnedRenderer(): Promise<void>;
+}
+
 interface PageRequest {
   pageNum: number;
   key: string;
@@ -160,15 +169,17 @@ export async function enrichParseResultWithPageCitationAssets(
   assertPageCitationAssetDocumentId(input);
 
   const options = normalizeOptions(input.options);
+  const rendererHandle: PageCitationRendererHandle = createRendererHandle(options.renderer);
   const program = generatePageCitationAssets({
     ...input,
     options,
   }).pipe(
     Effect.provide([
       createSourceLayer(input.documents, options.sourceFetchMs),
-      createRendererLayer(options),
+      createRendererLayer(options, rendererHandle),
       createStorageLayer(options.storage, options.storageOperationMs),
     ]),
+    Effect.ensuring(closeOwnedRenderer(rendererHandle)),
   );
 
   const output = await runPromiseWithTimeout(
@@ -441,17 +452,13 @@ function createSourceLayer(
 
 function createRendererLayer(
   options: NormalizedPageCitationOptions,
+  rendererHandle: PageCitationRendererHandle,
 ): Layer.Layer<PageCitationRendererService> {
-  let cachedRenderer: PageRenderer | undefined = options.renderer;
-
   return Layer.succeed(PageCitationRendererService, {
     renderPage: Effect.fn('PageCitationRendererService.renderPage')(
       function*(input: RenderPageInput) {
         const renderer = yield* Effect.tryPromise({
-          try: async () => {
-            cachedRenderer ??= await createDefaultPageRenderer();
-            return cachedRenderer;
-          },
+          try: () => rendererHandle.getRenderer(),
           catch: (cause) => new PageCitationRendererUnavailableError({ cause }),
         });
 
@@ -471,6 +478,43 @@ function createRendererLayer(
       },
     ),
   });
+}
+
+function createRendererHandle(renderer: PageRenderer | undefined): PageCitationRendererHandle {
+  let cachedRenderer: PageRenderer | undefined = renderer;
+  let ownedRenderer: CloseablePageRenderer | undefined;
+
+  return {
+    async getRenderer(): Promise<PageRenderer> {
+      if (cachedRenderer) {
+        return cachedRenderer;
+      }
+
+      const defaultRenderer: PageRenderer = await createDefaultPageRenderer();
+      cachedRenderer = defaultRenderer;
+      ownedRenderer = isCloseablePageRenderer(defaultRenderer) ? defaultRenderer : undefined;
+      return defaultRenderer;
+    },
+
+    async closeOwnedRenderer(): Promise<void> {
+      if (!ownedRenderer) {
+        return;
+      }
+
+      const rendererToClose: CloseablePageRenderer = ownedRenderer;
+      ownedRenderer = undefined;
+      await rendererToClose.close();
+    },
+  };
+}
+
+function closeOwnedRenderer(
+  rendererHandle: PageCitationRendererHandle,
+): Effect.Effect<void, never> {
+  return Effect.tryPromise({
+    try: () => rendererHandle.closeOwnedRenderer(),
+    catch: (cause) => cause,
+  }).pipe(Effect.orElseSucceed(() => undefined));
 }
 
 function createStorageLayer(
@@ -843,6 +887,10 @@ function toSafeKeySegment(value: string): string {
 async function createDefaultPageRenderer(): Promise<PageRenderer> {
   const rendererModule = await import('../page-renderer-pdfjs.js');
   return rendererModule.createPdfJsPageRenderer();
+}
+
+function isCloseablePageRenderer(renderer: PageRenderer): renderer is CloseablePageRenderer {
+  return 'close' in renderer && typeof renderer.close === 'function';
 }
 
 async function fetchSourceBytes(url: string, timeoutMs: number): Promise<Uint8Array> {
