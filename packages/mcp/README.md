@@ -191,18 +191,17 @@ When logged in with Read only permission, the MCP server exposes only
   `40s`, `80s`, then cap at `120s` between follow-up status checks. After
   completion, use the returned `localDocumentId`, `documentId`, or `jobId` with
   outline/read/grep tools.
-- `knowhere_list_documents`: list locally cached parse results.
+- `knowhere_list_documents`: list published Knowhere documents from the remote
+  API, optionally filtered by namespace. Returned `documentId` values can be
+  passed to outline/read/grep tools.
 - `knowhere_delete_document`: archive, or soft-delete, a published Knowhere
   document through the Knowhere API.
-- `knowhere_get_document_outline`: inspect a cached document outline, or pass a
-  published `documentId` or completed `jobId` to sync it into the local cache
-  first through the parser result ZIP.
-- `knowhere_read_chunks`: read exact chunks from a cached result, or pass a
-  published `documentId` or completed `jobId` to sync it into the local cache
-  first through the parser result ZIP.
-- `knowhere_grep_chunks`: run local literal or regex grep over cached chunks, or
-  pass a published `documentId` or completed `jobId` to sync it into the local
-  cache first through the parser result ZIP.
+- `knowhere_get_document_outline`: inspect a parsed document outline by passing
+  `localDocumentId`, published `documentId`, or completed `jobId`.
+- `knowhere_read_chunks`: read exact chunks from a parsed document by passing
+  `localDocumentId`, published `documentId`, or completed `jobId`.
+- `knowhere_grep_chunks`: run literal or regex grep over parsed document chunks
+  by passing `localDocumentId`, published `documentId`, or completed `jobId`.
 - `knowhere_search`: search published documents through the Knowhere API
   retrieval query.
 

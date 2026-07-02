@@ -11,6 +11,7 @@ describe('knowhere MCP wrapper', () => {
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name).sort();
     const statusTool = tools.tools.find((tool) => tool.name === 'knowhere_async_get_job_status');
+    const listTool = tools.tools.find((tool) => tool.name === 'knowhere_list_documents');
     const readTool = tools.tools.find((tool) => tool.name === 'knowhere_read_chunks');
 
     expect(toolNames).toEqual([
@@ -28,6 +29,7 @@ describe('knowhere MCP wrapper', () => {
     ]);
     expect(statusTool?.description).toContain('5s, 10s, 20s, 40s, 80s');
     expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
+    expect(listTool?.description).toContain('remote API');
     expect(readTool?.description).toContain('resultDirectoryPath');
     expect(readTool?.description).toContain('chunks.json');
     await client.close();
@@ -47,6 +49,37 @@ describe('knowhere MCP wrapper', () => {
       'knowhere_read_chunks',
       'knowhere_search',
     ]);
+    await client.close();
+    await server.close();
+  });
+
+  it('should list published documents from the remote document API', async () => {
+    const knowhereClient = createClient();
+    const { client, server } = await connectTestClient(knowhereClient);
+
+    const response = await client.callTool({
+      name: 'knowhere_list_documents',
+      arguments: {
+        namespace: 'support-center',
+      },
+    });
+
+    expect(knowhereClient.listRemoteDocuments).toHaveBeenCalledWith({
+      namespace: 'support-center',
+    });
+    expect(knowhereClient.knowledge.listDocuments).not.toHaveBeenCalled();
+    expect(response.structuredContent).toEqual({
+      result: {
+        namespace: 'support-center',
+        documents: [
+          {
+            documentId: 'doc-remote-1',
+            namespace: 'support-center',
+            status: 'active',
+          },
+        ],
+      },
+    });
     await client.close();
     await server.close();
   });
@@ -276,15 +309,19 @@ describe('knowhere MCP wrapper', () => {
     const { client, server } = await connectTestClient(knowhereClient, '/tmp/knowhere-mcp-cache');
 
     await client.callTool({
-      name: 'knowhere_list_documents',
-      arguments: {},
+      name: 'knowhere_read_chunks',
+      arguments: {
+        localDocumentId: 'local-report',
+      },
     });
 
     expect(knowhereClient.knowledge.withCacheDirectory).toHaveBeenCalledWith(
       '/tmp/knowhere-mcp-cache',
     );
     expect(knowhereClient.knowledge.recoverPendingAsyncParseJobs).toHaveBeenCalledOnce();
-    expect(knowhereClient.knowledge.listDocuments).toHaveBeenCalledOnce();
+    expect(knowhereClient.knowledge.readChunks).toHaveBeenCalledWith({
+      localDocumentId: 'local-report',
+    });
     await client.close();
     await server.close();
   });
@@ -373,6 +410,7 @@ async function connectTestClient(
 
 function createClient(): Knowhere & {
   archiveDocument: ReturnType<typeof vi.fn>;
+  listRemoteDocuments: ReturnType<typeof vi.fn>;
   knowledge: KnowledgeWithMocks;
 } {
   const knowledge: KnowledgeWithMocks = {
@@ -416,15 +454,28 @@ function createClient(): Knowhere & {
     documentId: 'doc-1',
     status: 'archived',
   });
+  const listRemoteDocuments = vi.fn().mockResolvedValue({
+    namespace: 'support-center',
+    documents: [
+      {
+        documentId: 'doc-remote-1',
+        namespace: 'support-center',
+        status: 'active',
+      },
+    ],
+  });
 
   return {
     archiveDocument,
+    listRemoteDocuments,
     documents: {
+      list: listRemoteDocuments,
       archive: archiveDocument,
     },
     knowledge,
   } as unknown as Knowhere & {
     archiveDocument: ReturnType<typeof vi.fn>;
+    listRemoteDocuments: ReturnType<typeof vi.fn>;
     knowledge: KnowledgeWithMocks;
   };
 }
