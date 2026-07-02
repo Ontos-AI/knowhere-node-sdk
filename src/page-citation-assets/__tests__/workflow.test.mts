@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-import { PageCitationAssetGenerationError } from '../../errors/index.js';
+import { PageCitationAssetGenerationError, ValidationError } from '../../errors/index.js';
 import { enrichParseResultWithPageCitationAssets } from '../workflow.mjs';
 import type {
   Chunk,
@@ -201,16 +201,32 @@ describe('page citation asset workflow', () => {
     expect(JSON.stringify(index)).not.toContain('placeholder');
   });
 
-  it('warns when documentId is missing for page chunks', async () => {
-    const result = await enrichParseResultWithPageCitationAssets({
-      result: createParseResult([createPageChunk('page-1', [1])], { documentId: undefined }),
-      documents: createDocumentsClient(),
-      options: { storage: new MemoryStorage(), renderer: new FakeRenderer() },
+  it('rejects when documentId is missing for page chunks', async () => {
+    await expect(
+      enrichParseResultWithPageCitationAssets({
+        result: createParseResult([createPageChunk('page-1', [1])], { documentId: undefined }),
+        documents: createDocumentsClient(),
+        options: { storage: new MemoryStorage(), renderer: new FakeRenderer() },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('does not require documentId when no page chunks are present', async () => {
+    const documents: ReturnType<typeof createDocumentsClient> = createDocumentsClient();
+    const renderer: FakeRenderer = new FakeRenderer();
+
+    const result: ParseResult = await enrichParseResultWithPageCitationAssets({
+      result: createParseResult(
+        [createTextChunk('text-1'), createImageChunk('image-1'), createTableChunk('table-1')],
+        { documentId: undefined },
+      ),
+      documents,
+      options: { storage: new MemoryStorage(), renderer },
     });
 
-    expect(result.pageCitationAssetWarnings?.[0]).toMatchObject({
-      code: 'missing_document_id',
-    });
+    expect(result.pageCitationAssetWarnings).toBeUndefined();
+    expect(documents.calls).toEqual([]);
+    expect(renderer.renderedPageNums).toEqual([]);
   });
 });
 

@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 
 import { Context, Data, Effect, Layer } from 'effect';
 
-import { PageCitationAssetGenerationError } from '../errors/index.js';
+import { PageCitationAssetGenerationError, ValidationError } from '../errors/index.js';
 import { createLocalKnowhereSdkStorage } from '../storage/local-storage.js';
 import type {
   Chunk,
@@ -37,6 +37,8 @@ const DEFAULT_VARIANT = 'default';
 const DEFAULT_FORMAT: PageCitationAssetMimeType = 'image/png';
 const DEFAULT_SCALE = 1;
 const PAGE_ASSET_SOURCE: PageCitationAssetSource = 'client-rendered-pdf-page';
+const MISSING_DOCUMENT_ID_MESSAGE: string =
+  'documentId is required to generate page citation assets for page chunks.';
 
 export type DocumentPageCitationSourceClient = {
   getPageCitationSource(documentId: string): Promise<DocumentPageCitationSource>;
@@ -155,6 +157,8 @@ class PageCitationStorageService extends Context.Service<
 export async function enrichParseResultWithPageCitationAssets(
   input: PageCitationWorkflowInput,
 ): Promise<ParseResult> {
+  assertPageCitationAssetDocumentId(input);
+
   const options = normalizeOptions(input.options);
   const program = generatePageCitationAssets({
     ...input,
@@ -210,19 +214,18 @@ const generatePageCitationAssets = Effect.fn('Knowhere.generatePageCitationAsset
       readonly options: NormalizedPageCitationOptions;
     },
   ) {
-    const pageChunks = input.result.chunks.filter((chunk) => chunk.type === 'page');
+    const pageChunks: Array<Extract<Chunk, { type: 'page' }>> =
+      input.result.chunks.filter(isPageChunk);
     if (pageChunks.length === 0) {
       return { result: input.result, warnings: [] };
     }
 
-    const documentId = input.result.documentId ?? input.fallbackDocumentId;
+    const documentId: string | undefined = getPageCitationAssetDocumentId(
+      input.result,
+      input.fallbackDocumentId,
+    );
     if (!documentId) {
-      const warning = createWarning({
-        code: 'missing_document_id',
-        message: 'documentId is required to generate page citation assets for page chunks.',
-        jobId: input.result.jobId,
-      });
-      return { result: input.result, warnings: [warning] };
+      throw new ValidationError(MISSING_DOCUMENT_ID_MESSAGE);
     }
 
     const warnings: PageCitationAssetWarning[] = [];
@@ -317,6 +320,29 @@ const generatePageCitationAssets = Effect.fn('Knowhere.generatePageCitationAsset
     };
   },
 );
+
+function assertPageCitationAssetDocumentId(input: PageCitationWorkflowInput): void {
+  if (!input.result.chunks.some(isPageChunk)) {
+    return;
+  }
+
+  if (getPageCitationAssetDocumentId(input.result, input.fallbackDocumentId)) {
+    return;
+  }
+
+  throw new ValidationError(MISSING_DOCUMENT_ID_MESSAGE);
+}
+
+function getPageCitationAssetDocumentId(
+  result: ParseResult,
+  fallbackDocumentId: string | undefined,
+): string | undefined {
+  return result.documentId ?? fallbackDocumentId;
+}
+
+function isPageChunk(chunk: Chunk): chunk is Extract<Chunk, { type: 'page' }> {
+  return chunk.type === 'page';
+}
 
 const resolveSourceFile = Effect.fn('Knowhere.resolvePageCitationSource')(
   function*(documentId: string) {
