@@ -128,6 +128,7 @@ describe('knowhere MCP wrapper', () => {
       arguments: {
         documentId: 'doc_remote',
         sectionPath: 'Overview',
+        chunkType: 'page',
         limit: 3,
       },
     });
@@ -136,6 +137,7 @@ describe('knowhere MCP wrapper', () => {
       arguments: {
         documentId: 'doc_remote',
         pattern: 'revenue',
+        chunkType: 'page',
       },
     });
 
@@ -145,11 +147,13 @@ describe('knowhere MCP wrapper', () => {
     expect(knowhereClient.knowledge.readChunks).toHaveBeenCalledWith({
       documentId: 'doc_remote',
       sectionPath: 'Overview',
+      chunkType: 'page',
       limit: 3,
     });
     expect(knowhereClient.knowledge.grepChunks).toHaveBeenCalledWith({
       documentId: 'doc_remote',
       pattern: 'revenue',
+      chunkType: 'page',
     });
     await client.close();
     await server.close();

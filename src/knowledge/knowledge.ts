@@ -738,6 +738,7 @@ function toResultReference(
   return {
     localDocumentId: documentId ? documentByServerId.get(documentId)?.localDocumentId : undefined,
     documentId,
+    chunkId: result.chunkId,
     sectionPath: result.source.sectionPath ?? undefined,
     chunkType: result.chunkType,
     score: result.score,
@@ -752,6 +753,7 @@ function toRemoteSearchResult(
   return {
     localDocumentId: documentId ? documentByServerId.get(documentId)?.localDocumentId : undefined,
     documentId,
+    chunkId: result.chunkId,
     chunkType: result.chunkType,
     content: result.content,
     score: result.score,

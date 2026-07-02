@@ -378,10 +378,16 @@ describe('Knowledge', () => {
     expect(response.results[0]).toMatchObject({
       localDocumentId: 'local-report',
       documentId: 'doc-1',
+      chunkId: 'chunk-margin',
       sectionPath: 'Revenue',
       score: 0.42,
     });
     expect(response.references[0]).toMatchObject({
+      localDocumentId: 'local-report',
+      documentId: 'doc-1',
+      chunkId: 'chunk-margin',
+    });
+    expect(response.references[1]).toMatchObject({
       localDocumentId: 'local-report',
       documentId: 'doc-1',
       chunkId: 'chunk-margin',
@@ -517,6 +523,7 @@ function createClient(parseResult: ParseResult): {
     ],
     results: [
       {
+        chunkId: 'chunk-margin',
         content: 'Margin guidance improved.',
         chunkType: 'text',
         score: 0.42,
