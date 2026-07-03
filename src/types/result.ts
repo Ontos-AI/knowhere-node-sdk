@@ -194,6 +194,8 @@ export interface ImageChunk extends BaseChunk {
   type: 'image';
   /** Relative file path in ZIP */
   filePath: string;
+  /** Application-owned or server-provided display URL for the image asset. */
+  assetUrl?: string;
   /** Image data buffer */
   data: Buffer;
   /** Image format (derived from file extension) */
@@ -209,6 +211,8 @@ export interface TableChunk extends BaseChunk {
   type: 'table';
   /** Relative file path in ZIP */
   filePath: string;
+  /** Application-owned or server-provided display URL for the table asset. */
+  assetUrl?: string;
   /** HTML representation */
   html: string;
   /** Save table HTML to disk */

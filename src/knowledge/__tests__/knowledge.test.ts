@@ -1,6 +1,7 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
+import JSZip from 'jszip';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 import { Knowledge } from '../knowledge.js';
@@ -8,6 +9,9 @@ import type { Knowhere } from '../../client.js';
 import type {
   Chunk,
   DocumentChunkListResponse,
+  KnowhereAssetStorageAdapter,
+  KnowhereAssetStorageObject,
+  KnowhereAssetStorageWriteResult,
   ParseResult,
   TextChunk,
   TableChunk,
@@ -451,7 +455,7 @@ describe('Knowledge', () => {
 
   it('should cache server-provided page assets without SDK-side rendering', async () => {
     const cacheDirectory = await createTempDirectory();
-    const parseResult = createPageParseResultWithAssets();
+    const parseResult = await createPageParseResultWithRawPageAsset();
     const { client, jobsLoad, documentsGetPageCitationSource } = createClient(parseResult);
     const knowledge = new Knowledge(client, { cacheDirectory });
 
@@ -480,6 +484,58 @@ describe('Knowledge', () => {
         artifactRef: 'page_citation_assets/page-1.png',
         width: 120,
         height: 240,
+      }),
+    ]);
+    expect(read.chunks[0]).not.toHaveProperty('pageAssets');
+  });
+
+  it('should cache job result assets through a storage adapter and preserve metadata shape', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = await createPageParseResultWithRawPageAsset();
+    const { client } = createClient(parseResult);
+    const writeObject = vi.fn(
+      (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
+        Promise.resolve({
+        key: input.key,
+        url: `https://blob.example/${input.key}`,
+        }),
+    );
+    const adapter: KnowhereAssetStorageAdapter = {
+      writeObject,
+    };
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const cached = await knowledge.cacheJobResult({
+      jobId: 'job-1',
+      localDocumentId: 'local-report',
+      storageAdapter: {
+        adapter,
+        keyPrefix: 'workspaces/workspace-1/sources/source-1/parsed-result',
+      },
+    });
+    const read = await knowledge.readChunks({
+      localDocumentId: 'local-report',
+      chunkType: 'page',
+      limit: 1,
+    });
+
+    expect(cached.assetUrlsByFilePath).toEqual({
+      'page_citation_assets/page-1.png':
+        'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+    });
+    expect(cached.result.pageChunks[0]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        artifactRef: 'page_citation_assets/page-1.png',
+        assetUrl:
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+      }),
+    ]);
+    expect(cached.result.pageChunks[0]).not.toHaveProperty('pageAssets');
+    expect(read.chunks[0]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        artifactRef: 'page_citation_assets/page-1.png',
+        assetUrl:
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
       }),
     ]);
     expect(read.chunks[0]).not.toHaveProperty('pageAssets');
@@ -823,4 +879,12 @@ function createPageParseResultWithAssets(): ParseResult {
   ];
 
   return createPageParseResult(chunks);
+}
+
+async function createPageParseResultWithRawPageAsset(): Promise<ParseResult> {
+  const result = createPageParseResultWithAssets();
+  const zip = new JSZip();
+  zip.file('page_citation_assets/page-1.png', Buffer.from('page-one-image'));
+  result.rawZip = Buffer.from(await zip.generateAsync({ type: 'arraybuffer' }));
+  return result;
 }

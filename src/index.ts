@@ -50,6 +50,13 @@ export type {
   ParseParams,
   UploadProgress,
   PollProgress,
+  KnowhereAssetStorageAdapter,
+  KnowhereAssetStorageBody,
+  KnowhereAssetStorageHead,
+  KnowhereAssetStorageObject,
+  KnowhereAssetStorageOptions,
+  KnowhereAssetStorageResult,
+  KnowhereAssetStorageWriteResult,
   PageCitationAsset,
   PageCitationAssetContentType,
   PageCitationAssetSource,
@@ -88,6 +95,8 @@ export type {
   KnowledgeSearchResult,
   KnowledgeStartupRecoveryResponse,
 } from './types/index.js';
+
+export { storeParseResultAssets } from './storage/asset-storage.js';
 
 // Errors
 export {

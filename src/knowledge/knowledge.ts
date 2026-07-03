@@ -9,6 +9,7 @@ import type {
   RetrievalResult,
 } from '../types/index.js';
 import { ValidationError } from '../errors/index.js';
+import { storeParseResultAssets } from '../storage/asset-storage.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
   IndexedKnowledgeChunk,
@@ -60,13 +61,18 @@ export class Knowledge {
   }
 
   async parse(params: KnowledgeParseParams): Promise<LocalKnowledgeParseResponse> {
-    const result = await this.client.parse(params);
+    const loadedResult = params.storageAdapter
+      ? await this.parseWithoutClientStorageAdapter(params)
+      : await this.client.parse(params);
+    const storedAssets = await storeParseResultAssets(loadedResult, params.storageAdapter);
+    const result = storedAssets.result;
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });
     return {
       document,
       result,
+      assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
     };
   }
 
@@ -108,14 +114,25 @@ export class Knowledge {
     const loadedResult = await this.client.jobs.load(params.jobId, {
       verifyChecksum: params.verifyChecksum,
     });
-    const result = loadedResult;
+    const storedAssets = await storeParseResultAssets(loadedResult, params.storageAdapter);
+    const result = storedAssets.result;
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });
     return {
       document,
       result,
+      assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
     };
+  }
+
+  private async parseWithoutClientStorageAdapter(
+    params: KnowledgeParseParams,
+  ): Promise<ParseResult> {
+    const parseParams: KnowledgeParseParams = { ...params };
+    delete parseParams.localDocumentId;
+    delete parseParams.storageAdapter;
+    return this.client.parse(parseParams);
   }
 
   async cacheDocument(params: KnowledgeCacheDocumentParams): Promise<LocalKnowledgeParseResponse> {
@@ -431,6 +448,7 @@ function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {
       sectionPath: normalizeSectionPath(chunk.path, result.manifest.sourceFileName),
       sourceChunkPath: chunk.path,
       filePath,
+      assetUrl: getChunkAssetUrl(chunk),
       pageNumbers: getChunkPageNumbers(chunk.metadata),
       metadata: chunk.metadata,
     };
@@ -465,6 +483,10 @@ function getChunkFilePath(chunk: Chunk): string | undefined {
 
   const filePath = chunk.metadata.filePath;
   return typeof filePath === 'string' ? filePath : undefined;
+}
+
+function getChunkAssetUrl(chunk: Chunk): string | undefined {
+  return chunk.type === 'image' || chunk.type === 'table' ? chunk.assetUrl : undefined;
 }
 
 function normalizeSectionPath(path: string, sourceFileName?: string): string {
@@ -671,6 +693,7 @@ function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {
     sectionPath: chunk.sectionPath,
     sourceChunkPath: chunk.sourceChunkPath,
     filePath: chunk.filePath,
+    assetUrl: chunk.assetUrl,
     pageNumbers: chunk.pageNumbers,
     metadata: chunk.metadata,
   };

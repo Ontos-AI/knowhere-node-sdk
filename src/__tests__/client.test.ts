@@ -5,7 +5,13 @@ import { Knowhere } from '../client.js';
 import { ValidationError } from '../errors/base.js';
 import { Agent as HttpAgent } from 'http';
 import { Agent as HttpsAgent } from 'https';
-import type { ParseResult, TextChunk } from '../types/result.js';
+import JSZip from 'jszip';
+import type { ParseResult, PageChunk, TextChunk } from '../types/result.js';
+import type {
+  KnowhereAssetStorageAdapter,
+  KnowhereAssetStorageObject,
+  KnowhereAssetStorageWriteResult,
+} from '../types/storage.js';
 
 describe('Knowhere Client', () => {
   // Store original env
@@ -199,6 +205,94 @@ describe('Knowhere Client', () => {
         }),
       );
       expect(result.namespace).toBe('support-center');
+      expect(result.documentId).toBe('doc-123');
+    });
+
+    it('should store parse result assets when a storage adapter is provided', async () => {
+      const pageChunk: PageChunk = {
+        chunkId: 'page-1',
+        type: 'page',
+        content: 'Page one summary',
+        contentSource: 'summary',
+        path: 'report.pdf/Page 1',
+        metadata: {
+          pageNums: [1],
+          pageAssets: [
+            {
+              pageNum: 1,
+              artifactRef: 'page_citation_assets/page-1.png',
+              contentType: 'image/png',
+              source: 'knowhere-rendered-page-citation-source',
+            },
+          ],
+        },
+      };
+      const writeObject = vi.fn(
+        (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
+          Promise.resolve({
+          key: input.key,
+          url: `https://blob.example/${input.key}`,
+          }),
+      );
+      const adapter: KnowhereAssetStorageAdapter = {
+        writeObject,
+      };
+
+      vi.spyOn(client.jobs, 'load').mockResolvedValueOnce({
+        manifest: {
+          version: '2.0',
+          jobId: 'job-123',
+          sourceFileName: 'report.pdf',
+          statistics: {
+            totalChunks: 1,
+            textChunks: 0,
+            imageChunks: 0,
+            tableChunks: 0,
+            pageChunks: 1,
+          },
+        },
+        chunks: [pageChunk],
+        textChunks: [],
+        imageChunks: [],
+        tableChunks: [],
+        pageChunks: [pageChunk],
+        rawZip: await createZipBuffer({
+          'page_citation_assets/page-1.png': 'page-one-image',
+        }),
+        jobId: 'job-123',
+        statistics: {
+          totalChunks: 1,
+          textChunks: 0,
+          imageChunks: 0,
+          tableChunks: 0,
+          pageChunks: 1,
+        },
+        getChunk: vi.fn(),
+        save: vi.fn(),
+      });
+
+      const result = await client.parse({
+        url: 'https://example.com/doc.pdf',
+        storageAdapter: {
+          adapter,
+          keyPrefix: 'workspaces/workspace-1/sources/source-1/parsed-result',
+        },
+      });
+
+      expect(writeObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          key: 'workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+          contentType: 'image/png',
+        }),
+      );
+      expect(result.pageChunks[0]?.metadata.pageAssets).toEqual([
+        expect.objectContaining({
+          artifactRef: 'page_citation_assets/page-1.png',
+          assetUrl:
+            'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+        }),
+      ]);
+      expect(result.pageChunks[0]).not.toHaveProperty('pageAssets');
       expect(result.documentId).toBe('doc-123');
     });
 
@@ -492,3 +586,11 @@ describe('Knowhere Client', () => {
     });
   });
 });
+
+async function createZipBuffer(files: Readonly<Record<string, string>>): Promise<Buffer> {
+  const zip = new JSZip();
+  for (const [filePath, content] of Object.entries(files)) {
+    zip.file(filePath, Buffer.from(content));
+  }
+  return Buffer.from(await zip.generateAsync({ type: 'arraybuffer' }));
+}

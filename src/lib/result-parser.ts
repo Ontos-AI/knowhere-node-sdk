@@ -17,7 +17,7 @@ import type {
 } from '../types/result.js';
 import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
-import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils.js';
+import { sanitizePath, getFileExtension, parseDates, keysToCamel, keysToSnake } from './utils.js';
 
 type RawChunk = {
   chunkId?: string;
@@ -26,6 +26,7 @@ type RawChunk = {
   content?: string;
   path?: string;
   filePath?: string;
+  assetUrl?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -226,12 +227,30 @@ export async function saveExpandedParseResult(
   if (result.rawZip.length > 0) {
     const didExtractZip = await tryExtractRawZip(result.rawZip, directory);
     if (didExtractZip) {
+      await writeExpandedParseResultMetadata(result, directory);
       return directory;
     }
   }
 
   await fs.mkdir(directory, { recursive: true });
 
+  await writeExpandedParseResultMetadata(result, directory);
+
+  for (const imageChunk of result.imageChunks) {
+    await writeBinaryAsset(directory, imageChunk.filePath, imageChunk.data);
+  }
+
+  for (const tableChunk of result.tableChunks) {
+    await writeTextAsset(directory, tableChunk.filePath, tableChunk.html);
+  }
+
+  return directory;
+}
+
+async function writeExpandedParseResultMetadata(
+  result: ParseResult,
+  directory: string,
+): Promise<void> {
   await fs.writeFile(join(directory, 'manifest.json'), JSON.stringify(result.manifest, null, 2));
 
   if (result.docNav) {
@@ -240,7 +259,7 @@ export async function saveExpandedParseResult(
 
   await fs.writeFile(
     join(directory, 'chunks.json'),
-    JSON.stringify(serializeChunks(result.chunks), null, 2),
+    JSON.stringify(keysToSnake(serializeChunks(result.chunks)), null, 2),
   );
 
   if (result.chunksSlim) {
@@ -275,16 +294,6 @@ export async function saveExpandedParseResult(
   if (result.hierarchyViewHtml) {
     await fs.writeFile(join(directory, 'hierarchy_view.html'), result.hierarchyViewHtml);
   }
-
-  for (const imageChunk of result.imageChunks) {
-    await writeBinaryAsset(directory, imageChunk.filePath, imageChunk.data);
-  }
-
-  for (const tableChunk of result.tableChunks) {
-    await writeTextAsset(directory, tableChunk.filePath, tableChunk.html);
-  }
-
-  return directory;
 }
 
 async function tryExtractRawZip(zipBuffer: Buffer, directory: string): Promise<boolean> {
@@ -487,6 +496,7 @@ function buildImageChunk(chunkData: RawChunk, filePath: string, imageBuffer: Buf
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     filePath,
+    assetUrl: chunkData.assetUrl,
     data: imageBuffer,
     metadata: chunkData.metadata ?? {},
 
@@ -508,6 +518,7 @@ function buildTableChunk(chunkData: RawChunk, filePath: string, html: string): T
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     filePath,
+    assetUrl: chunkData.assetUrl,
     html,
     metadata: chunkData.metadata ?? {},
 
@@ -627,6 +638,7 @@ function serializeChunks(chunks: Chunk[]): { chunks: RawChunk[] } {
 
       if (chunk.type === 'image' || chunk.type === 'table') {
         rawChunk.filePath = chunk.filePath;
+        rawChunk.assetUrl = chunk.assetUrl;
       }
 
       return rawChunk;

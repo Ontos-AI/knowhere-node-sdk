@@ -1,4 +1,5 @@
 import type { ReadStream } from 'fs';
+import type { KnowhereAssetStorageOptions } from './storage.js';
 
 /**
  * Parsing model options
@@ -147,6 +148,11 @@ export interface ParseParams {
   pollTimeout?: number;
   /** Whether to verify ZIP checksum (default: true) */
   verifyChecksum?: boolean;
+  /**
+   * Optional asset storage adapter used to copy parsed media and page citation
+   * assets into application-owned storage before the result is returned.
+   */
+  storageAdapter?: KnowhereAssetStorageOptions;
   /** Webhook configuration */
   webhook?: WebhookConfig;
   /** Upload progress callback */

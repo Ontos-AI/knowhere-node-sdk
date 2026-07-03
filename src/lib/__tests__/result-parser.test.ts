@@ -956,6 +956,82 @@ describe('Result Parser', () => {
       expect(savedChunks.chunks[0]).not.toHaveProperty('page_assets');
     });
 
+    it('should save rewritten page citation asset metadata after raw ZIP extraction', async () => {
+      const zip = new JSZip();
+      zip.file(
+        'manifest.json',
+        JSON.stringify({
+          job_id: 'job-page-assets',
+          source_file_name: 'manual.pdf',
+          statistics: {
+            total_chunks: 1,
+            text_chunks: 0,
+            image_chunks: 0,
+            table_chunks: 0,
+            page_chunks: 1,
+          },
+        }),
+      );
+      zip.file(
+        'chunks.json',
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'page-1',
+              type: 'page',
+              content: 'Page one summary.',
+              path: 'manual.pdf/Page 1',
+              metadata: {
+                page_assets: [
+                  {
+                    page_num: 1,
+                    artifact_ref: 'page_citation_assets/page-1.png',
+                    content_type: 'image/png',
+                    source: 'knowhere-rendered-page-citation-source',
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      zip.file('page_citation_assets/page-1.png', Buffer.from('server-page-png'));
+      mockHttpClient.download.mockResolvedValue(await zip.generateAsync({ type: 'nodebuffer' }));
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+      const pageAssets = result.pageChunks[0]?.metadata.pageAssets;
+      const firstPageAsset: unknown = Array.isArray(pageAssets) ? pageAssets[0] : undefined;
+      if (
+        Array.isArray(pageAssets) &&
+        typeof firstPageAsset === 'object' &&
+        firstPageAsset !== null
+      ) {
+        pageAssets[0] = {
+          ...firstPageAsset,
+          assetUrl: 'https://blob.example/page_citation_assets/page-1.png',
+        };
+      }
+
+      await saveExpandedParseResult(result, testOutputDir);
+
+      const savedChunks = JSON.parse(
+        await fs.readFile(join(testOutputDir, 'chunks.json'), 'utf8'),
+      ) as {
+        chunks: [
+          {
+            metadata: {
+              page_assets: Array<Record<string, unknown>>;
+            };
+          },
+        ];
+      };
+
+      expect(savedChunks.chunks[0].metadata.page_assets).toEqual([
+        expect.objectContaining({
+          asset_url: 'https://blob.example/page_citation_assets/page-1.png',
+        }),
+      ]);
+    });
+
     it('should expose jobId property', async () => {
       const mockZipBuffer = await createMockResultZip();
       mockHttpClient.download.mockResolvedValue(mockZipBuffer);

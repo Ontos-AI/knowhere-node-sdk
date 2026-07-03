@@ -1,6 +1,7 @@
 import type { ParseParams } from '../types/params.js';
 import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
+import type { KnowhereAssetStorageOptions } from '../types/storage.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
 
@@ -35,6 +36,7 @@ export interface LocalKnowledgeDocument {
 export interface LocalKnowledgeParseResponse {
   document: LocalKnowledgeDocument;
   result: ParseResult;
+  assetUrlsByFilePath?: Readonly<Record<string, string>>;
 }
 
 export interface KnowledgeAsyncParseParams extends ParseParams {
@@ -76,6 +78,7 @@ export interface KnowledgeCacheJobResultParams {
   jobId: string;
   localDocumentId?: string;
   verifyChecksum?: boolean;
+  storageAdapter?: KnowhereAssetStorageOptions;
 }
 
 export interface KnowledgeCacheDocumentParams {
@@ -135,6 +138,7 @@ export interface KnowledgeReadChunk {
   sectionPath: string;
   sourceChunkPath: string;
   filePath?: string;
+  assetUrl?: string;
   pageNumbers?: number[];
   metadata: Record<string, unknown>;
 }
@@ -222,6 +226,7 @@ export interface IndexedKnowledgeChunk {
   sectionPath: string;
   sourceChunkPath: string;
   filePath?: string;
+  assetUrl?: string;
   pageNumbers?: number[];
   metadata: Record<string, unknown>;
 }
