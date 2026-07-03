@@ -161,11 +161,11 @@ const result = await client.parse({
 });
 
 for (const chunk of result.pageChunks) {
-  console.log(chunk.pageAssets);
+  console.log(chunk.metadata.pageAssets);
 }
 ```
 
-`pageAssets` entries point at concrete page images stored with the Knowhere
+`metadata.pageAssets` entries point at concrete page images stored with the Knowhere
 result. `artifactRef` is the durable result artifact path; `assetUrl` is an
 optional server-generated access URL.
 
@@ -177,9 +177,7 @@ type PageCitationAsset = {
   contentType: 'image/png' | 'image/jpeg';
   width?: number;
   height?: number;
-  source:
-    | 'knowhere-rendered-page-citation-source'
-    | 'client-rendered-page-citation-source';
+  source: 'knowhere-rendered-page-citation-source';
 };
 ```
 
@@ -191,11 +189,8 @@ const chunks = await client.documents.listChunks('doc_123', {
   includeAssetUrls: true,
 });
 
-console.log(chunks.chunks[0]?.pageAssets?.[0]?.assetUrl);
+console.log(chunks.chunks[0]?.metadata.pageAssets?.[0]?.assetUrl);
 ```
-
-`parse(...)` and `knowledge.cacheJobResult(...)` still accept the deprecated
-`pageCitationAssets` option for source compatibility, but it is ignored.
 
 ### Low-Level API
 

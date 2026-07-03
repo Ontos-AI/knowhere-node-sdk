@@ -432,7 +432,6 @@ function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {
       sourceChunkPath: chunk.path,
       filePath,
       pageNumbers: getChunkPageNumbers(chunk.metadata),
-      pageAssets: chunk.type === 'page' ? chunk.pageAssets : undefined,
       metadata: chunk.metadata,
     };
   });
@@ -673,7 +672,6 @@ function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {
     sourceChunkPath: chunk.sourceChunkPath,
     filePath: chunk.filePath,
     pageNumbers: chunk.pageNumbers,
-    pageAssets: chunk.pageAssets,
     metadata: chunk.metadata,
   };
 }

@@ -471,6 +471,64 @@ describe('Result Parser', () => {
                   },
                 ],
               },
+            },
+          ],
+        }),
+      );
+      const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+      mockHttpClient.download.mockResolvedValue(zipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      expect(result.statistics.pageChunks).toBe(1);
+      expect(result.pageChunks).toHaveLength(1);
+      expect(result.pageChunks[0].type).toBe('page');
+      expect(result.pageChunks[0].contentSource).toBe('summary');
+      expect(result.pageChunks[0].metadata.pageNums).toEqual([4, 5, 6]);
+      expect(result.pageChunks[0].metadata.pageAssets).toEqual([
+        {
+          pageNum: 4,
+          artifactRef: 'page_citation_assets/page-4.png',
+          assetUrl: 'https://assets.example/page-4.png',
+          contentType: 'image/png',
+          width: 1200,
+          height: 1800,
+          source: 'knowhere-rendered-page-citation-source',
+        },
+      ]);
+      expect(result.pageChunks[0]).not.toHaveProperty('pageAssets');
+      expect(result.textChunks).toHaveLength(0);
+    });
+
+    it('should ignore unsupported top-level page assets on page chunks', async () => {
+      const zip = new JSZip();
+      zip.file(
+        'manifest.json',
+        JSON.stringify({
+          job_id: 'job-page-123',
+          source_file_name: 'manual.pdf',
+          statistics: {
+            total_chunks: 1,
+            text_chunks: 0,
+            image_chunks: 0,
+            table_chunks: 0,
+            page_chunks: 1,
+          },
+        }),
+      );
+      zip.file(
+        'chunks.json',
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'page-4',
+              type: 'page',
+              content: 'Summary for page 4.',
+              path: 'manual.pdf/Page 4',
+              metadata: {
+                summary: 'Summary for page 4.',
+                page_nums: [4],
+              },
               page_assets: [
                 {
                   page_num: 4,
@@ -491,21 +549,11 @@ describe('Result Parser', () => {
 
       const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
 
-      expect(result.statistics.pageChunks).toBe(1);
-      expect(result.pageChunks).toHaveLength(1);
-      expect(result.pageChunks[0].type).toBe('page');
-      expect(result.pageChunks[0].contentSource).toBe('summary');
-      expect(result.pageChunks[0].metadata.pageNums).toEqual([4, 5, 6]);
-      expect(result.pageChunks[0].pageAssets?.[0]).toEqual({
-        pageNum: 4,
-        artifactRef: 'page_citation_assets/page-4.png',
-        assetUrl: 'https://assets.example/page-4.png',
-        contentType: 'image/png',
-        width: 1200,
-        height: 1800,
-        source: 'knowhere-rendered-page-citation-source',
+      expect(result.pageChunks[0]).not.toHaveProperty('pageAssets');
+      expect(result.pageChunks[0].metadata).toEqual({
+        summary: 'Summary for page 4.',
+        pageNums: [4],
       });
-      expect(result.textChunks).toHaveLength(0);
     });
 
     it('should extract full markdown if present', async () => {
@@ -832,6 +880,80 @@ describe('Result Parser', () => {
       expect(reloaded.chunks).toHaveLength(3);
       expect(reloaded.tableChunks[0].html).toContain('Optimized');
       expect(reloaded.rawZip.length).toBe(0);
+    });
+
+    it('should preserve server-provided page citation asset files when saving expanded results', async () => {
+      const zip = new JSZip();
+      zip.file(
+        'manifest.json',
+        JSON.stringify({
+          job_id: 'job-page-assets',
+          source_file_name: 'manual.pdf',
+          statistics: {
+            total_chunks: 1,
+            text_chunks: 0,
+            image_chunks: 0,
+            table_chunks: 0,
+            page_chunks: 1,
+          },
+        }),
+      );
+      zip.file(
+        'chunks.json',
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'page-1',
+              type: 'page',
+              content: 'Page one summary.',
+              path: 'manual.pdf/Page 1',
+              metadata: {
+                page_nums: [1],
+                page_assets: [
+                  {
+                    page_num: 1,
+                    artifact_ref: 'page_citation_assets/page-1.png',
+                    content_type: 'image/png',
+                    width: 120,
+                    height: 240,
+                    source: 'knowhere-rendered-page-citation-source',
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      zip.file('page_citation_assets/page-1.png', Buffer.from('server-page-png'));
+      const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+      mockHttpClient.download.mockResolvedValue(zipBuffer);
+
+      const result = await parseResult(mockHttpClient, 'https://s3.example.com/result.zip');
+
+      await saveExpandedParseResult(result, testOutputDir);
+
+      const savedPageAsset = await fs.readFile(
+        join(testOutputDir, 'page_citation_assets/page-1.png'),
+      );
+      const savedChunks = JSON.parse(
+        await fs.readFile(join(testOutputDir, 'chunks.json'), 'utf8'),
+      ) as {
+        chunks: [
+          {
+            metadata: {
+              page_assets: Array<Record<string, unknown>>;
+            };
+          },
+        ];
+      };
+
+      expect(savedPageAsset.toString()).toBe('server-page-png');
+      expect(savedChunks.chunks[0].metadata.page_assets).toEqual([
+        expect.objectContaining({
+          artifact_ref: 'page_citation_assets/page-1.png',
+        }),
+      ]);
+      expect(savedChunks.chunks[0]).not.toHaveProperty('page_assets');
     });
 
     it('should expose jobId property', async () => {

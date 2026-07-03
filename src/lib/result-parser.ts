@@ -15,7 +15,6 @@ import type {
   SlimChunk,
   DocNav,
 } from '../types/result.js';
-import type { PageCitationAsset } from '../types/page-citation-assets.js';
 import type { LoadOptions } from '../types/params.js';
 import { ChecksumError, KnowhereError } from '../errors/index.js';
 import { sanitizePath, getFileExtension, parseDates, keysToCamel } from './utils.js';
@@ -28,7 +27,6 @@ type RawChunk = {
   path?: string;
   filePath?: string;
   metadata?: Record<string, unknown>;
-  pageAssets?: readonly PageCitationAsset[];
 };
 
 type ChunkPayload = RawChunk[] | { chunks?: RawChunk[] };
@@ -225,7 +223,7 @@ export async function saveExpandedParseResult(
   result: ParseResult,
   directory: string,
 ): Promise<string> {
-  if (result.rawZip.length > 0 && !hasEnrichedPageAssets(result)) {
+  if (result.rawZip.length > 0) {
     const didExtractZip = await tryExtractRawZip(result.rawZip, directory);
     if (didExtractZip) {
       return directory;
@@ -478,7 +476,6 @@ function buildPageChunk(chunkData: RawChunk): PageChunk {
     content: chunkData.content ?? '',
     path: chunkData.path ?? '',
     metadata,
-    pageAssets: normalizePageAssets(chunkData.pageAssets ?? metadata.pageAssets),
   };
 }
 
@@ -619,18 +616,13 @@ async function processDirectoryChunk(directory: string, chunkData: RawChunk): Pr
 function serializeChunks(chunks: Chunk[]): { chunks: RawChunk[] } {
   return {
     chunks: chunks.map((chunk): RawChunk => {
-      const pageAssets = chunk.type === 'page' ? chunk.pageAssets : undefined;
       const rawChunk: RawChunk = {
         chunkId: chunk.chunkId,
         type: chunk.type,
         contentSource: chunk.contentSource,
         content: chunk.content,
         path: chunk.path,
-        metadata:
-          chunk.type === 'page' && pageAssets
-            ? { ...chunk.metadata, pageAssets }
-            : chunk.metadata,
-        pageAssets,
+        metadata: chunk.metadata,
       };
 
       if (chunk.type === 'image' || chunk.type === 'table') {
@@ -640,68 +632,6 @@ function serializeChunks(chunks: Chunk[]): { chunks: RawChunk[] } {
       return rawChunk;
     }),
   };
-}
-
-function hasEnrichedPageAssets(result: ParseResult): boolean {
-  return result.chunks.some((chunk) => chunk.type === 'page' && chunk.pageAssets !== undefined);
-}
-
-function normalizePageAssets(value: unknown): readonly PageCitationAsset[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const assets = value.flatMap((item): PageCitationAsset[] => {
-    if (!isRecord(item)) {
-      return [];
-    }
-    const pageNum = getPositiveInteger(item.pageNum);
-    const artifactRef = getString(item.artifactRef);
-    const contentType = getPageCitationAssetContentType(item.contentType);
-    const source = getPageCitationAssetSource(item.source);
-    if (!pageNum || !artifactRef || !contentType || !source) {
-      return [];
-    }
-    return [
-      {
-        pageNum,
-        artifactRef,
-        assetUrl: getString(item.assetUrl),
-        contentType,
-        width: getPositiveInteger(item.width),
-        height: getPositiveInteger(item.height),
-        source,
-      },
-    ];
-  });
-  return assets.length > 0 ? assets : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function getPositiveInteger(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    return undefined;
-  }
-  return value;
-}
-
-function getPageCitationAssetContentType(
-  value: unknown,
-): PageCitationAsset['contentType'] | undefined {
-  return value === 'image/png' || value === 'image/jpeg' ? value : undefined;
-}
-
-function getPageCitationAssetSource(value: unknown): PageCitationAsset['source'] | undefined {
-  return value === 'knowhere-rendered-page-citation-source' ||
-    value === 'client-rendered-page-citation-source'
-    ? value
-    : undefined;
 }
 
 async function readRequiredTextFile(directory: string, fileName: string): Promise<string> {

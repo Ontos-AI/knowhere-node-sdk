@@ -1,8 +1,6 @@
 export type PageCitationAssetContentType = 'image/png' | 'image/jpeg';
 
-export type PageCitationAssetSource =
-  | 'knowhere-rendered-page-citation-source'
-  | 'client-rendered-page-citation-source';
+export type PageCitationAssetSource = 'knowhere-rendered-page-citation-source';
 
 export interface PageCitationAsset {
   pageNum: number;

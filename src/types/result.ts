@@ -1,5 +1,3 @@
-import type { PageCitationAsset } from './page-citation-assets.js';
-
 /**
  * Statistics about the parsed document
  */
@@ -222,8 +220,6 @@ export interface TableChunk extends BaseChunk {
  */
 export interface PageChunk extends BaseChunk {
   type: 'page';
-  /** Server-provided rendered source-page citation assets when available. */
-  pageAssets?: readonly PageCitationAsset[];
 }
 
 /**

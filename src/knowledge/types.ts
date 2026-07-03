@@ -1,11 +1,6 @@
 import type { ParseParams } from '../types/params.js';
 import type { Job, JobResult } from '../types/job.js';
-import type {
-  Chunk,
-  DocumentChunkType,
-  PageCitationAsset,
-  ParseResult,
-} from '../types/index.js';
+import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
 
@@ -81,8 +76,6 @@ export interface KnowledgeCacheJobResultParams {
   jobId: string;
   localDocumentId?: string;
   verifyChecksum?: boolean;
-  /** @deprecated Ignored. Page citation assets are provided by the server. */
-  pageCitationAssets?: ParseParams['pageCitationAssets'];
 }
 
 export interface KnowledgeCacheDocumentParams {
@@ -143,7 +136,6 @@ export interface KnowledgeReadChunk {
   sourceChunkPath: string;
   filePath?: string;
   pageNumbers?: number[];
-  pageAssets?: readonly PageCitationAsset[];
   metadata: Record<string, unknown>;
 }
 
@@ -231,6 +223,5 @@ export interface IndexedKnowledgeChunk {
   sourceChunkPath: string;
   filePath?: string;
   pageNumbers?: number[];
-  pageAssets?: readonly PageCitationAsset[];
   metadata: Record<string, unknown>;
 }

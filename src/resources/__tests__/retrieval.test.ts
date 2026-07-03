@@ -179,15 +179,6 @@ describe('Retrieval Resource', () => {
               },
             ],
           },
-          pageAssets: [
-            {
-              pageNum: 4,
-              artifactRef: 'page_citation_assets/page-4.png',
-              assetUrl: 'https://assets.example/page-4.png',
-              contentType: 'image/png',
-              source: 'knowhere-rendered-page-citation-source',
-            },
-          ],
         },
       ],
       results: [],
@@ -204,9 +195,12 @@ describe('Retrieval Resource', () => {
     expect(response.referencedChunks).toHaveLength(1);
     expect(referencedChunk?.chunkId).toBe('chunk-1');
     expect(referencedChunk?.filePath).toBeNull();
-    expect(referencedChunk?.pageAssets?.[0]?.assetUrl).toBe(
-      'https://assets.example/page-4.png',
-    );
+    expect(referencedChunk?.metadata?.pageAssets).toEqual([
+      expect.objectContaining({
+        assetUrl: 'https://assets.example/page-4.png',
+      }),
+    ]);
+    expect(referencedChunk).not.toHaveProperty('pageAssets');
     expect(response.decisionTrace).toHaveLength(2);
     expect(response.decisionTrace![0]).toHaveProperty('phase', 'discovery');
     expect(response.decisionTrace![1]).toHaveProperty('phase', 'terminal');

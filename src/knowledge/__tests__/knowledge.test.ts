@@ -438,12 +438,15 @@ describe('Knowledge', () => {
       limit: 1,
     });
 
-    expect(read.chunks[0]?.pageAssets?.[0]).toMatchObject({
-      pageNum: 1,
-      artifactRef: 'page_citation_assets/page-1.png',
-      width: 120,
-      height: 240,
-    });
+    expect(read.chunks[0]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        pageNum: 1,
+        artifactRef: 'page_citation_assets/page-1.png',
+        width: 120,
+        height: 240,
+      }),
+    ]);
+    expect(read.chunks[0]).not.toHaveProperty('pageAssets');
   });
 
   it('should cache server-provided page assets without SDK-side rendering', async () => {
@@ -455,7 +458,6 @@ describe('Knowledge', () => {
     const cached = await knowledge.cacheJobResult({
       jobId: 'job-1',
       localDocumentId: 'local-report',
-      pageCitationAssets: { deprecated: true },
     });
     const read = await knowledge.readChunks({
       localDocumentId: 'local-report',
@@ -465,16 +467,22 @@ describe('Knowledge', () => {
 
     expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: undefined });
     expect(documentsGetPageCitationSource).not.toHaveBeenCalled();
-    expect(cached.result.pageChunks[0]?.pageAssets?.[0]).toMatchObject({
-      pageNum: 1,
-      artifactRef: 'page_citation_assets/page-1.png',
-    });
-    expect(read.chunks[0]?.pageAssets?.[0]).toMatchObject({
-      pageNum: 1,
-      artifactRef: 'page_citation_assets/page-1.png',
-      width: 120,
-      height: 240,
-    });
+    expect(cached.result.pageChunks[0]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        pageNum: 1,
+        artifactRef: 'page_citation_assets/page-1.png',
+      }),
+    ]);
+    expect(cached.result.pageChunks[0]).not.toHaveProperty('pageAssets');
+    expect(read.chunks[0]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        pageNum: 1,
+        artifactRef: 'page_citation_assets/page-1.png',
+        width: 120,
+        height: 240,
+      }),
+    ]);
+    expect(read.chunks[0]).not.toHaveProperty('pageAssets');
   });
 
   async function createKnowledgeWithCachedResult(
@@ -796,18 +804,21 @@ function createPageParseResultWithAssets(): ParseResult {
       content: 'Page one summary.',
       contentSource: 'summary',
       path: 'report.pdf/Page 1',
-      metadata: { summary: 'Page one summary.', pageNums: [1] },
-      pageAssets: [
-        {
-          pageNum: 1,
-          artifactRef: 'page_citation_assets/page-1.png',
-          assetUrl: 'https://assets.example/page-1.png',
-          contentType: 'image/png',
-          width: 120,
-          height: 240,
-          source: 'knowhere-rendered-page-citation-source',
-        },
-      ],
+      metadata: {
+        summary: 'Page one summary.',
+        pageNums: [1],
+        pageAssets: [
+          {
+            pageNum: 1,
+            artifactRef: 'page_citation_assets/page-1.png',
+            assetUrl: 'https://assets.example/page-1.png',
+            contentType: 'image/png',
+            width: 120,
+            height: 240,
+            source: 'knowhere-rendered-page-citation-source',
+          },
+        ],
+      },
     },
   ];
 
