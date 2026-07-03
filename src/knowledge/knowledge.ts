@@ -73,6 +73,7 @@ export class Knowledge {
       document,
       result,
       assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
+      parsedSnapshot: storedAssets.snapshot,
     };
   }
 
@@ -123,6 +124,7 @@ export class Knowledge {
       document,
       result,
       assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
+      parsedSnapshot: storedAssets.snapshot,
     };
   }
 

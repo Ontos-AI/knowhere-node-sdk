@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 
 import type {
+  ChunkMetadata,
   Chunk,
   ImageChunk,
   PageChunk,
@@ -14,6 +15,11 @@ import type {
   KnowhereAssetStorageBody,
   KnowhereAssetStorageOptions,
   KnowhereAssetStorageResult,
+  KnowhereParsedSnapshot,
+  KnowhereParsedSnapshotChunk,
+  KnowhereParsedSnapshotChunkPage,
+  KnowhereParsedSnapshotChunkPageReference,
+  KnowhereParsedSnapshotManifest,
 } from '../types/storage.js';
 
 interface StorageAsset {
@@ -27,6 +33,10 @@ interface StorageAsset {
 const pageCitationAssetsMetadataKey = 'pageAssets';
 const defaultImageContentType = 'application/octet-stream';
 const tableContentType = 'text/html; charset=utf-8';
+const snapshotManifestKey = 'manifest/current.json';
+const snapshotIndexKey = 'index.json';
+const defaultSnapshotChunkPageSize = 200;
+const snapshotJsonContentType = 'application/json; charset=utf-8';
 
 export async function storeParseResultAssets(
   result: ParseResult,
@@ -52,17 +62,160 @@ export async function storeParseResultAssets(
     }
   }
 
-  if (Object.keys(assetUrlsByFilePath).length === 0) {
-    return {
-      result,
-      assetUrlsByFilePath,
-    };
-  }
+  const normalizedResult =
+    Object.keys(assetUrlsByFilePath).length === 0
+      ? result
+      : rewriteResultAssetUrls(result, assetUrlsByFilePath);
+  const snapshot = await storeParsedSnapshot({
+    result: normalizedResult,
+    assetUrlsByFilePath,
+    keyPrefix: normalizedKeyPrefix,
+    options,
+  });
 
   return {
-    result: rewriteResultAssetUrls(result, assetUrlsByFilePath),
+    result: normalizedResult,
     assetUrlsByFilePath,
+    snapshot,
   };
+}
+
+async function storeParsedSnapshot(input: {
+  readonly result: ParseResult;
+  readonly assetUrlsByFilePath: Readonly<Record<string, string>>;
+  readonly keyPrefix: string;
+  readonly options: KnowhereAssetStorageOptions;
+}): Promise<KnowhereParsedSnapshot> {
+  const pageSize = normalizeSnapshotChunkPageSize(input.options.chunkPageSize);
+  const totalChunks = input.result.chunks.length;
+  const totalPages = Math.max(1, Math.ceil(totalChunks / pageSize));
+  const chunkPageReferences: KnowhereParsedSnapshotChunkPageReference[] = [];
+  const chunkPageUrlsByPage: Record<number, string> = {};
+
+  for (let page = 1; page <= totalPages; page += 1) {
+    const pageChunks = input.result.chunks.slice((page - 1) * pageSize, page * pageSize);
+    const pageKey = `${input.keyPrefix}/chunks/page-${page}.json`;
+    const chunkPage: KnowhereParsedSnapshotChunkPage = {
+      version: 1,
+      jobId: input.result.jobId,
+      documentId: input.result.documentId,
+      namespace: input.result.namespace,
+      sourceFileName: input.result.manifest.sourceFileName,
+      page,
+      pageSize,
+      total: totalChunks,
+      totalPages,
+      chunks: pageChunks.map((chunk, index) =>
+        toSnapshotChunk(chunk, (page - 1) * pageSize + index + 1),
+      ),
+    };
+    const pageUrl = await writeJsonObject({
+      key: pageKey,
+      value: chunkPage,
+      adapter: input.options.adapter,
+    });
+    if (pageUrl) chunkPageUrlsByPage[page] = pageUrl;
+    chunkPageReferences.push({
+      page,
+      pageSize,
+      chunkCount: pageChunks.length,
+      key: pageKey,
+      url: pageUrl,
+    });
+  }
+
+  const manifest: KnowhereParsedSnapshotManifest = {
+    version: 1,
+    kind: 'knowhere-parsed-result-snapshot',
+    jobId: input.result.jobId,
+    documentId: input.result.documentId,
+    namespace: input.result.namespace,
+    sourceFileName: input.result.manifest.sourceFileName,
+    totalChunks,
+    chunkPageSize: pageSize,
+    chunkPages: chunkPageReferences,
+    assetUrlsByFilePath: input.assetUrlsByFilePath,
+    createdAt: new Date().toISOString(),
+  };
+  const manifestKey = `${input.keyPrefix}/${snapshotManifestKey}`;
+  const indexKey = `${input.keyPrefix}/${snapshotIndexKey}`;
+  const manifestUrl = await writeJsonObject({
+    key: manifestKey,
+    value: manifest,
+    adapter: input.options.adapter,
+  });
+  const indexUrl = await writeJsonObject({
+    key: indexKey,
+    value: manifest,
+    adapter: input.options.adapter,
+  });
+
+  return {
+    manifest,
+    manifestKey,
+    manifestUrl,
+    indexKey,
+    indexUrl,
+    chunkPageUrlsByPage,
+  };
+}
+
+async function writeJsonObject(input: {
+  readonly key: string;
+  readonly value: unknown;
+  readonly adapter: KnowhereAssetStorageAdapter;
+}): Promise<string | undefined> {
+  const result = await input.adapter.writeObject({
+    key: input.key,
+    body: Buffer.from(JSON.stringify(input.value, null, 2), 'utf8'),
+    contentType: snapshotJsonContentType,
+    metadata: {
+      kind: 'knowhere-parsed-result-snapshot',
+    },
+  });
+  return result.url ?? (await input.adapter.getObjectUrl?.(result.key)) ?? undefined;
+}
+
+function normalizeSnapshotChunkPageSize(value: number | undefined): number {
+  if (!Number.isInteger(value) || value === undefined) return defaultSnapshotChunkPageSize;
+  return Math.min(Math.max(value, 1), 1000);
+}
+
+function toSnapshotChunk(chunk: Chunk, position: number): KnowhereParsedSnapshotChunk {
+  const filePath = getSnapshotChunkFilePath(chunk);
+  return {
+    id: chunk.chunkId,
+    chunkId: chunk.chunkId,
+    chunkType: chunk.type,
+    contentSource: chunk.contentSource,
+    content: chunk.content,
+    sectionPath: normalizeSnapshotSectionPath(chunk.path),
+    sourceChunkPath: chunk.path,
+    filePath,
+    sortOrder: position,
+    metadata: cloneChunkMetadata(chunk.metadata),
+    assetUrl: getSnapshotChunkAssetUrl(chunk),
+  };
+}
+
+function normalizeSnapshotSectionPath(path: string): string | undefined {
+  return path.length > 0 ? path : undefined;
+}
+
+function getSnapshotChunkFilePath(chunk: Chunk): string | undefined {
+  if (chunk.type === 'image' || chunk.type === 'table') {
+    return chunk.filePath;
+  }
+  const filePath = chunk.metadata.filePath;
+  return typeof filePath === 'string' ? filePath : undefined;
+}
+
+function getSnapshotChunkAssetUrl(chunk: Chunk): string | undefined {
+  return chunk.type === 'image' || chunk.type === 'table' ? chunk.assetUrl : undefined;
+}
+
+function cloneChunkMetadata(metadata: ChunkMetadata): Record<string, unknown> {
+  return { ...metadata };
 }
 
 async function collectStorageAssets(result: ParseResult, keyPrefix: string): Promise<StorageAsset[]> {

@@ -55,7 +55,7 @@ describe('storeParseResultAssets', () => {
       'tables/revenue.html':
         'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/tables/revenue.html',
     });
-    expect(writes).toEqual([
+    expect(writes.filter((write) => write.contentType !== 'application/json; charset=utf-8')).toEqual([
       {
         key: 'workspaces/workspace-1/sources/source-1/parsed-result/images/chart.png',
         bodyText: 'chart-image',
@@ -87,6 +87,123 @@ describe('storeParseResultAssets', () => {
       }),
     ]);
     expect(stored.result.pageChunks[0]).not.toHaveProperty('pageAssets');
+    expect(stored.snapshot?.manifest).toMatchObject({
+      version: 1,
+      kind: 'knowhere-parsed-result-snapshot',
+      jobId: 'job-1',
+      sourceFileName: 'report.pdf',
+      totalChunks: 3,
+      chunkPageSize: 200,
+      assetUrlsByFilePath: {
+        'images/chart.png':
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/images/chart.png',
+        'page_citation_assets/page-1.png':
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+        'tables/revenue.html':
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/tables/revenue.html',
+      },
+    });
+    expect(stored.snapshot?.manifestKey).toBe(
+      'workspaces/workspace-1/sources/source-1/parsed-result/manifest/current.json',
+    );
+    expect(stored.snapshot?.indexKey).toBe(
+      'workspaces/workspace-1/sources/source-1/parsed-result/index.json',
+    );
+    expect(stored.snapshot?.manifest.chunkPages).toEqual([
+      expect.objectContaining({
+        page: 1,
+        chunkCount: 3,
+        key: 'workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
+        url: 'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
+      }),
+    ]);
+    const chunkPageWrite = writes.find((write) => write.key.endsWith('/chunks/page-1.json'));
+    expect(chunkPageWrite).toBeDefined();
+    const chunkPage = JSON.parse(chunkPageWrite?.bodyText ?? '{}') as {
+      readonly chunks: readonly {
+        readonly chunkId: string;
+        readonly chunkType: string;
+        readonly assetUrl?: string;
+        readonly metadata: Record<string, unknown>;
+      }[];
+    };
+    expect(chunkPage.chunks.map((chunk) => chunk.chunkId)).toEqual([
+      'image-1',
+      'table-1',
+      'page-1',
+    ]);
+    expect(chunkPage.chunks[0]).toMatchObject({
+      chunkType: 'image',
+      assetUrl:
+        'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/images/chart.png',
+    });
+    expect(chunkPage.chunks[2]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        assetUrl:
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+      }),
+    ]);
+  });
+
+  it('stores paged chunk snapshots even when a result has no media assets', async () => {
+    const result = createParseResult([
+      {
+        chunkId: 'text-1',
+        type: 'text',
+        content: 'Alpha',
+        path: 'report/Intro',
+        metadata: { summary: 'Intro' },
+      },
+      {
+        chunkId: 'text-2',
+        type: 'text',
+        content: 'Beta',
+        path: 'report/Body',
+        metadata: {},
+      },
+    ]);
+    const writes: Array<{
+      readonly key: string;
+      readonly bodyText: string;
+      readonly contentType: string;
+    }> = [];
+    const writeObject = vi.fn(
+      (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> => {
+        writes.push({
+          key: input.key,
+          bodyText: Buffer.from(input.body).toString('utf8'),
+          contentType: input.contentType,
+        });
+        return Promise.resolve({
+          key: input.key,
+          url: `https://blob.example/${input.key}`,
+        });
+      },
+    );
+    const adapter: KnowhereAssetStorageAdapter = {
+      writeObject,
+    };
+
+    const stored = await storeParseResultAssets(result, {
+      adapter,
+      keyPrefix: 'parsed-result',
+      chunkPageSize: 1,
+    });
+
+    expect(stored.assetUrlsByFilePath).toEqual({});
+    expect(stored.snapshot?.manifest.chunkPages).toEqual([
+      expect.objectContaining({ page: 1, chunkCount: 1, key: 'parsed-result/chunks/page-1.json' }),
+      expect.objectContaining({ page: 2, chunkCount: 1, key: 'parsed-result/chunks/page-2.json' }),
+    ]);
+    expect(writes.map((write) => write.key)).toEqual([
+      'parsed-result/chunks/page-1.json',
+      'parsed-result/chunks/page-2.json',
+      'parsed-result/manifest/current.json',
+      'parsed-result/index.json',
+    ]);
+    expect(writes.every((write) => write.contentType === 'application/json; charset=utf-8')).toBe(
+      true,
+    );
   });
 
   it('uses existing storage URLs when skipExisting is enabled', async () => {
@@ -127,13 +244,18 @@ describe('storeParseResultAssets', () => {
       keyPrefix: 'parsed-result',
     });
 
-    expect(writeObject).not.toHaveBeenCalled();
+    expect(
+      writeObject.mock.calls.filter(
+        ([input]) => input.contentType !== 'application/json; charset=utf-8',
+      ),
+    ).toEqual([]);
     expect(stored.assetUrlsByFilePath).toEqual({
       'images/chart.png': 'https://blob.example/existing/parsed-result/images/chart.png',
     });
     expect(stored.result.imageChunks[0]?.assetUrl).toBe(
       'https://blob.example/existing/parsed-result/images/chart.png',
     );
+    expect(stored.snapshot?.manifestUrl).toBe('https://blob.example/parsed-result/manifest/current.json');
   });
 
   it('rejects unsafe storage key prefixes and ignores unsafe asset refs', async () => {
@@ -173,8 +295,9 @@ describe('storeParseResultAssets', () => {
       keyPrefix: 'parsed-result',
     });
 
-    expect(writeObject).not.toHaveBeenCalled();
+    expect(writeObject).toHaveBeenCalledTimes(3);
     expect(stored.assetUrlsByFilePath).toEqual({});
+    expect(stored.snapshot?.manifest.totalChunks).toBe(1);
   });
 });
 

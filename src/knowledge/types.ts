@@ -1,7 +1,10 @@
 import type { ParseParams } from '../types/params.js';
 import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
-import type { KnowhereAssetStorageOptions } from '../types/storage.js';
+import type {
+  KnowhereAssetStorageOptions,
+  KnowhereParsedSnapshot,
+} from '../types/storage.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
 
@@ -37,6 +40,7 @@ export interface LocalKnowledgeParseResponse {
   document: LocalKnowledgeDocument;
   result: ParseResult;
   assetUrlsByFilePath?: Readonly<Record<string, string>>;
+  parsedSnapshot?: KnowhereParsedSnapshot;
 }
 
 export interface KnowledgeAsyncParseParams extends ParseParams {

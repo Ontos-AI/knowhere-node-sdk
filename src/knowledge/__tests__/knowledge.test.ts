@@ -523,6 +523,24 @@ describe('Knowledge', () => {
       'page_citation_assets/page-1.png':
         'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
     });
+    expect(cached.parsedSnapshot).toMatchObject({
+      manifestKey: 'workspaces/workspace-1/sources/source-1/parsed-result/manifest/current.json',
+      manifestUrl:
+        'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/manifest/current.json',
+      manifest: {
+        kind: 'knowhere-parsed-result-snapshot',
+        jobId: 'job-1',
+        documentId: 'doc-1',
+        totalChunks: 1,
+        chunkPages: [
+          {
+            page: 1,
+            key: 'workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
+            url: 'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
+          },
+        ],
+      },
+    });
     expect(cached.result.pageChunks[0]?.metadata.pageAssets).toEqual([
       expect.objectContaining({
         artifactRef: 'page_citation_assets/page-1.png',

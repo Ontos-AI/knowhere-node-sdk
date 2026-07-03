@@ -242,7 +242,7 @@ export async function createKnowhereMcpServer(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from a parsed document. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Read exact chunks from a parsed document. Pass localDocumentId, published documentId, or completed jobId. The SDK reads its cached parse result and preserves storage-adapter Blob asset URLs in chunk metadata.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -263,7 +263,7 @@ export async function createKnowhereMcpServer(
     'knowhere_grep_chunks',
     {
       description:
-        'Run grep-style literal or regex matching against parsed document chunks. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Run grep-style literal or regex matching against parsed document chunks. Pass localDocumentId, published documentId, or completed jobId. The SDK scans its cached parse result and preserves storage-adapter Blob asset URLs in chunk metadata.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),

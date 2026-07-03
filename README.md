@@ -384,6 +384,11 @@ console.log(serverSearch.references);
 Local grep and reads use the cached parse result, not server-side chunk scans.
 Search uses the Knowhere API retrieval query; local document IDs only help map
 returned server document IDs back to local cache IDs when available.
+When `parse(...)` or `knowledge.cacheJobResult(...)` receives a
+`storageAdapter`, the SDK also writes a parsed snapshot through that adapter:
+media/table/page-citation assets, paged chunk JSON files, and
+`manifest/current.json`. Local `readChunks`, `grepChunks`, and outline reads use
+the cached parse result with any Blob asset URLs preserved in chunk metadata.
 If a search result only has a published `documentId`, or an async parse flow only
 has a completed `jobId`, read-oriented helpers can accept that remote identifier
 directly and will sync the result into the local cache before reading. For a

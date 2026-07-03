@@ -30,8 +30,8 @@ describe('knowhere MCP wrapper', () => {
     expect(statusTool?.description).toContain('5s, 10s, 20s, 40s, 80s');
     expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
     expect(listTool?.description).toContain('remote API');
-    expect(readTool?.description).toContain('resultDirectoryPath');
-    expect(readTool?.description).toContain('chunks.json');
+    expect(readTool?.description).toContain('cached parse result');
+    expect(readTool?.description).toContain('Blob asset URLs');
     await client.close();
     await server.close();
   });
