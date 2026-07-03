@@ -1,3 +1,5 @@
+import type { PageCitationAsset } from './page-citation-assets.js';
+
 /**
  * Section exclusion for follow-up retrieval queries.
  */
@@ -96,6 +98,8 @@ export interface RetrievalResult {
   filePath?: string | null;
   /** Chunk metadata returned by the API */
   metadata?: Record<string, unknown>;
+  /** Server-provided rendered source-page citation assets when available. */
+  pageAssets?: readonly PageCitationAsset[];
   /** Source reference for this result */
   source: RetrievalSource;
 }
@@ -124,6 +128,8 @@ export interface RetrievalReferencedChunk {
   assetUrl?: string | null;
   /** Chunk metadata returned by the API */
   metadata?: Record<string, unknown>;
+  /** Server-provided rendered source-page citation assets when available. */
+  pageAssets?: readonly PageCitationAsset[];
 }
 
 /**

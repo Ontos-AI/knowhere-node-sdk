@@ -13,7 +13,6 @@ import { Knowledge } from './knowledge/index.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
 import { enrichParseResult } from './lib/utils.js';
-import { loadPageCitationAssetWorkflow } from './page-citation-assets/workflow-loader.js';
 
 function inferFileName(file: ParseParams['file'], explicitFileName?: string): string | undefined {
   if (explicitFileName) {
@@ -146,21 +145,9 @@ export class Knowhere {
       verifyChecksum: params.verifyChecksum,
     });
 
-    const enrichedResult = enrichParseResult(result, {
+    return enrichParseResult(result, {
       namespace: jobResult.namespace,
       documentId: jobResult.documentId ?? params.documentId,
-    });
-
-    if (!params.pageCitationAssets) {
-      return enrichedResult;
-    }
-
-    const workflow = await loadPageCitationAssetWorkflow();
-    return workflow.enrichParseResultWithPageCitationAssets({
-      result: enrichedResult,
-      options: params.pageCitationAssets,
-      documents: this.documents,
-      fallbackDocumentId: jobResult.documentId ?? params.documentId,
     });
   }
 

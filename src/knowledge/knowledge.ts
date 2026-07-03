@@ -10,7 +10,6 @@ import type {
 } from '../types/index.js';
 import { ValidationError } from '../errors/index.js';
 import { LocalKnowledgeStore } from './local-store.js';
-import { loadPageCitationAssetWorkflow } from '../page-citation-assets/workflow-loader.js';
 import type {
   IndexedKnowledgeChunk,
   KnowledgeAsyncCacheResult,
@@ -68,7 +67,6 @@ export class Knowledge {
     return {
       document,
       result,
-      pageCitationAssetWarnings: result.pageCitationAssetWarnings,
     };
   }
 
@@ -110,16 +108,13 @@ export class Knowledge {
     const loadedResult = await this.client.jobs.load(params.jobId, {
       verifyChecksum: params.verifyChecksum,
     });
-    const result = params.pageCitationAssets
-      ? await this.enrichResultWithPageCitationAssets(loadedResult, params.pageCitationAssets)
-      : loadedResult;
+    const result = loadedResult;
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });
     return {
       document,
       result,
-      pageCitationAssetWarnings: result.pageCitationAssetWarnings,
     };
   }
 
@@ -333,19 +328,6 @@ export class Knowledge {
 
     const requested = new Set(localDocumentIds);
     return documents.filter((document) => requested.has(document.localDocumentId));
-  }
-
-  private async enrichResultWithPageCitationAssets(
-    result: ParseResult,
-    options: NonNullable<KnowledgeCacheJobResultParams['pageCitationAssets']>,
-  ): Promise<ParseResult> {
-    const workflow = await loadPageCitationAssetWorkflow();
-    return workflow.enrichParseResultWithPageCitationAssets({
-      result,
-      options,
-      documents: this.client.documents,
-      fallbackDocumentId: result.documentId,
-    });
   }
 
   private async loadReadableResult(reference: string | KnowledgeDocumentReference): Promise<{

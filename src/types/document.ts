@@ -91,7 +91,7 @@ export interface DocumentChunkListParams {
   pageSize?: number;
   /** Optional chunk type filter */
   chunkType?: DocumentChunkType;
-  /** Set true to include 7-day asset URLs for media chunks */
+  /** Set true to include 7-day asset URLs for media and page citation assets */
   includeAssetUrls?: boolean;
 }
 
@@ -99,7 +99,7 @@ export interface DocumentChunkListParams {
  * Query parameters for GET /v2/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkGetParams {
-  /** Set true to include 7-day asset URLs for media chunks */
+  /** Set true to include 7-day asset URLs for media and page citation assets */
   includeAssetUrls?: boolean;
 }
 
@@ -129,9 +129,9 @@ export interface DocumentChunk {
   sortOrder: number;
   /** Chunk metadata returned by the API */
   metadata: Record<string, unknown>;
-  /** 7-day asset URL for media chunks when available */
+  /** 7-day asset URL for media or page citation assets when available */
   assetUrl?: string | null;
-  /** Rendered source-page citation assets attached by SDK-side generation when available. */
+  /** Server-provided rendered source-page citation assets when available. */
   pageAssets?: readonly PageCitationAsset[];
   /** Chunk creation timestamp */
   createdAt?: Date;

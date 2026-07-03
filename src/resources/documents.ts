@@ -67,7 +67,7 @@ export class Documents extends BaseResource {
   }
 
   /**
-   * Get a signed source file URL suitable for SDK-side page citation rendering.
+   * Get a signed normalized source-file URL for compatibility and debugging.
    */
   async getPageCitationSource(documentId: string): Promise<DocumentPageCitationSource> {
     return this.httpClient.get<DocumentPageCitationSource>(

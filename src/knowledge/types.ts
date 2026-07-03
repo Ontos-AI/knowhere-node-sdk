@@ -4,7 +4,6 @@ import type {
   Chunk,
   DocumentChunkType,
   PageCitationAsset,
-  PageCitationAssetWarning,
   ParseResult,
 } from '../types/index.js';
 
@@ -41,7 +40,6 @@ export interface LocalKnowledgeDocument {
 export interface LocalKnowledgeParseResponse {
   document: LocalKnowledgeDocument;
   result: ParseResult;
-  pageCitationAssetWarnings?: readonly PageCitationAssetWarning[];
 }
 
 export interface KnowledgeAsyncParseParams extends ParseParams {
@@ -83,6 +81,7 @@ export interface KnowledgeCacheJobResultParams {
   jobId: string;
   localDocumentId?: string;
   verifyChecksum?: boolean;
+  /** @deprecated Ignored. Page citation assets are provided by the server. */
   pageCitationAssets?: ParseParams['pageCitationAssets'];
 }
 

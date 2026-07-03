@@ -459,7 +459,29 @@ describe('Result Parser', () => {
                 summary: 'Summary for pages 4 through 6.',
                 page_nums: [4, 5, 6],
                 entities: [{ text: 'Knowhere', type: 'product' }],
+                page_assets: [
+                  {
+                    page_num: 4,
+                    artifact_ref: 'page_citation_assets/page-4.png',
+                    asset_url: 'https://assets.example/page-4.png',
+                    content_type: 'image/png',
+                    width: 1200,
+                    height: 1800,
+                    source: 'knowhere-rendered-page-citation-source',
+                  },
+                ],
               },
+              page_assets: [
+                {
+                  page_num: 4,
+                  artifact_ref: 'page_citation_assets/page-4.png',
+                  asset_url: 'https://assets.example/page-4.png',
+                  content_type: 'image/png',
+                  width: 1200,
+                  height: 1800,
+                  source: 'knowhere-rendered-page-citation-source',
+                },
+              ],
             },
           ],
         }),
@@ -474,6 +496,15 @@ describe('Result Parser', () => {
       expect(result.pageChunks[0].type).toBe('page');
       expect(result.pageChunks[0].contentSource).toBe('summary');
       expect(result.pageChunks[0].metadata.pageNums).toEqual([4, 5, 6]);
+      expect(result.pageChunks[0].pageAssets?.[0]).toEqual({
+        pageNum: 4,
+        artifactRef: 'page_citation_assets/page-4.png',
+        assetUrl: 'https://assets.example/page-4.png',
+        contentType: 'image/png',
+        width: 1200,
+        height: 1800,
+        source: 'knowhere-rendered-page-citation-source',
+      });
       expect(result.textChunks).toHaveLength(0);
     });
 

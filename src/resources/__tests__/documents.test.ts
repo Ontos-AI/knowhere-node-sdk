@@ -120,7 +120,28 @@ describe('Documents Resource', () => {
           sourceChunkPath: 'Chapter 1/Pages 4-6',
           filePath: null,
           sortOrder: 0,
-          metadata: { summary: 'Revenue rose across the covered pages.', pageNums: [4, 5, 6] },
+          metadata: {
+            summary: 'Revenue rose across the covered pages.',
+            pageNums: [4, 5, 6],
+            pageAssets: [
+              {
+                pageNum: 4,
+                artifactRef: 'page_citation_assets/page-4.png',
+                assetUrl: 'https://assets.example/page-4.png',
+                contentType: 'image/png',
+                source: 'knowhere-rendered-page-citation-source',
+              },
+            ],
+          },
+          pageAssets: [
+            {
+              pageNum: 4,
+              artifactRef: 'page_citation_assets/page-4.png',
+              assetUrl: 'https://assets.example/page-4.png',
+              contentType: 'image/png',
+              source: 'knowhere-rendered-page-citation-source',
+            },
+          ],
           assetUrl: null,
           createdAt: new Date('2026-04-27T04:00:00Z'),
         },
@@ -151,6 +172,9 @@ describe('Documents Resource', () => {
     expect(response.chunks[0]?.id).toBe('dchk-123');
     expect(response.chunks[0]?.chunkType).toBe('page');
     expect(response.chunks[0]?.contentSource).toBe('summary');
+    expect(response.chunks[0]?.pageAssets?.[0]?.assetUrl).toBe(
+      'https://assets.example/page-4.png',
+    );
     expect(response.pagination.totalPages).toBe(2);
   });
 

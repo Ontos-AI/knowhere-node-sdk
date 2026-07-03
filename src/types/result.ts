@@ -1,4 +1,4 @@
-import type { PageCitationAsset, PageCitationAssetWarning } from './page-citation-assets.js';
+import type { PageCitationAsset } from './page-citation-assets.js';
 
 /**
  * Statistics about the parsed document
@@ -222,7 +222,7 @@ export interface TableChunk extends BaseChunk {
  */
 export interface PageChunk extends BaseChunk {
   type: 'page';
-  /** Rendered source-page citation assets attached by the SDK when requested. */
+  /** Server-provided rendered source-page citation assets when available. */
   pageAssets?: readonly PageCitationAsset[];
 }
 
@@ -245,8 +245,6 @@ export interface ParseResult {
   fullMarkdown?: string;
   /** Raw ZIP buffer */
   rawZip: Buffer;
-  /** Non-fatal page citation asset diagnostics emitted by SDK-side generation. */
-  pageCitationAssetWarnings?: readonly PageCitationAssetWarning[];
 
   // Legacy — the current worker no longer emits these files
   /** @deprecated Current worker no longer emits chunks_slim.json */

@@ -8,14 +8,7 @@ import type { Knowhere } from '../../client.js';
 import type {
   Chunk,
   DocumentChunkListResponse,
-  KnowhereSdkStorage,
-  KnowhereSdkStorageHead,
-  KnowhereSdkStorageObject,
-  KnowhereSdkStorageWriteResult,
-  PageRenderer,
   ParseResult,
-  RenderedPage,
-  RenderPageInput,
   TextChunk,
   TableChunk,
 } from '../../types/index.js';
@@ -447,28 +440,22 @@ describe('Knowledge', () => {
 
     expect(read.chunks[0]?.pageAssets?.[0]).toMatchObject({
       pageNum: 1,
-      key: 'page-assets/doc-1/page-1.png',
+      artifactRef: 'page_citation_assets/page-1.png',
       width: 120,
       height: 240,
     });
   });
 
-  it('should enrich and cache completed job results with page assets', async () => {
+  it('should cache server-provided page assets without SDK-side rendering', async () => {
     const cacheDirectory = await createTempDirectory();
-    const parseResult = createPageParseResult();
+    const parseResult = createPageParseResultWithAssets();
     const { client, jobsLoad, documentsGetPageCitationSource } = createClient(parseResult);
     const knowledge = new Knowledge(client, { cacheDirectory });
-    const storage = new MemoryStorage();
-    const renderer = new FakeRenderer();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>().mockResolvedValue(new Response(new Uint8Array([37, 80, 68, 70]))),
-    );
 
     const cached = await knowledge.cacheJobResult({
       jobId: 'job-1',
       localDocumentId: 'local-report',
-      pageCitationAssets: { storage, renderer },
+      pageCitationAssets: { deprecated: true },
     });
     const read = await knowledge.readChunks({
       localDocumentId: 'local-report',
@@ -477,13 +464,16 @@ describe('Knowledge', () => {
     });
 
     expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: undefined });
-    expect(documentsGetPageCitationSource).toHaveBeenCalledWith('doc-1');
-    expect(renderer.renderedPageNums).toEqual([1]);
-    expect(cached.pageCitationAssetWarnings).toBeUndefined();
+    expect(documentsGetPageCitationSource).not.toHaveBeenCalled();
+    expect(cached.result.pageChunks[0]?.pageAssets?.[0]).toMatchObject({
+      pageNum: 1,
+      artifactRef: 'page_citation_assets/page-1.png',
+    });
     expect(read.chunks[0]?.pageAssets?.[0]).toMatchObject({
       pageNum: 1,
-      width: 101,
-      height: 201,
+      artifactRef: 'page_citation_assets/page-1.png',
+      width: 120,
+      height: 240,
     });
   });
 
@@ -631,58 +621,6 @@ function createClient(parseResult: ParseResult): {
     documentsGetPageCitationSource,
     retrievalQuery,
   };
-}
-
-class MemoryStorage implements KnowhereSdkStorage {
-  private readonly objects = new Map<
-    string,
-    {
-      readonly body: Uint8Array;
-      readonly contentType?: string;
-      readonly metadata?: Readonly<Record<string, string>>;
-    }
-  >();
-
-  headObject(key: string): Promise<KnowhereSdkStorageHead | null> {
-    const object = this.objects.get(key);
-    return Promise.resolve(
-      object
-      ? {
-          key,
-          contentType: object.contentType,
-          contentLength: object.body.byteLength,
-          metadata: object.metadata,
-        }
-        : null,
-    );
-  }
-
-  writeObject(input: KnowhereSdkStorageObject): Promise<KnowhereSdkStorageWriteResult> {
-    this.objects.set(input.key, {
-      body: input.body instanceof Uint8Array ? input.body : new Uint8Array(),
-      contentType: input.contentType,
-      metadata: input.metadata,
-    });
-    return Promise.resolve({ key: input.key, url: `memory://${input.key}` });
-  }
-
-  getObjectUrl(key: string): Promise<string | null> {
-    return Promise.resolve(this.objects.has(key) ? `memory://${key}` : null);
-  }
-}
-
-class FakeRenderer implements PageRenderer {
-  readonly renderedPageNums: number[] = [];
-
-  renderPage(input: RenderPageInput): Promise<RenderedPage> {
-    this.renderedPageNums.push(input.pageNum);
-    return Promise.resolve({
-      body: new Uint8Array([input.pageNum]),
-      mimeType: input.format,
-      width: 100 + input.pageNum,
-      height: 200 + input.pageNum,
-    });
-  }
 }
 
 async function expectFileExists(filePath: string): Promise<void> {
@@ -862,13 +800,12 @@ function createPageParseResultWithAssets(): ParseResult {
       pageAssets: [
         {
           pageNum: 1,
-          key: 'page-assets/doc-1/page-1.png',
+          artifactRef: 'page_citation_assets/page-1.png',
           assetUrl: 'https://assets.example/page-1.png',
-          mimeType: 'image/png',
+          contentType: 'image/png',
           width: 120,
           height: 240,
-          source: 'client-rendered-pdf-page',
-          variant: 'default',
+          source: 'knowhere-rendered-page-citation-source',
         },
       ],
     },

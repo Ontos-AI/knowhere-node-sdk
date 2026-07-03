@@ -163,11 +163,31 @@ describe('Retrieval Resource', () => {
         {
           chunkId: 'chunk-1',
           documentId: 'doc-1',
-          chunkType: 'text',
-          sectionPath: 'Root',
+          chunkType: 'page',
+          sectionPath: 'Page 4',
           filePath: null,
           jobId: 'job-1',
-          assetUrl: 'https://example.com/1',
+          assetUrl: 'https://assets.example/page-4.png',
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 4,
+                artifactRef: 'page_citation_assets/page-4.png',
+                assetUrl: 'https://assets.example/page-4.png',
+                contentType: 'image/png',
+                source: 'knowhere-rendered-page-citation-source',
+              },
+            ],
+          },
+          pageAssets: [
+            {
+              pageNum: 4,
+              artifactRef: 'page_citation_assets/page-4.png',
+              assetUrl: 'https://assets.example/page-4.png',
+              contentType: 'image/png',
+              source: 'knowhere-rendered-page-citation-source',
+            },
+          ],
         },
       ],
       results: [],
@@ -184,6 +204,9 @@ describe('Retrieval Resource', () => {
     expect(response.referencedChunks).toHaveLength(1);
     expect(referencedChunk?.chunkId).toBe('chunk-1');
     expect(referencedChunk?.filePath).toBeNull();
+    expect(referencedChunk?.pageAssets?.[0]?.assetUrl).toBe(
+      'https://assets.example/page-4.png',
+    );
     expect(response.decisionTrace).toHaveLength(2);
     expect(response.decisionTrace![0]).toHaveProperty('phase', 'discovery');
     expect(response.decisionTrace![1]).toHaveProperty('phase', 'terminal');

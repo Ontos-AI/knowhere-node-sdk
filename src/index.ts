@@ -51,23 +51,8 @@ export type {
   UploadProgress,
   PollProgress,
   PageCitationAsset,
-  PageCitationAssetCurrentIndex,
-  PageCitationAssetIndex,
-  PageCitationAssetMimeType,
-  PageCitationAssetsOptions,
+  PageCitationAssetContentType,
   PageCitationAssetSource,
-  PageCitationAssetTimeoutOptions,
-  PageCitationAssetWarning,
-  PageCitationAssetWarningCode,
-  KnowhereSdkStorage,
-  KnowhereSdkStorageBody,
-  KnowhereSdkStorageHead,
-  KnowhereSdkStorageObject,
-  KnowhereSdkStorageReadResult,
-  KnowhereSdkStorageWriteResult,
-  PageRenderer,
-  RenderedPage,
-  RenderPageInput,
   // Result types
   ParseResult,
   Manifest,
@@ -128,14 +113,8 @@ export {
   GatewayTimeoutError,
   // Job errors
   JobFailedError,
-  PageCitationAssetGenerationError,
 } from './errors/index.js';
 
 // Resources (for advanced usage)
 export { Jobs, Retrieval, Documents } from './resources/index.js';
 export { Knowledge, LocalKnowledgeStore } from './knowledge/index.js';
-export {
-  LocalKnowhereSdkStorage,
-  createLocalKnowhereSdkStorage,
-} from './storage/local-storage.js';
-export type { LocalKnowhereSdkStorageOptions } from './storage/local-storage.js';
