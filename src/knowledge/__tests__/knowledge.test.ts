@@ -8,11 +8,17 @@ import { Knowledge } from '../knowledge.js';
 import type { Knowhere } from '../../client.js';
 import type {
   Chunk,
+  DocumentChunk,
+  DocumentChunkListParams,
   DocumentChunkListResponse,
   KnowhereAssetStorageAdapter,
   KnowhereAssetStorageObject,
   KnowhereAssetStorageWriteResult,
+  KnowhereParsedSnapshotChunkPage,
+  KnowhereParsedSnapshotManifest,
   ParseResult,
+  ParsedDocumentStorage,
+  ParsedDocumentSyncProgress,
   TextChunk,
   TableChunk,
 } from '../../types/index.js';
@@ -241,7 +247,7 @@ describe('Knowledge', () => {
     expect(read.nextChunk).toBeUndefined();
   });
 
-  it('should sync a remote document id into the local cache before reads', async () => {
+  it('should read a remote document id without importing into the local cache', async () => {
     const cacheDirectory = await createTempDirectory();
     const { client, documentsListChunks, jobsLoad } = createClient(createParseResult());
     const knowledge = new Knowledge(client, { cacheDirectory });
@@ -261,15 +267,17 @@ describe('Knowledge', () => {
 
     expect(documentsListChunks).toHaveBeenCalledWith('doc_remote', {
       page: 1,
-      pageSize: 1,
+      pageSize: 100,
+      chunkType: undefined,
+      includeAssetUrls: false,
     });
-    expect(jobsLoad).toHaveBeenCalledWith('job_remote', { verifyChecksum: undefined });
+    expect(jobsLoad).not.toHaveBeenCalled();
     expect(read.document).toMatchObject({
       localDocumentId: 'doc_remote',
       documentId: 'doc_remote',
       namespace: 'support-center',
       jobId: 'job_remote',
-      sourceFileName: 'job_remote.md',
+      sourceFileName: 'doc_remote',
       chunkCount: 3,
     });
     expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['chunk-intro']);
@@ -278,9 +286,140 @@ describe('Knowledge', () => {
       chunkId: 'chunk-intro',
       sectionPath: 'Intro',
     });
-    expect(documents).toHaveLength(1);
-    await expectFileExists(path.join(cacheDirectory, 'documents', 'doc_remote', 'manifest.json'));
-    await expectFileExists(path.join(cacheDirectory, 'documents', 'doc_remote', 'chunks.json'));
+    expect(documents).toHaveLength(0);
+    await expectFileMissing(path.join(cacheDirectory, 'documents', 'doc_remote', 'manifest.json'));
+    await expectFileMissing(path.join(cacheDirectory, 'documents', 'doc_remote', 'chunks.json'));
+  });
+
+  it('should read configured parsed storage for an explicit revision without remote calls', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = createParseResult();
+    const storage = createInMemoryParsedStorage();
+    storage.seedSnapshot({
+      documentId: 'doc_remote',
+      revisionKey: 'jres_remote',
+      result: parseResult,
+    });
+    const { client, documentsListChunks } = createClient(parseResult);
+    const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({ storage });
+
+    const read = await knowledge.readChunks({
+      documentId: 'doc_remote',
+      revisionKey: 'jres_remote',
+      page: 1,
+      pageSize: 2,
+    });
+
+    expect(documentsListChunks).not.toHaveBeenCalled();
+    expect(read.document.resultDirectoryPath).toBe('parsed-storage:doc_remote');
+    expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['chunk-intro', 'chunk-table']);
+    expect(read.totalChunks).toBe(3);
+  });
+
+  it('should fall back to remote chunks and schedule parsed storage sync on storage misses', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const storage = createInMemoryParsedStorage();
+    const scheduledTasks: Array<() => Promise<void>> = [];
+    const scheduler = {
+      schedule: vi.fn((task: () => Promise<void>): void => {
+        scheduledTasks.push(task);
+      }),
+    };
+    const { client, documentsListChunks, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({
+      storage,
+      scheduler,
+      limits: {
+        remotePageSize: 2,
+        maxPagesPerSync: 10,
+      },
+    });
+
+    const read = await knowledge.readChunks({
+      documentId: 'doc_remote',
+      page: 1,
+      pageSize: 2,
+    });
+
+    expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['chunk-intro', 'chunk-table']);
+    expect(jobsLoad).not.toHaveBeenCalled();
+    expect(scheduler.schedule).toHaveBeenCalledOnce();
+    expect(storage.manifestCount()).toBe(0);
+
+    await scheduledTasks[0]?.();
+
+    expect(documentsListChunks).toHaveBeenCalledWith('doc_remote', {
+      page: 1,
+      pageSize: 2,
+      includeAssetUrls: true,
+    });
+    expect(storage.manifestCount()).toBe(1);
+    expect(storage.getManifest('doc_remote', 'jres_remote')?.totalChunks).toBe(3);
+    expect(storage.getProgress('doc_remote', 'jres_remote')?.status).toBe('completed');
+  });
+
+  it('should sync configured parsed storage before parse returns', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const storage = createInMemoryParsedStorage();
+    const { client } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({ storage });
+
+    const parsed = await knowledge.parseToLocalCache({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
+
+    expect(parsed.document.localDocumentId).toBe('local-report');
+    expect(storage.getManifest('doc-1', 'job-1')).toMatchObject({
+      documentId: 'doc-1',
+      revisionKey: 'job-1',
+      totalChunks: 3,
+    });
+    expect(storage.getPage('doc-1', 'job-1', 1)?.chunks).toHaveLength(3);
+  });
+
+  it('should reject paged read params combined with scan-heavy filters', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, documentsListChunks } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    await expect(
+      knowledge.readChunks({
+        documentId: 'doc_remote',
+        page: 1,
+        sectionPath: 'Intro',
+      }),
+    ).rejects.toThrow(/cannot be combined/);
+    expect(documentsListChunks).not.toHaveBeenCalled();
+  });
+
+  it('should grep a remote document with truncation cursor without asset URLs', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, documentsListChunks } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const grep = await knowledge.grepChunks({
+      documentId: 'doc_remote',
+      pattern: 'revenue',
+      maxResults: 1,
+    });
+
+    expect(grep.matches).toHaveLength(1);
+    expect(grep.truncated).toBe(true);
+    expect(grep.continuationCursor).toEqual(expect.any(String));
+    const resumed = await knowledge.grepChunks({
+      documentId: 'doc_remote',
+      pattern: 'revenue',
+      maxResults: 1,
+      continuationCursor: grep.continuationCursor,
+    });
+    expect(resumed.matches[0]?.chunkId).toBe('chunk-table');
+    expect(documentsListChunks).toHaveBeenCalledWith('doc_remote', {
+      page: 1,
+      pageSize: 100,
+      chunkType: undefined,
+      includeAssetUrls: false,
+    });
   });
 
   it('should fail clearly when a remote document id has no published job id', async () => {
@@ -307,7 +446,7 @@ describe('Knowledge', () => {
         documentId: 'doc_missing_job',
         limit: 5,
       }),
-    ).rejects.toThrow('Cannot sync server document doc_missing_job');
+    ).rejects.toThrow('Cannot read server document doc_missing_job');
   });
 
   it('should sync a completed job id into the local cache before reads', async () => {
@@ -716,22 +855,32 @@ function createClient(parseResult: ParseResult): {
       },
     }),
   );
-  const documentsListChunks = vi.fn().mockImplementation(
-    (_documentId: string): Promise<DocumentChunkListResponse> =>
-      Promise.resolve({
-        documentId: 'doc_remote',
-        namespace: 'support-center',
-        jobId: 'job_remote',
-        jobResultId: 'jres_remote',
-        chunks: [],
-        pagination: {
-          page: 1,
-          pageSize: 1,
-          total: 0,
-          totalPages: 1,
-        },
-      }),
-  );
+  const documentsListChunks = vi
+    .fn()
+    .mockImplementation(
+      (
+        documentId: string,
+        params?: DocumentChunkListParams,
+      ): Promise<DocumentChunkListResponse> => {
+        const page = params?.page ?? 1;
+        const pageSize = params?.pageSize ?? 50;
+        const chunks = toRemoteDocumentChunks(parseResult, documentId, params);
+        const pageChunks = chunks.slice((page - 1) * pageSize, page * pageSize);
+        return Promise.resolve({
+          documentId,
+          namespace: 'support-center',
+          jobId: documentId === 'doc_remote' ? 'job_remote' : parseResult.jobId,
+          jobResultId: documentId === 'doc_remote' ? 'jres_remote' : `jres_${parseResult.jobId}`,
+          chunks: pageChunks,
+          pagination: {
+            page,
+            pageSize,
+            total: chunks.length,
+            totalPages: Math.max(1, Math.ceil(chunks.length / pageSize)),
+          },
+        });
+      },
+    );
   const documentsGetPageCitationSource = vi.fn().mockResolvedValue({
     documentId: 'doc-1',
     namespace: 'support-center',
@@ -803,6 +952,204 @@ async function expectFileExists(filePath: string): Promise<void> {
 
 async function expectFileMissing(filePath: string): Promise<void> {
   await expect(access(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
+}
+
+function toRemoteDocumentChunks(
+  result: ParseResult,
+  documentId: string,
+  params?: DocumentChunkListParams,
+): DocumentChunk[] {
+  return result.chunks
+    .map((chunk, index): DocumentChunk => {
+      const sectionPath = chunk.path.replace(`${result.manifest.sourceFileName}/`, '');
+      const filePath =
+        chunk.type === 'image' || chunk.type === 'table'
+          ? chunk.filePath
+          : typeof chunk.metadata.filePath === 'string'
+            ? chunk.metadata.filePath
+            : undefined;
+      return {
+        id: `${documentId}-${chunk.chunkId}`,
+        chunkId: chunk.chunkId,
+        chunkType: chunk.type,
+        contentSource: chunk.contentSource,
+        content: chunk.content,
+        sectionPath,
+        sourceChunkPath: chunk.path,
+        filePath,
+        sortOrder: index,
+        metadata: chunk.metadata,
+        assetUrl:
+          params?.includeAssetUrls && (chunk.type === 'image' || chunk.type === 'table')
+            ? chunk.assetUrl
+            : undefined,
+      };
+    })
+    .filter((chunk) => !params?.chunkType || chunk.chunkType === params.chunkType);
+}
+
+function createInMemoryParsedStorage(): ParsedDocumentStorage & {
+  seedSnapshot(params: {
+    readonly documentId: string;
+    readonly revisionKey: string;
+    readonly result: ParseResult;
+  }): void;
+  getManifest(documentId: string, revisionKey: string): KnowhereParsedSnapshotManifest | undefined;
+  getPage(
+    documentId: string,
+    revisionKey: string,
+    page: number,
+  ): KnowhereParsedSnapshotChunkPage | undefined;
+  getProgress(documentId: string, revisionKey: string): ParsedDocumentSyncProgress | undefined;
+  manifestCount(): number;
+} {
+  const manifests = new Map<string, KnowhereParsedSnapshotManifest>();
+  const pages = new Map<string, KnowhereParsedSnapshotChunkPage>();
+  const assetUrls = new Map<string, string>();
+  const progressByRevision = new Map<string, ParsedDocumentSyncProgress>();
+
+  function getRevisionKey(documentId: string, revisionKey: string): string {
+    return `${documentId}:${revisionKey}`;
+  }
+
+  function getPageKey(documentId: string, revisionKey: string, page: number): string {
+    return `${getRevisionKey(documentId, revisionKey)}:${page}`;
+  }
+
+  function seedSnapshot(params: {
+    readonly documentId: string;
+    readonly revisionKey: string;
+    readonly result: ParseResult;
+  }): void {
+    const page = createSnapshotPage(params);
+    const manifest = createSnapshotManifest(params);
+    pages.set(getPageKey(params.documentId, params.revisionKey, 1), page);
+    manifests.set(getRevisionKey(params.documentId, params.revisionKey), manifest);
+  }
+
+  return {
+    seedSnapshot,
+    getManifest: (documentId: string, revisionKey: string) =>
+      manifests.get(getRevisionKey(documentId, revisionKey)),
+    getPage: (documentId: string, revisionKey: string, page: number) =>
+      pages.get(getPageKey(documentId, revisionKey, page)),
+    getProgress: (documentId: string, revisionKey: string) =>
+      progressByRevision.get(getRevisionKey(documentId, revisionKey)),
+    manifestCount: () => manifests.size,
+    readManifest: (params): Promise<KnowhereParsedSnapshotManifest | null> =>
+      Promise.resolve(manifests.get(getRevisionKey(params.documentId, params.revisionKey)) ?? null),
+    writeManifest: (params): Promise<void> => {
+      manifests.set(getRevisionKey(params.documentId, params.revisionKey), params.manifest);
+      return Promise.resolve();
+    },
+    readChunkPage: (params): Promise<KnowhereParsedSnapshotChunkPage | null> =>
+      Promise.resolve(
+        pages.get(getPageKey(params.documentId, params.revisionKey, params.page)) ?? null,
+      ),
+    writeChunkPage: (params): Promise<void> => {
+      pages.set(getPageKey(params.documentId, params.revisionKey, params.page.page), params.page);
+      return Promise.resolve();
+    },
+    writeAsset: (params): Promise<{ readonly sourcePath: string; readonly url?: string }> => {
+      const key = `${getRevisionKey(params.documentId, params.revisionKey)}:${params.sourcePath}`;
+      const url = `https://blob.example/${params.documentId}/${params.revisionKey}/${params.sourcePath}`;
+      assetUrls.set(key, url);
+      return Promise.resolve({
+        sourcePath: params.sourcePath,
+        url,
+      });
+    },
+    getAssetUrl: (params): Promise<string | null> =>
+      Promise.resolve(
+        assetUrls.get(
+          `${getRevisionKey(params.documentId, params.revisionKey)}:${params.sourcePath}`,
+        ) ?? null,
+      ),
+    readSyncProgress: (params): Promise<ParsedDocumentSyncProgress | null> =>
+      Promise.resolve(
+        progressByRevision.get(getRevisionKey(params.documentId, params.revisionKey)) ?? null,
+      ),
+    writeSyncProgress: (params): Promise<void> => {
+      progressByRevision.set(getRevisionKey(params.documentId, params.revisionKey), params);
+      return Promise.resolve();
+    },
+  };
+}
+
+function createSnapshotManifest(params: {
+  readonly documentId: string;
+  readonly revisionKey: string;
+  readonly result: ParseResult;
+}): KnowhereParsedSnapshotManifest {
+  return {
+    version: 1,
+    kind: 'knowhere-parsed-result-snapshot',
+    jobId: params.result.jobId,
+    revisionKey: params.revisionKey,
+    documentId: params.documentId,
+    namespace: params.result.namespace,
+    sourceFileName: params.result.manifest.sourceFileName,
+    totalChunks: params.result.chunks.length,
+    typeCounts: countFixtureChunkTypes(params.result),
+    chunkPageSize: params.result.chunks.length,
+    chunkPages: [
+      {
+        page: 1,
+        pageSize: params.result.chunks.length,
+        chunkCount: params.result.chunks.length,
+        key: 'parsed/chunks/page-1.json',
+      },
+    ],
+    assetUrlsByFilePath: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function createSnapshotPage(params: {
+  readonly documentId: string;
+  readonly revisionKey: string;
+  readonly result: ParseResult;
+}): KnowhereParsedSnapshotChunkPage {
+  return {
+    version: 1,
+    jobId: params.result.jobId,
+    revisionKey: params.revisionKey,
+    documentId: params.documentId,
+    namespace: params.result.namespace,
+    sourceFileName: params.result.manifest.sourceFileName,
+    page: 1,
+    pageSize: params.result.chunks.length,
+    total: params.result.chunks.length,
+    totalPages: 1,
+    chunks: params.result.chunks.map((chunk, index) => ({
+      id: chunk.chunkId,
+      chunkId: chunk.chunkId,
+      chunkType: chunk.type,
+      contentSource: chunk.contentSource,
+      content: chunk.content,
+      sectionPath: chunk.path.replace(`${params.result.manifest.sourceFileName}/`, ''),
+      sourceChunkPath: chunk.path,
+      filePath:
+        chunk.type === 'image' || chunk.type === 'table'
+          ? chunk.filePath
+          : typeof chunk.metadata.filePath === 'string'
+            ? chunk.metadata.filePath
+            : undefined,
+      sortOrder: index + 1,
+      metadata: chunk.metadata,
+      assetUrl: chunk.type === 'image' || chunk.type === 'table' ? chunk.assetUrl : undefined,
+    })),
+  };
+}
+
+function countFixtureChunkTypes(result: ParseResult): Readonly<Record<Chunk['type'], number>> {
+  return result.chunks.reduce<Record<Chunk['type'], number>>(
+    (counts, chunk) => {
+      counts[chunk.type] += 1;
+      return counts;
+    },
+    { text: 0, image: 0, table: 0, page: 0 },
+  );
 }
 
 function createParseResult(): ParseResult {
@@ -915,7 +1262,9 @@ function createParseResultWithFullPaths(): ParseResult {
 }
 
 function createPageParseResult(chunks: Chunk[] = [createPageChunk()]): ParseResult {
-  const pageChunks = chunks.filter((chunk): chunk is Extract<Chunk, { type: 'page' }> => chunk.type === 'page');
+  const pageChunks = chunks.filter(
+    (chunk): chunk is Extract<Chunk, { type: 'page' }> => chunk.type === 'page',
+  );
 
   return {
     manifest: {

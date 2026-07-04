@@ -50,9 +50,7 @@ export async function storeParseResultAssets(
   }
 
   const normalizedKeyPrefix = normalizeStorageKeyPrefix(options.keyPrefix);
-  const assets = dedupeStorageAssets(
-    await collectStorageAssets(result, normalizedKeyPrefix),
-  );
+  const assets = dedupeStorageAssets(await collectStorageAssets(result, normalizedKeyPrefix));
   const assetUrlsByFilePath: Record<string, string> = {};
 
   for (const asset of assets) {
@@ -98,6 +96,7 @@ async function storeParsedSnapshot(input: {
     const chunkPage: KnowhereParsedSnapshotChunkPage = {
       version: 1,
       jobId: input.result.jobId,
+      revisionKey: input.options.revisionKey ?? input.result.jobId,
       documentId: input.result.documentId,
       namespace: input.result.namespace,
       sourceFileName: input.result.manifest.sourceFileName,
@@ -128,10 +127,12 @@ async function storeParsedSnapshot(input: {
     version: 1,
     kind: 'knowhere-parsed-result-snapshot',
     jobId: input.result.jobId,
+    revisionKey: input.options.revisionKey ?? input.result.jobId,
     documentId: input.result.documentId,
     namespace: input.result.namespace,
     sourceFileName: input.result.manifest.sourceFileName,
     totalChunks,
+    typeCounts: countSnapshotChunkTypes(input.result.chunks),
     chunkPageSize: pageSize,
     chunkPages: chunkPageReferences,
     assetUrlsByFilePath: input.assetUrlsByFilePath,
@@ -158,6 +159,18 @@ async function storeParsedSnapshot(input: {
     indexUrl,
     chunkPageUrlsByPage,
   };
+}
+
+function countSnapshotChunkTypes(
+  chunks: readonly Chunk[],
+): Readonly<Record<'text' | 'image' | 'table' | 'page', number>> {
+  return chunks.reduce<Record<'text' | 'image' | 'table' | 'page', number>>(
+    (counts, chunk) => {
+      counts[chunk.type] += 1;
+      return counts;
+    },
+    { text: 0, image: 0, table: 0, page: 0 },
+  );
 }
 
 async function writeJsonObject(input: {
@@ -218,7 +231,10 @@ function cloneChunkMetadata(metadata: ChunkMetadata): Record<string, unknown> {
   return { ...metadata };
 }
 
-async function collectStorageAssets(result: ParseResult, keyPrefix: string): Promise<StorageAsset[]> {
+async function collectStorageAssets(
+  result: ParseResult,
+  keyPrefix: string,
+): Promise<StorageAsset[]> {
   const resultZip = await loadResultZipForPageCitationAssets(result);
   return [
     ...result.imageChunks.flatMap((chunk) => collectImageStorageAsset(chunk, keyPrefix)),

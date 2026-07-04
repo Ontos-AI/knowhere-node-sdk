@@ -346,14 +346,13 @@ console.log(archived.status);
 
 ### Local Knowledge Tools
 
-The SDK can also keep parsed results in a local cache and run exact inspection
-tools over that cached copy. These `client.knowledge.*` local import helpers
-write under the SDK cache directory by design, so server workflows should prefer
-top-level `client.parse(...)` for direct parsing or
-`client.knowledge.loadJobResult(...)` with a provided storage adapter when they
-need to mirror an existing completed job result without local cache state. This
-local-cache flow is the implementation used by the separate
-`@ontos-ai/knowhere-mcp` package.
+The SDK can also run exact inspection tools over parsed results. Local import
+helpers still write under the SDK cache directory by design, while published
+`documentId` reads use configured parsed storage first and fall back to
+Knowhere's remote chunk API without importing the result ZIP into local disk.
+Server workflows can configure parsed storage with
+`client.knowledge.withParsedStorage(...)` so Notebook, MCP, and CLI surfaces
+share the same snapshot model.
 
 ```typescript
 const parsed = await client.knowledge.parseToLocalCache({
@@ -386,33 +385,49 @@ console.log(grep.matches);
 console.log(serverSearch.references);
 ```
 
-Local grep and reads use the cached parse result, not server-side chunk scans.
-Search uses the Knowhere API retrieval query; local document IDs only help map
-returned server document IDs back to local cache IDs when available.
+Local grep and reads use the cached parse result. Published `documentId` grep
+streams `documents.listChunks(...)` page by page when parsed storage is missing
+or stale. Search uses the Knowhere API retrieval query; local document IDs only
+help map returned server document IDs back to local cache IDs when available.
 When `knowledge.parseToLocalCache(...)`, `knowledge.importJobResult(...)`, or
-`knowledge.loadJobResult(...)` receives a `storageAdapter`, the SDK also writes a
-parsed snapshot through that adapter: media/table/page-citation assets, paged
-chunk JSON files, and `manifest/current.json`. Local `readChunks`,
-`grepChunks`, and outline reads use the cached parse result with any Blob asset
-URLs preserved in chunk metadata.
-If a search result only has a published `documentId`, or an async parse flow only
-has a completed `jobId`, read-oriented helpers can accept that remote identifier
-directly and will sync the result into the local cache before reading. For a
-`documentId`, the SDK resolves the document's current published `jobId` and then
-downloads the parser result ZIP through the same `importJobResult(...)` path:
+`knowledge.loadJobResult(...)` runs with configured parsed storage, the SDK
+writes chunk pages, durable assets, sync progress, and a committed
+`manifest/current.json` before returning. Partial snapshots are ignored until
+the manifest is committed.
 
 ```typescript
-const remoteRead = await client.knowledge.readChunks({
+const knowledge = client.knowledge.withParsedStorage({
+  storage: myParsedDocumentStorage,
+  scheduler: myBackgroundScheduler,
+  limits: { remotePageSize: 100, maxPagesPerSync: 10 },
+});
+```
+
+If a search result only has a published `documentId`, read-oriented helpers can
+accept that remote identifier directly. `readChunks` supports display paging;
+`assetUrlPolicy: 'durable'` hardens only returned assets through configured
+storage and omits asset URLs if hardening fails:
+
+```typescript
+const remoteRead = await knowledge.readChunks({
   documentId: 'doc_123',
-  sectionPath: 'Overview',
-  limit: 5,
+  page: 1,
+  pageSize: 20,
+  chunkType: 'page',
+  assetUrlPolicy: 'durable',
 });
 
-const remoteOutline = await client.knowledge.getDocumentOutline({
+const remoteOutline = await knowledge.getDocumentOutline({
   documentId: 'doc_123',
 });
 
-const jobRead = await client.knowledge.readChunks({
+const grep = await knowledge.grepChunks({
+  documentId: 'doc_123',
+  pattern: 'warranty',
+  maxResults: 10,
+});
+
+const jobRead = await knowledge.readChunks({
   jobId: jobResult.jobId,
   localDocumentId: 'manual',
   limit: 5,
@@ -444,9 +459,10 @@ When the job was started through `client.knowledge.startParse(...)`,
 time it observes `status.job.isDone`. Use `importJobResult(...)` to recover a
 completed job into the local cache when it was not started through the local
 knowledge helper, or to retry a local import step explicitly. Use
-`loadJobResult(...)` for server workflows that should load a completed result and
-write a provided storage adapter snapshot without creating SDK local-disk cache
-state.
+`loadJobResult(...)` for server workflows that should load a completed result
+without creating SDK local-disk cache state. Use `syncParsedDocument(...)` to
+explicitly resume or retry parsed-storage sync for an existing `documentId`,
+`jobId`, or local parsed result.
 
 Follow-up queries can exclude documents or sections for one request:
 

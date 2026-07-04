@@ -3,7 +3,10 @@ import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
 import type {
   KnowhereAssetStorageOptions,
+  KnowhereParsedSnapshotManifest,
   KnowhereParsedSnapshot,
+  ParsedDocumentAssetUrlPolicy,
+  ParsedDocumentStorageConfig,
 } from '../types/storage.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
@@ -111,6 +114,19 @@ export interface KnowledgeDocumentReference {
   documentId?: string;
   /** Server parse job identifier whose completed result should be cached before reading. */
   jobId?: string;
+  /** Current parsed revision key when the caller already has it. */
+  revisionKey?: string;
+}
+
+export type KnowledgeParsedStorageOptions = ParsedDocumentStorageConfig;
+
+export type KnowledgeSyncParsedDocumentParams = KnowledgeDocumentReference;
+
+export interface KnowledgeSyncParsedDocumentResponse {
+  documentId: string;
+  revisionKey: string;
+  completed: boolean;
+  manifest?: KnowhereParsedSnapshotManifest;
 }
 
 export interface KnowledgeSection {
@@ -131,15 +147,20 @@ export interface KnowledgeOutline {
   typeCounts: Record<KnowledgeChunkType, number>;
   sections: KnowledgeSection[];
   sectionTree: KnowledgeSection[];
+  truncated?: boolean;
+  continuationCursor?: string;
 }
 
 export interface KnowledgeReadParams extends KnowledgeDocumentReference {
+  page?: number;
+  pageSize?: number;
   sectionPath?: string;
   startChunk?: number;
   endChunk?: number;
   chunkId?: string;
   chunkType?: KnowledgeChunkType;
   limit?: number;
+  assetUrlPolicy?: ParsedDocumentAssetUrlPolicy;
 }
 
 export interface KnowledgeReadChunk {
@@ -163,10 +184,15 @@ export interface KnowledgeReadResponse {
   document: LocalKnowledgeDocument;
   chunks: KnowledgeReadChunk[];
   nextChunk?: number;
+  page?: number;
+  pageSize?: number;
+  totalChunks?: number;
+  totalPages?: number;
 }
 
 export interface KnowledgeGrepParams extends KnowledgeDocumentReference {
   pattern: string;
+  continuationCursor?: string;
   isRegex?: boolean;
   isCaseSensitive?: boolean;
   maxResults?: number;
@@ -192,6 +218,7 @@ export interface KnowledgeGrepResponse {
   matches: KnowledgeGrepMatch[];
   scannedChunks: number;
   truncated: boolean;
+  continuationCursor?: string;
 }
 
 export interface KnowledgeSearchParams {

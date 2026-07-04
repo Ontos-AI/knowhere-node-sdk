@@ -57,6 +57,22 @@ export type {
   KnowhereAssetStorageOptions,
   KnowhereAssetStorageResult,
   KnowhereAssetStorageWriteResult,
+  KnowhereParsedSnapshot,
+  KnowhereParsedSnapshotChunk,
+  KnowhereParsedSnapshotChunkPage,
+  KnowhereParsedSnapshotChunkPageReference,
+  KnowhereParsedSnapshotManifest,
+  ParsedDocumentAssetUrlPolicy,
+  ParsedDocumentStorage,
+  ParsedDocumentStorageAsset,
+  ParsedDocumentStorageAssetParams,
+  ParsedDocumentStorageChunkPageParams,
+  ParsedDocumentStorageConfig,
+  ParsedDocumentStorageDocument,
+  ParsedDocumentStorageLimits,
+  ParsedDocumentStorageManifestParams,
+  ParsedDocumentSyncProgress,
+  ParsedDocumentSyncScheduler,
   PageCitationAsset,
   PageCitationAssetContentType,
   PageCitationAssetSource,
@@ -86,6 +102,7 @@ export type {
   LocalKnowledgeParseResponse,
   KnowledgeOutline,
   KnowledgeSection,
+  KnowledgeParsedStorageOptions,
   KnowledgeReadParams,
   KnowledgeReadChunk,
   KnowledgeReadResponse,
@@ -97,9 +114,13 @@ export type {
   KnowledgeSearchResponse,
   KnowledgeSearchResult,
   KnowledgeStartupRecoveryResponse,
+  KnowledgeSyncParsedDocumentParams,
+  KnowledgeSyncParsedDocumentResponse,
 } from './types/index.js';
 
 export { storeParseResultAssets } from './storage/asset-storage.js';
+export { DiskParsedDocumentStorage } from './storage/disk-parsed-document-storage.js';
+export { syncParseResultToParsedDocumentStorage } from './storage/parsed-document-storage.js';
 
 // Errors
 export {

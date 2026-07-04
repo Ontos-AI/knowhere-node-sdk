@@ -1,4 +1,5 @@
 import type { ParseResult } from './result.js';
+import type { DocumentChunkType } from './document.js';
 
 export type KnowhereAssetStorageBody = Uint8Array;
 
@@ -33,6 +34,7 @@ export interface KnowhereAssetStorageOptions {
   readonly keyPrefix: string;
   readonly skipExisting?: boolean;
   readonly chunkPageSize?: number;
+  readonly revisionKey?: string;
 }
 
 export interface KnowhereParsedSnapshotChunk {
@@ -52,6 +54,7 @@ export interface KnowhereParsedSnapshotChunk {
 export interface KnowhereParsedSnapshotChunkPage {
   readonly version: 1;
   readonly jobId: string;
+  readonly revisionKey?: string;
   readonly documentId?: string;
   readonly namespace?: string;
   readonly sourceFileName: string;
@@ -74,10 +77,12 @@ export interface KnowhereParsedSnapshotManifest {
   readonly version: 1;
   readonly kind: 'knowhere-parsed-result-snapshot';
   readonly jobId: string;
+  readonly revisionKey?: string;
   readonly documentId?: string;
   readonly namespace?: string;
   readonly sourceFileName: string;
   readonly totalChunks: number;
+  readonly typeCounts?: Readonly<Partial<Record<DocumentChunkType, number>>>;
   readonly chunkPageSize: number;
   readonly chunkPages: readonly KnowhereParsedSnapshotChunkPageReference[];
   readonly assetUrlsByFilePath: Readonly<Record<string, string>>;
@@ -97,4 +102,89 @@ export interface KnowhereAssetStorageResult {
   readonly result: ParseResult;
   readonly assetUrlsByFilePath: Readonly<Record<string, string>>;
   readonly snapshot?: KnowhereParsedSnapshot;
+}
+
+export type ParsedDocumentAssetUrlPolicy = 'none' | 'durable';
+
+export interface ParsedDocumentStorageDocument {
+  readonly documentId: string;
+  readonly revisionKey: string;
+}
+
+export type ParsedDocumentStorageManifestParams = ParsedDocumentStorageDocument;
+
+export interface ParsedDocumentStorageChunkPageParams extends ParsedDocumentStorageDocument {
+  readonly page: number;
+  readonly chunkType?: DocumentChunkType;
+}
+
+export interface ParsedDocumentStorageAsset {
+  readonly sourcePath: string;
+  readonly body: KnowhereAssetStorageBody;
+  readonly contentType: string;
+  readonly metadata?: Readonly<Record<string, string>>;
+}
+
+export interface ParsedDocumentStorageAssetParams extends ParsedDocumentStorageDocument {
+  readonly sourcePath: string;
+}
+
+export interface ParsedDocumentSyncProgress {
+  readonly documentId: string;
+  readonly revisionKey: string;
+  readonly nextChunkPage: number;
+  readonly nextAssetIndex: number;
+  readonly status: 'running' | 'completed' | 'failed';
+  readonly updatedAt: string;
+  readonly error?: string;
+}
+
+export interface ParsedDocumentStorage {
+  readManifest(
+    params: ParsedDocumentStorageManifestParams,
+  ): Promise<KnowhereParsedSnapshotManifest | null>;
+  writeManifest(params: {
+    readonly documentId: string;
+    readonly revisionKey: string;
+    readonly manifest: KnowhereParsedSnapshotManifest;
+  }): Promise<void>;
+  readChunkPage(
+    params: ParsedDocumentStorageChunkPageParams,
+  ): Promise<KnowhereParsedSnapshotChunkPage | null>;
+  writeChunkPage(params: {
+    readonly documentId: string;
+    readonly revisionKey: string;
+    readonly page: KnowhereParsedSnapshotChunkPage;
+  }): Promise<void>;
+  writeAsset(params: ParsedDocumentStorageDocument & ParsedDocumentStorageAsset): Promise<{
+    readonly sourcePath: string;
+    readonly url?: string;
+  }>;
+  getAssetUrl(params: ParsedDocumentStorageAssetParams): Promise<string | null>;
+  readSyncProgress(
+    params: ParsedDocumentStorageDocument,
+  ): Promise<ParsedDocumentSyncProgress | null>;
+  writeSyncProgress(params: ParsedDocumentSyncProgress): Promise<void>;
+}
+
+export interface ParsedDocumentSyncScheduler {
+  schedule(task: () => Promise<void>): void | Promise<void>;
+}
+
+export interface ParsedDocumentStorageLimits {
+  readonly chunkPageSize?: number;
+  readonly remotePageSize?: number;
+  readonly maxPagesPerSync?: number;
+  readonly maxAssetsPerSync?: number;
+  readonly syncDeadlineMs?: number;
+  readonly grepMaxPages?: number;
+  readonly grepDeadlineMs?: number;
+  readonly outlineMaxPages?: number;
+  readonly outlineDeadlineMs?: number;
+}
+
+export interface ParsedDocumentStorageConfig {
+  readonly storage: ParsedDocumentStorage;
+  readonly scheduler?: ParsedDocumentSyncScheduler;
+  readonly limits?: ParsedDocumentStorageLimits;
 }

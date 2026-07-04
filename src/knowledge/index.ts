@@ -15,6 +15,7 @@ export type {
   KnowledgeLoadJobResultParams,
   KnowledgeOutline,
   KnowledgeParseParams,
+  KnowledgeParsedStorageOptions,
   KnowledgeReadChunk,
   KnowledgeReadParams,
   KnowledgeReadResponse,
@@ -24,6 +25,8 @@ export type {
   KnowledgeSearchResult,
   KnowledgeSection,
   KnowledgeStartupRecoveryResponse,
+  KnowledgeSyncParsedDocumentParams,
+  KnowledgeSyncParsedDocumentResponse,
   LocalKnowledgeDocument,
   LocalKnowledgeParseResponse,
 } from './types.js';

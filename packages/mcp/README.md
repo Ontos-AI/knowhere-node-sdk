@@ -19,9 +19,11 @@ npx -y @ontos-ai/knowhere-mcp login
 npx -y @ontos-ai/knowhere-mcp
 ```
 
-The server uses stdio transport and stores expanded Knowhere result files under
-the SDK local knowledge cache by default. `knowhere-mcp login` opens the
-Knowhere dashboard in your browser and stores a local MCP login at
+The server uses stdio transport. Parse tools store expanded Knowhere result
+files under the SDK local knowledge cache; published `documentId` reads use the
+SDK's remote chunk fallback unless the host explicitly configures a cache
+directory for parsed-storage snapshots. `knowhere-mcp login` opens the Knowhere
+dashboard in your browser and stores a local MCP login at
 `~/.knowhere-node-sdk/mcp/auth.json`.
 
 During login, the dashboard asks for a Permission:
@@ -196,18 +198,23 @@ When logged in with Read only permission, the MCP server exposes only
   passed to outline/read/grep tools.
 - `knowhere_delete_document`: archive, or soft-delete, a published Knowhere
   document through the Knowhere API.
-- `knowhere_get_document_outline`: inspect a parsed document outline by passing
-  `localDocumentId`, published `documentId`, or completed `jobId`.
-- `knowhere_read_chunks`: read exact chunks from a parsed document by passing
-  `localDocumentId`, published `documentId`, or completed `jobId`.
-- `knowhere_grep_chunks`: run literal or regex grep over parsed document chunks
-  by passing `localDocumentId`, published `documentId`, or completed `jobId`.
+- `knowhere_get_document_outline`: inspect one parsed document outline by
+  passing `localDocumentId`, published `documentId`, or completed `jobId`.
+- `knowhere_read_chunks`: read exact chunks from one parsed document by passing
+  `localDocumentId`, published `documentId`, or completed `jobId`. Use
+  `page`/`pageSize` for display reads; `assetUrlPolicy: "durable"` returns only
+  storage-hardened asset URLs.
+- `knowhere_grep_chunks`: run literal or regex grep over one parsed document by
+  passing `localDocumentId`, published `documentId`, or completed `jobId`.
+  Broad workspace search belongs to `knowhere_search`.
 - `knowhere_search`: search published documents through the Knowhere API
   retrieval query.
 
-Read-related tool responses include `document.resultDirectoryPath`; expanded
+Local-cache tool responses include `document.resultDirectoryPath`; expanded
 chunks are stored at `<resultDirectoryPath>/chunks.json` for direct filesystem
-reads when needed.
+reads when a local cache entry exists. Remote fallback responses use
+`remote:<documentId>` or `parsed-storage:<documentId>` markers instead of
+claiming a local expanded result directory.
 
 ## Package Boundary
 
