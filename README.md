@@ -347,11 +347,16 @@ console.log(archived.status);
 ### Local Knowledge Tools
 
 The SDK can also keep parsed results in a local cache and run exact inspection
-tools over that cached copy. This is the implementation used by the separate
+tools over that cached copy. These `client.knowledge.*` local import helpers
+write under the SDK cache directory by design, so server workflows should prefer
+top-level `client.parse(...)` for direct parsing or
+`client.knowledge.loadJobResult(...)` with a provided storage adapter when they
+need to mirror an existing completed job result without local cache state. This
+local-cache flow is the implementation used by the separate
 `@ontos-ai/knowhere-mcp` package.
 
 ```typescript
-const parsed = await client.knowledge.parse({
+const parsed = await client.knowledge.parseToLocalCache({
   file: './manual.pdf',
   localDocumentId: 'manual',
 });
@@ -384,16 +389,17 @@ console.log(serverSearch.references);
 Local grep and reads use the cached parse result, not server-side chunk scans.
 Search uses the Knowhere API retrieval query; local document IDs only help map
 returned server document IDs back to local cache IDs when available.
-When `parse(...)` or `knowledge.cacheJobResult(...)` receives a
-`storageAdapter`, the SDK also writes a parsed snapshot through that adapter:
-media/table/page-citation assets, paged chunk JSON files, and
-`manifest/current.json`. Local `readChunks`, `grepChunks`, and outline reads use
-the cached parse result with any Blob asset URLs preserved in chunk metadata.
+When `knowledge.parseToLocalCache(...)`, `knowledge.importJobResult(...)`, or
+`knowledge.loadJobResult(...)` receives a `storageAdapter`, the SDK also writes a
+parsed snapshot through that adapter: media/table/page-citation assets, paged
+chunk JSON files, and `manifest/current.json`. Local `readChunks`,
+`grepChunks`, and outline reads use the cached parse result with any Blob asset
+URLs preserved in chunk metadata.
 If a search result only has a published `documentId`, or an async parse flow only
 has a completed `jobId`, read-oriented helpers can accept that remote identifier
 directly and will sync the result into the local cache before reading. For a
 `documentId`, the SDK resolves the document's current published `jobId` and then
-downloads the parser result ZIP through the same `cacheJobResult(...)` path:
+downloads the parser result ZIP through the same `importJobResult(...)` path:
 
 ```typescript
 const remoteRead = await client.knowledge.readChunks({
@@ -435,9 +441,12 @@ if (status.job.isDone && status.cache.document) {
 
 When the job was started through `client.knowledge.startParse(...)`,
 `getJobStatus(...)` automatically caches the completed result locally the first
-time it observes `status.job.isDone`. Use `cacheJobResult(...)` only to recover a
-completed job that was not started through the local knowledge helper, or to
-retry a cache step explicitly.
+time it observes `status.job.isDone`. Use `importJobResult(...)` to recover a
+completed job into the local cache when it was not started through the local
+knowledge helper, or to retry a local import step explicitly. Use
+`loadJobResult(...)` for server workflows that should load a completed result and
+write a provided storage adapter snapshot without creating SDK local-disk cache
+state.
 
 Follow-up queries can exclude documents or sections for one request:
 

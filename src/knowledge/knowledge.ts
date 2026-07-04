@@ -23,6 +23,9 @@ import type {
   KnowledgeGrepMatch,
   KnowledgeGrepParams,
   KnowledgeGrepResponse,
+  KnowledgeImportJobResultParams,
+  KnowledgeJobResultResponse,
+  KnowledgeLoadJobResultParams,
   KnowledgeOutline,
   KnowledgeParseParams,
   KnowledgeReadChunk,
@@ -60,7 +63,7 @@ export class Knowledge {
     return new Knowledge(this.client, { cacheDirectory });
   }
 
-  async parse(params: KnowledgeParseParams): Promise<LocalKnowledgeParseResponse> {
+  async parseToLocalCache(params: KnowledgeParseParams): Promise<LocalKnowledgeParseResponse> {
     const loadedResult = params.storageAdapter
       ? await this.parseWithoutClientStorageAdapter(params)
       : await this.client.parse(params);
@@ -75,6 +78,11 @@ export class Knowledge {
       assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
       parsedSnapshot: storedAssets.snapshot,
     };
+  }
+
+  /** @deprecated Use parseToLocalCache for local cache imports or the top-level client.parse for server-safe parsing. */
+  async parse(params: KnowledgeParseParams): Promise<LocalKnowledgeParseResponse> {
+    return this.parseToLocalCache(params);
   }
 
   async startParse(params: KnowledgeAsyncParseParams): Promise<KnowledgeAsyncParseResponse> {
@@ -109,23 +117,40 @@ export class Knowledge {
     };
   }
 
-  async cacheJobResult(
-    params: KnowledgeCacheJobResultParams,
-  ): Promise<LocalKnowledgeParseResponse> {
+  async loadJobResult(params: KnowledgeLoadJobResultParams): Promise<KnowledgeJobResultResponse> {
     const loadedResult = await this.client.jobs.load(params.jobId, {
       verifyChecksum: params.verifyChecksum,
     });
     const storedAssets = await storeParseResultAssets(loadedResult, params.storageAdapter);
     const result = storedAssets.result;
+    return {
+      result,
+      assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
+      parsedSnapshot: storedAssets.snapshot,
+    };
+  }
+
+  async importJobResult(
+    params: KnowledgeImportJobResultParams,
+  ): Promise<LocalKnowledgeParseResponse> {
+    const stored = await this.loadJobResult(params);
+    const result = stored.result;
     const document = await this.store.saveResult(result, {
       localDocumentId: params.localDocumentId,
     });
     return {
       document,
       result,
-      assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
-      parsedSnapshot: storedAssets.snapshot,
+      assetUrlsByFilePath: stored.assetUrlsByFilePath,
+      parsedSnapshot: stored.parsedSnapshot,
     };
+  }
+
+  /** @deprecated Use importJobResult for local cache imports or loadJobResult for server-safe loads. */
+  async cacheJobResult(
+    params: KnowledgeCacheJobResultParams,
+  ): Promise<LocalKnowledgeParseResponse> {
+    return this.importJobResult(params);
   }
 
   private async parseWithoutClientStorageAdapter(
@@ -146,7 +171,7 @@ export class Knowledge {
       params.documentId,
     );
     const jobId: string = await this.getPublishedDocumentJobId(params.documentId);
-    return this.cacheJobResult({
+    return this.importJobResult({
       jobId,
       localDocumentId:
         params.localDocumentId ??
@@ -195,7 +220,7 @@ export class Knowledge {
     }
 
     try {
-      const cached = await this.cacheJobResult({
+      const cached = await this.importJobResult({
         jobId,
         localDocumentId: trackedJob.localDocumentId,
       });
@@ -362,7 +387,7 @@ export class Knowledge {
     }
 
     if (normalized.jobId) {
-      return this.cacheJobResult({
+      return this.importJobResult({
         jobId: normalized.jobId,
         localDocumentId: normalized.localDocumentId,
       });

@@ -35,7 +35,7 @@ describe('Knowledge', () => {
     const { client, parse } = createClient(parseResult);
     const knowledge = new Knowledge(client, { cacheDirectory });
 
-    const response = await knowledge.parse({
+    const response = await knowledge.parseToLocalCache({
       url: 'https://example.com/report.md',
       namespace: 'support-center',
       localDocumentId: 'local-report',
@@ -65,6 +65,24 @@ describe('Knowledge', () => {
     await expectFileMissing(path.join(cacheDirectory, 'documents', 'local-report', 'result.zip'));
   });
 
+  it('should keep the deprecated parse alias for compatibility', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = createParseResult();
+    const { client, parse } = createClient(parseResult);
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const response = await knowledge.parse({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
+
+    expect(parse).toHaveBeenCalledWith({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
+    expect(response.document.localDocumentId).toBe('local-report');
+  });
+
   it('should reject local document ids that resolve outside the cache', async () => {
     const cacheDirectory = await createTempDirectory();
     const siblingDirectory = path.join(path.dirname(cacheDirectory), 'knowhere-victim');
@@ -77,7 +95,7 @@ describe('Knowledge', () => {
     await writeFile(path.join(siblingDirectory, 'sentinel.txt'), 'keep');
 
     await expect(
-      knowledge.parse({
+      knowledge.parseToLocalCache({
         url: 'https://example.com/report.md',
         localDocumentId: `../../${path.basename(siblingDirectory)}`,
       }),
@@ -144,7 +162,22 @@ describe('Knowledge', () => {
     expect(documents).toHaveLength(1);
   });
 
-  it('should still allow manual completed job result caching', async () => {
+  it('should import a completed job result into the local cache', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, jobsLoad } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const cached = await knowledge.importJobResult({
+      jobId: 'job-1',
+      localDocumentId: 'local-report',
+      verifyChecksum: false,
+    });
+
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: false });
+    expect(cached.document.localDocumentId).toBe('local-report');
+  });
+
+  it('should keep the deprecated job result cache alias for compatibility', async () => {
     const cacheDirectory = await createTempDirectory();
     const { client, jobsLoad } = createClient(createParseResult());
     const knowledge = new Knowledge(client, { cacheDirectory });
@@ -152,10 +185,9 @@ describe('Knowledge', () => {
     const cached = await knowledge.cacheJobResult({
       jobId: 'job-1',
       localDocumentId: 'local-report',
-      verifyChecksum: false,
     });
 
-    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: false });
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: undefined });
     expect(cached.document.localDocumentId).toBe('local-report');
   });
 
@@ -361,7 +393,7 @@ describe('Knowledge', () => {
     const cacheDirectory = await createTempDirectory();
     const { client, retrievalQuery } = createClient(createParseResult());
     const knowledge = new Knowledge(client, { cacheDirectory });
-    await knowledge.parse({
+    await knowledge.parseToLocalCache({
       url: 'https://example.com/report.md',
       localDocumentId: 'local-report',
     });
@@ -453,13 +485,13 @@ describe('Knowledge', () => {
     expect(read.chunks[0]).not.toHaveProperty('pageAssets');
   });
 
-  it('should cache server-provided page assets without SDK-side rendering', async () => {
+  it('should import server-provided page assets without SDK-side rendering', async () => {
     const cacheDirectory = await createTempDirectory();
     const parseResult = await createPageParseResultWithRawPageAsset();
     const { client, jobsLoad, documentsGetPageCitationSource } = createClient(parseResult);
     const knowledge = new Knowledge(client, { cacheDirectory });
 
-    const cached = await knowledge.cacheJobResult({
+    const cached = await knowledge.importJobResult({
       jobId: 'job-1',
       localDocumentId: 'local-report',
     });
@@ -489,15 +521,15 @@ describe('Knowledge', () => {
     expect(read.chunks[0]).not.toHaveProperty('pageAssets');
   });
 
-  it('should cache job result assets through a storage adapter and preserve metadata shape', async () => {
+  it('should load job result assets through a storage adapter without saving locally', async () => {
     const cacheDirectory = await createTempDirectory();
     const parseResult = await createPageParseResultWithRawPageAsset();
-    const { client } = createClient(parseResult);
+    const { client, jobsLoad } = createClient(parseResult);
     const writeObject = vi.fn(
       (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
         Promise.resolve({
-        key: input.key,
-        url: `https://blob.example/${input.key}`,
+          key: input.key,
+          url: `https://blob.example/${input.key}`,
         }),
     );
     const adapter: KnowhereAssetStorageAdapter = {
@@ -505,7 +537,67 @@ describe('Knowledge', () => {
     };
     const knowledge = new Knowledge(client, { cacheDirectory });
 
-    const cached = await knowledge.cacheJobResult({
+    const loaded = await knowledge.loadJobResult({
+      jobId: 'job-1',
+      storageAdapter: {
+        adapter,
+        keyPrefix: 'workspaces/workspace-1/sources/source-1/parsed-result',
+      },
+    });
+    const documents = await knowledge.listDocuments();
+
+    expect(jobsLoad).toHaveBeenCalledWith('job-1', { verifyChecksum: undefined });
+    expect(documents).toEqual([]);
+    expect(loaded.assetUrlsByFilePath).toEqual({
+      'page_citation_assets/page-1.png':
+        'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+    });
+    expect(loaded.parsedSnapshot).toMatchObject({
+      manifestKey: 'workspaces/workspace-1/sources/source-1/parsed-result/manifest/current.json',
+      manifestUrl:
+        'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/manifest/current.json',
+      manifest: {
+        kind: 'knowhere-parsed-result-snapshot',
+        jobId: 'job-1',
+        documentId: 'doc-1',
+        totalChunks: 1,
+        chunkPages: [
+          {
+            page: 1,
+            key: 'workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
+            url: 'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
+          },
+        ],
+      },
+    });
+    expect(loaded.result.pageChunks[0]?.metadata.pageAssets).toEqual([
+      expect.objectContaining({
+        artifactRef: 'page_citation_assets/page-1.png',
+        assetUrl:
+          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
+      }),
+    ]);
+    expect(loaded.result.pageChunks[0]).not.toHaveProperty('pageAssets');
+    await expectFileMissing(path.join(cacheDirectory, 'documents'));
+  });
+
+  it('should import job result assets through a storage adapter and preserve metadata shape', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = await createPageParseResultWithRawPageAsset();
+    const { client } = createClient(parseResult);
+    const writeObject = vi.fn(
+      (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
+        Promise.resolve({
+          key: input.key,
+          url: `https://blob.example/${input.key}`,
+        }),
+    );
+    const adapter: KnowhereAssetStorageAdapter = {
+      writeObject,
+    };
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const cached = await knowledge.importJobResult({
       jobId: 'job-1',
       localDocumentId: 'local-report',
       storageAdapter: {
@@ -565,7 +657,7 @@ describe('Knowledge', () => {
     const cacheDirectory = await createTempDirectory();
     const { client } = createClient(parseResult);
     const knowledge = new Knowledge(client, { cacheDirectory });
-    await knowledge.parse({
+    await knowledge.parseToLocalCache({
       url: 'https://example.com/report.md',
       localDocumentId: 'local-report',
     });

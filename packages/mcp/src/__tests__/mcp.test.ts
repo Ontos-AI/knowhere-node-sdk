@@ -107,7 +107,7 @@ describe('knowhere MCP wrapper', () => {
       },
     });
 
-    expect(knowhereClient.knowledge.parse).toHaveBeenCalledWith({
+    expect(knowhereClient.knowledge.parseToLocalCache).toHaveBeenCalledWith({
       file: './report.md',
       fileName: undefined,
       namespace: undefined,
@@ -414,7 +414,7 @@ function createClient(): Knowhere & {
   knowledge: KnowledgeWithMocks;
 } {
   const knowledge: KnowledgeWithMocks = {
-    parse: vi.fn().mockResolvedValue({
+    parseToLocalCache: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
       result: { jobId: 'job-1' },
     }),
@@ -430,7 +430,7 @@ function createClient(): Knowhere & {
         document: { localDocumentId: 'local-report' },
       },
     }),
-    cacheJobResult: vi.fn().mockResolvedValue({
+    importJobResult: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
     }),
     recoverPendingAsyncParseJobs: vi.fn().mockResolvedValue({
@@ -482,10 +482,10 @@ function createClient(): Knowhere & {
 
 type KnowledgeWithMocks = Pick<
   Knowledge,
-  | 'parse'
+  | 'parseToLocalCache'
   | 'startParse'
   | 'getJobStatus'
-  | 'cacheJobResult'
+  | 'importJobResult'
   | 'recoverPendingAsyncParseJobs'
   | 'listDocuments'
   | 'getDocumentOutline'
@@ -494,10 +494,10 @@ type KnowledgeWithMocks = Pick<
   | 'search'
   | 'withCacheDirectory'
 > & {
-  parse: Mock<Knowledge['parse']>;
+  parseToLocalCache: Mock<Knowledge['parseToLocalCache']>;
   startParse: Mock<Knowledge['startParse']>;
   getJobStatus: Mock<Knowledge['getJobStatus']>;
-  cacheJobResult: Mock<Knowledge['cacheJobResult']>;
+  importJobResult: Mock<Knowledge['importJobResult']>;
   recoverPendingAsyncParseJobs: Mock<Knowledge['recoverPendingAsyncParseJobs']>;
   listDocuments: Mock<Knowledge['listDocuments']>;
   getDocumentOutline: Mock<Knowledge['getDocumentOutline']>;

@@ -78,12 +78,24 @@ export interface KnowledgeStartupRecoveryResponse {
   results: KnowledgeAsyncJobStatusResponse[];
 }
 
-export interface KnowledgeCacheJobResultParams {
+export interface KnowledgeLoadJobResultParams {
   jobId: string;
-  localDocumentId?: string;
   verifyChecksum?: boolean;
   storageAdapter?: KnowhereAssetStorageOptions;
 }
+
+export interface KnowledgeImportJobResultParams extends KnowledgeLoadJobResultParams {
+  localDocumentId?: string;
+}
+
+export interface KnowledgeJobResultResponse {
+  result: ParseResult;
+  assetUrlsByFilePath?: Readonly<Record<string, string>>;
+  parsedSnapshot?: KnowhereParsedSnapshot;
+}
+
+/** @deprecated Use KnowledgeImportJobResultParams with importJobResult instead. */
+export type KnowledgeCacheJobResultParams = KnowledgeImportJobResultParams;
 
 export interface KnowledgeCacheDocumentParams {
   /** Canonical Knowhere document identifier from published retrieval results. */

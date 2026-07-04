@@ -82,7 +82,7 @@ export async function createKnowhereMcpServer(
       },
       async (input) =>
         createToolResult(
-          await knowledge.parse({
+          await knowledge.parseToLocalCache({
             url: input.url,
             namespace: input.namespace,
             localDocumentId: input.localDocumentId,
@@ -109,7 +109,7 @@ export async function createKnowhereMcpServer(
       },
       async (input) =>
         createToolResult(
-          await knowledge.parse({
+          await knowledge.parseToLocalCache({
             file: input.file,
             fileName: input.fileName,
             namespace: input.namespace,
