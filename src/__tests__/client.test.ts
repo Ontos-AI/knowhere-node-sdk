@@ -230,8 +230,8 @@ describe('Knowhere Client', () => {
       const writeObject = vi.fn(
         (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
           Promise.resolve({
-          key: input.key,
-          url: `https://blob.example/${input.key}`,
+            key: input.key,
+            url: `https://blob.example/${input.key}`,
           }),
       );
       const adapter: KnowhereAssetStorageAdapter = {

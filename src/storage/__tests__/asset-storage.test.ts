@@ -55,7 +55,9 @@ describe('storeParseResultAssets', () => {
       'tables/revenue.html':
         'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/tables/revenue.html',
     });
-    expect(writes.filter((write) => write.contentType !== 'application/json; charset=utf-8')).toEqual([
+    expect(
+      writes.filter((write) => write.contentType !== 'application/json; charset=utf-8'),
+    ).toEqual([
       {
         key: 'workspaces/workspace-1/sources/source-1/parsed-result/images/chart.png',
         bodyText: 'chart-image',
@@ -230,8 +232,8 @@ describe('storeParseResultAssets', () => {
     const writeObject = vi.fn(
       (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
         Promise.resolve({
-        key: input.key,
-        url: `https://blob.example/${input.key}`,
+          key: input.key,
+          url: `https://blob.example/${input.key}`,
         }),
     );
     const adapter: KnowhereAssetStorageAdapter = {
@@ -255,7 +257,9 @@ describe('storeParseResultAssets', () => {
     expect(stored.result.imageChunks[0]?.assetUrl).toBe(
       'https://blob.example/existing/parsed-result/images/chart.png',
     );
-    expect(stored.snapshot?.manifestUrl).toBe('https://blob.example/parsed-result/manifest/current.json');
+    expect(stored.snapshot?.manifestUrl).toBe(
+      'https://blob.example/parsed-result/manifest/current.json',
+    );
   });
 
   it('rejects unsafe storage key prefixes and ignores unsafe asset refs', async () => {
@@ -275,8 +279,8 @@ describe('storeParseResultAssets', () => {
     const writeObject = vi.fn(
       (input: KnowhereAssetStorageObject): Promise<KnowhereAssetStorageWriteResult> =>
         Promise.resolve({
-        key: input.key,
-        url: `https://blob.example/${input.key}`,
+          key: input.key,
+          url: `https://blob.example/${input.key}`,
         }),
     );
     const adapter: KnowhereAssetStorageAdapter = {
@@ -353,7 +357,10 @@ async function createParseResultWithAssets(): Promise<ParseResult> {
   );
 }
 
-function createParseResult(chunks: readonly Chunk[], rawZip: Buffer = Buffer.alloc(0)): ParseResult {
+function createParseResult(
+  chunks: readonly Chunk[],
+  rawZip: Buffer = Buffer.alloc(0),
+): ParseResult {
   return {
     manifest: {
       version: '2.0',
