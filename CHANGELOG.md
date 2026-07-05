@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.1
+
+### Patch Changes
+
+- [#111](https://github.com/Ontos-AI/knowhere-node-sdk/pull/111) [`5577c2d`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/5577c2de974a5425e048e36da0a2ca5885743c75) Thanks [@suguanYang](https://github.com/suguanYang)! - Preserve page citation asset descriptors only in chunk metadata, remove the deprecated SDK-side page citation asset generation options, and split local-cache/server-safe result handling into explicit `knowledge.parseToLocalCache(...)`, `knowledge.importJobResult(...)`, and `knowledge.loadJobResult(...)` methods.
+
+- [#111](https://github.com/Ontos-AI/knowhere-node-sdk/pull/111) [`2d006ae`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/2d006ae8e21db6e1a27e88c91f1a250da7e1f541) Thanks [@suguanYang](https://github.com/suguanYang)! - Move parsed document reads to a storage-first SDK model with remote chunk fallback.
+
+  Adds parsed snapshot storage types, `knowledge.withParsedStorage(...)`,
+  `knowledge.syncParsedDocument(...)`, paged `readChunks(...)` display params,
+  durable asset URL hardening, bounded remote grep/outline fallback, and explicit
+  disk parsed storage for MCP cache-directory usage.
+
 ## 2.0.0
 
 ### Major Changes
