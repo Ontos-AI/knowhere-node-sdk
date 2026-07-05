@@ -1,0 +1,1837 @@
+╭─── Claude Code v2.1.201 ─────────────────────────────────────────────────────╮
+│                                            │ Tips for getting started        │
+│                Welcome back!               │ Run /init to create a CLAUDE.m… │
+│                                            │ ─────────────────────────────── │
+│                   ▐▛███▜▌                  │ What's new                      │
+│                  ▝▜█████▛▘                 │ Claude Sonnet 5 sessions no lo… │
+│                    ▘▘ ▝▝                   │ Changed `AskUserQuestion` dial… │
+│                                            │ Changed the "default" permissi… │
+│        Opus 4.8 · API Usage Billing        │ /release-notes for more         │
+│   ~/github.com/ontosAI/knowhere-node-sdk   │                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ /clear                                                                        
+
+❯ read the new design @docs/new-design.md, and lets plan on the notebookside    
+  /home/suguan/github.com/ontosAI/knowhere-notebook                             
+  ⎿  Read docs/new-design.md (119 lines)
+
+  Thought for 25s (ctrl+o to expand)
+
+● I've read the design doc. Now let me explore the notebook codebase to
+  understand the current implementation before planning. Let me launch parallel
+  Explore agents.
+
+● 3 background agents launched (↓ to manage)
+   ├ Explore parse/upload flow & source status
+   ├ Explore chunk read/display/chat & assets
+   └ Explore Blob, scheduler & SDK config
+
+● The three Explore agents are running in parallel. While they investigate, let
+  me also look at the SDK side to understand what's already built, since the
+  design references specific SDK methods. Let me read the current SDK state to
+  understand the contract the notebook will consume.
+
+● Bash(git log --oneline -15 && echo "---STRUCTURE---" && find src -type f -name
+      "*.ts" 2>/dev/null | head -60)
+  ⎿  2d006ae Add parsed storage backed knowledge reads
+     b5b4339 Clarify local knowledge result imports
+     cbd8753 Add parsed result snapshot storage
+     … +61 lines (ctrl+o to expand)
+
+  Thought for 8s (ctrl+o to expand)
+
+● The SDK side is already substantially built. Let me read the key contract
+  files that the notebook will consume — the storage adapter interface, the
+  knowledge client public API, and relevant types.
+
+  Thought for 19s, read 3 files (ctrl+o to expand)
+
+● Now let me read the storage types — this is the critical interface the
+  notebook must implement with Vercel Blob.
+
+  Thought for 10s, read 1 file (ctrl+o to expand)
+
+● I now have a complete picture of the SDK contract. Let me read the disk
+  storage implementation as a reference model for the Vercel Blob adapter the
+  notebook will implement.
+
+  Thought for 16s, read 1 file (ctrl+o to expand)
+
+● I've fully mapped the SDK contract. The key surfaces the notebook must
+  integrate with:
+
+  - ParsedDocumentStorage interface (manifest, chunk pages, assets, sync
+  progress) — notebook implements a Vercel Blob version
+  - ParsedDocumentSyncScheduler — notebook implements an Upstash/Vercel-safe
+  version
+  - knowledge.withParsedStorage({ storage, scheduler, limits }) — config entry
+  point
+  - readChunks({ assetUrlPolicy: 'durable' }), grepChunks, getDocumentOutline —
+  reads
+  - syncParsedDocument — for parse-flow "sync before complete"; importJobResult
+  replaces cacheJobResult
+
+  Now I'm waiting on the three Explore agents scanning the notebook repo
+  (Blob/scheduler/SDK config; chunk read/display/chat/assets; parse
+  flow/status/source_parse_results). I'll continue planning once they report
+  back.
+
+✻ Sautéed for 2m 3s
+
+● Agent "Explore Blob, scheduler &amp; SDK config" finished · 4m 54s
+
+● First agent is back with a thorough map. Two more agents still running (chunk
+  read/display/chat/assets, and parse flow/status). Waiting for those before I
+  design the plan.
+
+  Key takeaway from this report: the notebook currently uses the older
+  KnowhereAssetStorageOptions adapter + loadJobResult and reimplements
+  progress/batching/deadline logic itself. The redesign migrates it to the newer
+  ParsedDocumentStorage interface via withParsedStorage. The existing Vercel
+  Blob helpers, Upstash workflow self-continuation pattern, and
+  source-parse-result-repository are the seams to build on.
+
+✻ Baked for 9s
+
+● Agent "Explore chunk read/display/chat &amp; assets" finished · 6m 15s
+
+● Second agent back. One more running (parse flow / source status /
+  source_parse_results schema / migrations). Critical new facts from this
+  report:
+
+  - Notebook already has a rich chunk-read path with a Blob snapshot and asset
+  mirroring — but it reimplements the manifest/chunk-page/asset logic itself
+  (chunks/server.ts, remote-parsed-snapshot-sync.ts,
+  parse-result-storage-adapter.ts), all built on the old loadJobResult +
+  KnowhereAssetStorageOptions adapter, not readChunks/ParsedDocumentStorage.
+  - Chat uses Knowhere agentic retrieval.query — no 
+  grepChunks/getDocumentOutline today.
+  - Asset hardening (copy-to-blob) already exists in two places
+  (media-asset-hardening.ts for chat, chunks/server.ts mirroring for the
+  viewer).
+
+  Waiting on the parse-flow/status/schema agent before finalizing the plan.
+
+✻ Cooked for 11s
+
+● Agent "Explore parse/upload flow &amp; source status" finished · 6m 30s
+
+  Thought for 1m 26s (ctrl+o to expand)
+
+● All three Explore agents are back. I now have a complete two-sided picture:
+
+  SDK side (already built, this branch): ParsedDocumentStorage interface,
+  withParsedStorage({storage, scheduler, limits}),
+  readChunks({assetUrlPolicy:'durable'}), grepChunks, getDocumentOutline,
+  syncParsedDocument, importJobResult, resumable background sync with progress
+  cursor + scheduler + deadline limits, and synchronous asset hardening.
+
+  Notebook side (uses the OLD path):
+  - Reads via client.documents.listChunks + a hand-rolled Blob
+  snapshot/chunk-page cache + asset mirroring (chunks/server.ts,
+  remote-parsed-snapshot-sync.ts, parse-result-storage-adapter.ts,
+  parsed-result-assets.ts), all on loadJobResult + the old
+  KnowhereAssetStorageOptions adapter — not the new ParsedDocumentStorage.
+  - Parse lifecycle: uploading|parsing|ready|failed (text column, atomic
+  requiredStatus guards) driven by an Upstash workflow with a
+  deterministic-workflowRunId continuation pattern. Marks ready after the
+  snapshot is written.
+  - source_parse_results has resultBlobUrl, snapshotManifestUrl/Key, assetUrls —
+  no revision_key, sync_status, or failure_stage. Migrations in drizzle/, next
+  is 0011.
+  - Chat uses agentic retrieval.query (no grep/outline). Asset hardening
+  (copy-to-Blob) already exists twice: media-asset-hardening.ts (chat) and the
+  viewer mirror in chunks/server.ts.
+
+  This is a substantial migration. A few forks materially change the plan, so
+  let me confirm scope before I design it.
+
+● User answered Claude's questions:
+  ⎿  · How aggressively should the notebook migrate to the SDK's new 
+     ParsedDocumentStorage + readChunks path? → Full rip-and-replace 
+     (Recommended)
+     · Beyond chunk read/display + parse lifecycle, should this effort also 
+     unify chat citation asset hardening onto the SDK's durable policy? → 
+     Include chat hardening (Recommended)
+     · How should the non-blocking background sync (for read-misses on existing 
+     remote docs with no Blob snapshot) run on Vercel? → QStash-enqueued 
+     resumable sync (Recommended)
+
+  Thought for 9s (ctrl+o to expand)
+
+● All three recommended. Let me read the critical notebook files directly to
+  ground the plan before writing it — the current storage adapter, the reconcile
+  workflow, the chunk server path, the schema, and the SDK client wiring.
+
+  Thought for 25s, read 3 files (ctrl+o to expand)
+
+● Now let me read the remaining critical files: the chunk read path, route
+  orchestration, schema, repository, and chat wiring.
+
+  Thought for 22s, read 2 files (ctrl+o to expand)
+● This is a large, well-understood migration. Let me read the last few grounding
+  files — schema, the source service (snapshot orchestration), and the workflow
+  runtime — then dispatch a Plan agent to synthesize the design.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && sed -n '60,200p'
+      src/infrastructure/db/schema.ts)
+  ⎿   * of a Knowhere parse + index job; the actual chunks / file bytes liv
+     e
+      * upstream in Knowhere, not here.
+     … +138 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 24s, read 2 files (ctrl+o to expand)
+
+● I have a thorough picture of both sides now. Let me dispatch a Plan agent to
+  synthesize the detailed implementation design, giving it the full context I've
+  gathered. It can read the chat-hardening files itself.
+
+● Plan(Design notebook migration plan)
+  ⎿  Done (43 tool uses · 257.7k tokens · 7m 36s)
+  (ctrl+o to expand)
+
+● The Plan agent produced a thorough, well-grounded design. I have everything I
+  need. Let me write the final plan file, then present it for approval.
+
+● Updated plan
+  ⎿  /plan to preview
+
+● User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/read-the-new-design-precious-tower.md · 
+     /plan to edit
+     Notebook Migration to SDK Parsed-Document Storage
+
+     Context
+
+     docs/new-design.md moves parsed chunk read/sync behavior into the Knowhere
+     SDK so Notebook, CLI, and MCP share one model. The SDK side is already 
+     built on the current branch (ParsedDocumentStorage interface,
+     withParsedStorage, readChunks/grepChunks/getDocumentOutline, resumable
+     syncParsedDocument, synchronous assetUrlPolicy:'durable' hardening). This
+     plan covers the Notebook side
+     (/home/suguan/github.com/ontosAI/knowhere-notebook), which today still uses
+     the old path: loadJobResult + the KnowhereAssetStorageOptions adapter,
+     plus hand-rolled Blob snapshot readers, a chunk-page cache, and asset
+     mirroring.
+
+     The intended outcome: Notebook provides one Vercel-Blob
+     ParsedDocumentStorage adapter + an Upstash/QStash-safe scheduler, routes
+     all chunk reads/display/chat asset hardening through the SDK, and marks
+     sources ready only after parsed storage is synced. Existing remote docs
+     remain readable immediately (SDK falls back to remote, backfills Blob in
+     the background).
+
+     Decisions taken with the user:
+     1. Full rip-and-replace of the hand-rolled snapshot machinery.
+     2. Include chat: unify citation/media asset hardening onto the SDK durable
+     policy; keep agentic retrieval.query.
+     3. QStash-enqueued resumable background sync (reuse the
+     deterministic-workflowRunId continuation pattern); parse flow syncs before
+     marking ready.
+
+     SDK contract being consumed (no SDK changes)
+
+     - knowledge.withParsedStorage({ storage, scheduler?, limits? }) → new
+     configured Knowledge (unwrapped copy).
+     - ParsedDocumentStorage (src/types/storage.ts:142):
+     readManifest/writeManifest, readChunkPage/writeChunkPage,
+     writeAsset/getAssetUrl, readSyncProgress/writeSyncProgress. Reference impl:
+     src/storage/disk-parsed-document-storage.ts. Storage is only ever called 
+     with {documentId, revisionKey} — never workspace/source.
+     - Freshness: manifest is fresh iff manifest.revisionKey === revisionKey,
+     where revisionKey = jobResultId ?? jobId. Pass revisionKey into reads to
+     hit storage without a remote probe.
+     - readChunks(params) — paged (page/pageSize/assetUrlPolicy) cannot combine
+     with sectionPath/startChunk/endChunk/chunkId. Never returns zero for a
+     ready remote doc (falls back to remote listChunks, returns bounded page,
+     fire-and-forget scheduler.schedule to backfill).
+     - assetUrlPolicy:'durable' + configured storage → SDK synchronously hardens
+     primary assetUrl and metadata.pageAssets[].assetUrl via
+     writeAsset/getAssetUrl; on failure omits the URL (never leaks a presigned
+     Knowhere URL).
+     - syncParsedDocument({documentId, revisionKey}) — resumable via
+     sync-progress; bounded by limits; returns completed:false at page/deadline
+     bounds (re-invoke to continue); commits manifest only after all pages
+     present.
+
+     Implementation
+
+     1. Vercel-Blob ParsedDocumentStorage adapter — 
+     src/domains/sources/parsed-document-blob-storage.ts (new)
+
+     class BlobParsedDocumentStorage implements ParsedDocumentStorage,
+     constructed workspace-scoped ({ workspaceId, blobStore? }) with an
+     injectable blobStore seam (default wraps @vercel/blob get/put/head/del),
+     mirroring the seam pattern in
+     chunks/server.ts/parse-result-storage-adapter.ts.
+
+     Key layout (documentId-scoped, workspace-rooted — resolves the scoping
+     mismatch since one client serves many docs and the adapter only receives
+     documentId):
+     workspaces/{workspaceId}/parsed-documents/{documentId}/{revisionKey}/manife
+     st/current.json
+     workspaces/{workspaceId}/parsed-documents/{documentId}/{revisionKey}/chunks
+     /page-{N}.json
+     workspaces/{workspaceId}/parsed-documents/{documentId}/{revisionKey}/assets
+     /{normalizedSourcePath}
+     workspaces/{workspaceId}/parsed-documents/{documentId}/{revisionKey}/sync-p
+     rogress.json
+     - reads → blobStore.get + JSON parse, null on BlobNotFoundError/404 (reuse
+     readBlobText). readChunkPage ignores chunkType (SDK filters after read).
+     - JSON writes → put(..., {access:"public", allowOverwrite:true, 
+     contentType:"application/json; charset=utf-8"}).
+     - writeAsset → put(Buffer.from(body), {access:"public", 
+     allowOverwrite:true, contentType, multipart:true}) → {sourcePath, url: 
+     blob.url}. getAssetUrl → head(key).url or null.
+     - Sanitize documentId/revisionKey/sourcePath with a traversal guard (mirror
+     DiskParsedDocumentStorage.normalizeRelativeStoragePath: reject ..,
+     absolute, empty segments). Keying under {revisionKey} gives the freshness
+     contract for free. Chat's existing isNotebookOwnedAssetUrl already treats
+     *.blob.vercel-storage.com as owned, so these durable URLs pass through
+     un-re-hardened.
+
+     2. Scheduler + sync route
+
+     - src/domains/sources/parsed-document-sync-scheduler.ts (new):
+     createQStashSyncScheduler({workspaceId, sourceId, documentId, revisionKey, 
+     apiKey}). schedule(task) ignores the closure (can't serialize the client)
+     and triggers a QStash continuation, reusing background-reconcile.ts's
+     trigger shape: Client.trigger({ url: 
+     ${NOTEBOOK_PUBLIC_URL}/api/sources/parsed-sync, body, workflowRunId: 
+     ${documentId}-sync-${revisionKey}-${segmentIndex}, retries: 3 }). Add a
+     process-level cooldown guard keyed by documentId|revisionKey (like
+     lastTriggeredAtBySourceId) so read-path misses don't storm QStash.
+     - src/app/api/sources/parsed-sync/route.ts +
+     src/domains/sources/parsed-sync-route-workflow.ts (new), modeled on
+     source-reconcile-route-workflow.ts: rebuild a parsed-storage knowledge,
+     loop context.run("sync-N", () => knowledge.syncParsedDocument({documentId, 
+     revisionKey})) until completed:true or budget (~45s / N segments); on
+     incomplete trigger continuation segmentIndex+1; on complete for the parse
+     flow mark ready (§5); failureFunction writes sync_status='failed' +
+     failure_stage='storage_sync' (does not fail an already-ready source — it
+     still serves via remote fallback). Partial-snapshot safety is SDK-side.
+
+     3. Client wiring — src/integrations/knowhere.ts
+
+     Add makeKnowhereClientWithParsedStorage(apiKey, { workspaceId, scheduler?, 
+     limits? }) → { client, knowledge }. Build the wrapped client via existing
+     makeKnowhereClient (keep for retrieval/jobs/documents), then knowledge = 
+     client.knowledge.withParsedStorage({ storage: new 
+     BlobParsedDocumentStorage({workspaceId}), scheduler, limits }). Invoking
+     withParsedStorage through the logging Proxy gives correct this and returns
+     a functional unwrapped Knowledge (its internal listChunks won't be logged —
+     acceptable). Vercel-safe limits: chunkPageSize:200, remotePageSize:100, 
+     maxPagesPerSync:10, maxAssetsPerSync:20, syncDeadlineMs:8000, 
+     outlineMaxPages:50, grepMaxPages:50.
+
+     Scoping note: route-chunks reads one source at a time → build per-source
+     knowledge with a document-bound QStash scheduler. Chat's multi-doc asset
+     loop → build one workspace knowledge with a no-op/coalescing scheduler (its
+     reads use synchronous 'durable' hardening; full background sync isn't its
+     job).
+
+     4. Read path rewrite
+
+     - Delete src/domains/chunks/server.ts (snapshot readers,
+     warmChunkPageCache, mirror machinery, chunk-page cache, scheduleWarm).
+     Reduce src/domains/chunks/index.ts to view mappers: keep toParsedChunkView,
+     resolveChunkConnectionTargets, getChunkPageParams,
+     ChunkPage/ChunkPageParams; add toParsedChunkViewFromReadChunk(chunk: 
+     KnowledgeReadChunk, sourceTitle, documentId) (map chunkId/type/content/read
+     ableContent/sectionPath/filePath/assetUrl/metadata/pageNums/connections).
+     No assetUrlsByFilePath re-mapping — durable hardening already rewrote asset
+     URLs.
+     - src/domains/sources/route-chunks.ts for a ready workspace source:
+       - Paged display → knowledge.readChunks({documentId, revisionKey, page, 
+     pageSize, assetUrlPolicy:'durable'}); pagination from
+     {page,pageSize,totalChunks,totalPages}.
+       - Load-all → loop readChunks({documentId, revisionKey, page:N, 
+     pageSize:200, assetUrlPolicy:'durable'}) until page >= totalPages, then
+     resolveChunkConnectionTargets.
+       - Tree/structure (if any caller needs it) →
+     knowledge.getDocumentOutline({documentId, revisionKey}).
+       - Pass revisionKey from source_parse_results.revision_key (fallback
+     source.knowhereJobId); if unknown, omit → SDK probes remote once, returns
+     immediately, schedules background sync.
+       - New gating: source.status !== 'ready' → 202 "still preparing"; ready →
+     always serve. Delete ensureParsedSnapshotForRead/isCompleteSnapshot and the
+     snapshot/snapshotStore/onRevisionKey plumbing.
+       - Demo kind unchanged (HTTP demoApi.fetchChunkPage). Remote-library kind:
+     keep localizeRemoteDocument to get documentId, then readChunks; delete the
+     syncRemoteParsedSnapshot call (first read triggers background sync).
+     - Update counts.ts to use getDocumentOutline(...).totalChunks (or
+     readChunks(...).totalChunks) instead of readParsedResultSnapshotManifest.
+
+     5. Parse flow — source-reconcile-route-workflow.ts
+
+     Replace the load-job-result-snapshot step (loadJobResult({storageAdapter}))
+     with a resumable sync loop: after ready-to-prepare {jobId, documentId},
+     persist revision_key (= jobResultId ?? jobId, probe
+     listChunks(documentId,{page:1,pageSize:1}) if needed) +
+     sync_status='running'; build parsed-storage knowledge (§3); loop
+     context.run("sync-N", () => knowledge.syncParsedDocument({documentId, 
+     revisionKey})). If completed:false at budget → trigger parsed-sync
+     continuation and return with source still parsing. On completed:true →
+     markSourceReadyAfterReconciliation + sync_status='completed'. On sync
+     failure after successful parse → markFailed with
+     failure_stage='storage_sync'. Use documentId-based (resumable, bounded)
+     sync, not jobId-based (one-shot zip load), to respect serverless deadlines.
+     markReadyEffect already hard-guards requiredStatus:'parsing', so a late
+     continuation can't double-ready.
+
+     Retry (retry.ts / route-retry.ts): dispatch on failure_stage. 'parse'/null
+     → existing reparse from originalBlobUrl. 'storage_sync' → new
+     resumeParsedSync that re-enqueues the continuation from stored
+     documentId+revision_key (no reparse), resets sync_status='running'.
+
+     6. DB migration 0011 (new only; never edit existing)
+
+     src/infrastructure/db/schema.ts:
+     - sourceParseResults: add revisionKey: text("revision_key"), syncStatus: 
+     text("sync_status") (pending|running|completed|failed), syncError: 
+     text("sync_error"). Resumable cursor stays in Blob sync-progress.json
+     (SDK-managed) — no cursor columns. Keep legacy
+     resultBlobUrl/snapshotManifest* for back-compat.
+     - sources: add failureStage: text("failure_stage") (nullable;
+     parse|storage_sync).
+     - pnpm db:generate → drizzle/0011_*.sql.
+     - Repos: source-parse-result-repository.ts (persist/read new cols +
+     updateSyncStatusEffect), workflow-runtime.ts facade (updateSyncStatus,
+     setFailureStage), source-row-repository.ts (markFailed accepts
+     failureStage; markReady clears it).
+     - Back-compat: old rows have revision_key = NULL → reads omit the fast-path
+     key, probe remote once, serve remote, schedule background sync that
+     populates the new layout. Old blob objects orphaned (later cleanup sweep,
+     out of scope).
+
+     7. Chat unification — route-answer.ts + media-asset-hardening.ts
+
+     Keep agentic retrieval.query, citation selection, page-citation-assets.ts.
+     Delete copyAssetToBlob, resolveAssetFetchRequest, parseDemoAssetRoute,
+     getChatAssetBlobPathname, the chat-assets/ fetch-and-put path, and
+     HardeningContext.blobStore/fetchAsset. Keep isNotebookOwnedAssetUrl,
+     resolveParsedAssetUrl, enrichRetrievalResultsWithAssetUrls.
+     New loadSourceAssetUrls: build workspace parsed-storage knowledge once; per
+     source readChunks({documentId, revisionKey, page:N, pageSize:200, 
+     assetUrlPolicy:'durable'}) (loop pages), build assetUrlsByFilePath from
+     chunk.filePath → chunk.assetUrl and metadata.pageAssets[].artifactRef → 
+     assetUrl. This is the single hardening path (durable policy writes any
+     missing asset and returns durable URLs). hardenMediaAssetUrls shrinks to:
+     owned → keep; else resolve against the durable map; else keep raw (no
+     copy-to-blob).
+
+     Critical files
+
+     - New: src/domains/sources/parsed-document-blob-storage.ts,
+     parsed-document-sync-scheduler.ts, parsed-sync-route-workflow.ts,
+     src/app/api/sources/parsed-sync/route.ts, drizzle/0011_*.sql.
+     - Change: src/integrations/knowhere.ts,
+     src/domains/sources/route-chunks.ts, source-reconcile-route-workflow.ts,
+     retry.ts/route-retry.ts, src/infrastructure/db/schema.ts,
+     source-parse-result-repository.ts, workflow-runtime.ts,
+     source-row-repository.ts, src/domains/chunks/index.ts, counts.ts,
+     src/domains/chat/route-answer.ts, media-asset-hardening.ts.
+     - Delete: src/domains/chunks/server.ts, remote-parsed-snapshot-sync.ts, and
+     the snapshot-reader half of parse-result-storage-adapter.ts; strip
+     snapshot plumbing from service.ts, route-dependencies.ts, route-types.ts.
+
+     Ordered task list
+
+     1. DB migration + repos — schema cols, pnpm db:generate → 0011, extend
+     repositories/facade (no behavior change).
+     2. Blob storage adapter + tests (key layout, seam, traversal guard,
+     freshness).
+     3. Client wiring — makeKnowhereClientWithParsedStorage + limits; verify
+     Proxy interaction.
+     4. Scheduler + sync route — deterministic runIds + cooldown; continuation
+     loop.
+     5. Parse flow — syncParsedDocument loop + continuation + ready-gating +
+     failure_stage.
+     6. Read path — collapse route-chunks onto readChunks/getDocumentOutline;
+     add mapper; update counts.ts; delete chunks/server.ts.
+     7. Chat unification — new loadSourceAssetUrls; shrink
+     media-asset-hardening.ts; update route-answer.ts.
+     8. Retry — failure_stage dispatch (resume sync vs reparse).
+     9. Delete legacy — parse-result-storage-adapter.ts snapshot readers,
+     remote-parsed-snapshot-sync.ts, chunks/server.ts; strip plumbing.
+     10. Tests + verify.
+
+     Risks
+
+     - Logging Proxy vs withParsedStorage (unwrapped result; internal listChunks
+     unlogged — acceptable).
+     - Per-request storage scoping: scheduler only gets a closure → pre-bind
+     per-document (route-chunks) or no-op scheduler (chat asset reads).
+     - Serverless deadlines → documentId-based resumable sync + conservative
+     limits + QStash continuation.
+     - Demo (HTTP-only) and remote-library (localizeRemoteDocument first) kinds.
+     - Back-compat: old source_parse_results rows self-heal via remote fallback
+     + background re-sync; old blobs orphaned.
+     - Asset volume: synchronous durable hardening on a visible page is bounded
+     by page size but adds latency on image-heavy pages.
+
+     Verification
+
+     - Unit/integration (Vitest): storage adapter round-trip + guards;
+     scheduler/sync-route continuation + failure staging; route-chunks
+     paged/load-all/202/ready + demo + remote-library; reconcile parse flow
+     (syncParsedDocument, continuation, ready-only-on-complete, storage_sync
+     failure); repo persistence of revision_key/sync_status; retry failure_stage
+     dispatch; chat owned-URL passthrough + reference resolution + no
+     copy-to-blob.
+     - pnpm typecheck, pnpm test, pnpm db:generate (confirm only 0011 added).
+     - Smoke (local Knowhere + Notebook): upload a multi-page PDF with
+     images/tables → wait until ready → inspect Blob manifest/pages/assets under
+     parsed-documents/... → open chunks panel (durable Blob asset URLs render)
+     → chat with a citation (image/page citation renders durable Blob URL, never
+     a presigned Knowhere URL). Also verify an existing remote doc with no Blob
+     snapshot returns chunks immediately from remote and backfills Blob in the
+     background.
+
+  Thought for 22s (ctrl+o to expand)
+
+● Plan approved. Let me clean up the stale task list (those are from a prior
+  SDK/CLI effort) and set up tasks for this notebook migration. First let me
+  check the notebook repo's git state, since all work happens there.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && git branch
+      --show-current && echo "---STATUS---" && git status --short && echo
+      "---SCRIPTS---" && node -…)
+  ⎿  feature/wangbinqi/notebook-page-citation-assets
+     ---STATUS---
+     ---SCRIPTS---
+     … +20 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 15s (ctrl+o to expand)
+
+● Clean tree, on a feature branch. Let me clear the stale tasks (prior SDK/CLI
+  work) and set up this migration's task list, then create a working branch on
+  the notebook repo.
+
+  I'll replace the stale tasks with the plan's ordered steps.
+  Thought for 18s (ctrl+o to expand)
+
+● Let me set up the key dependencies to reflect the plan's order, then create a
+  working branch on the notebook repo.
+
+● Task graph is set. Now the branch. The notebook is on
+  feature/wangbinqi/notebook-page-citation-assets; per the git guidelines I
+  should branch for this new work rather than commit onto that one. Let me
+  create a branch in the correct xxx/wangbinqi/xxx format from the current
+  branch (which has the page-citation work this builds on).
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && git checkout -b
+      feature/wangbinqi/notebook-parsed-document-storage && git branch
+      --show-current)
+  ⎿  Switched to a new branch 'feature/wangbinqi/notebook-parsed-document-s
+     torage'
+     feature/wangbinqi/notebook-parsed-document-storage
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Branch created. Now Task #7 (DB migration + repos) and Task #8 (Blob storage
+  adapter) are both unblocked and independent — I'll start with them. Let me
+  begin with Task #8 (the Blob adapter), since it's the foundation the client
+  wiring and everything downstream depends on, and read the SDK's
+  DiskParsedDocumentStorage traversal guard details plus the notebook's existing
+  blob-seam conventions I need to mirror.
+
+  Let me start Task #8. I already have the SDK's DiskParsedDocumentStorage and
+  parse-result-storage-adapter.ts in context. Let me check how @vercel/blob's
+  get/head are typed in the installed version and how the existing seam handles
+  get return shape.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && find
+      node_modules/@vercel/blob/dist -name "*.d.ts" | head && echo "---" && grep
+      -rn "export declare func…)
+  ⎿  node_modules/@vercel/blob/dist/index.d.ts
+     node_modules/@vercel/blob/dist/create-folder-vlS2Pu_G.d.ts
+     node_modules/@vercel/blob/dist/client.d.ts
+     … +16 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && sed -n '1,120p'
+      node_modules/@vercel/blob/dist/create-folder-vlS2Pu_G.d.ts | grep -n
+      "GetBlobResult\|Hea…)
+  ⎿  1:import { Readable } from 'stream';
+     39:     * Defines the content type of the blob. By default, this value
+      is inferred from the pathname. Sent as the 'content-type' header when
+     … +5 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -n
+      "GetBlobResult\|HeadBlobResult\|GetCommandOptions\|interface .*Blob\|type
+      GetBlob\|type HeadBlob…)
+  ⎿  4:interface BlobCommandOptions {
+     21:interface CommonCreateBlobOptions extends BlobCommandOptions {
+     112:interface PutBlobResult {
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+● The GetBlobResult/HeadBlobResult types live elsewhere. The existing
+  parse-result-storage-adapter.ts already models get returning {statusCode, 
+  stream} and head returning {url, contentType, size}, so I have the shapes I
+  need from the code I've already read. Let me find where these types are
+  declared to get head's exact return.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -rn
+      "GetBlobResult\b\|HeadBlobResult\b" node_modules/@vercel/blob/dist/*.d.ts
+      | grep -v "export {"…)
+  ⎿  node_modules/@vercel/blob/dist/index.d.ts:76:interface HeadBlobResult
+     {
+     node_modules/@vercel/blob/dist/index.d.ts:121:declare function head(ur
+     … +13 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 12s, read 1 file (ctrl+o to expand)
+
+● I have all the types I need. Let me confirm the SDK's public type exports so I
+  can import the ParsedDocumentStorage interface and snapshot types by name.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -n
+      "ParsedDocumentStorage\|KnowhereParsedSnapshotManifest\|KnowhereParsedSnap
+      shotChunkPage\|ParsedD…)
+  ⎿  410:interface KnowhereParsedSnapshotChunkPageReference {
+     417:interface KnowhereParsedSnapshotManifest {
+     426:    readonly chunkPages: readonly KnowhereParsedSnapshotChunkPageR
+     … +2 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 13s (ctrl+o to expand)
+
+● The dist typings are stale — they don't export the new
+  ParsedDocumentStorage/ParsedDocumentSyncProgress types the notebook needs to
+  import. Since the SDK is pnpm-linked via dist/, I need to confirm whether the
+  SDK dist is built from the current source. Let me check.
+
+  Thought for 13s, listed 1 directory (ctrl+o to expand)
+
+● The SDK repo's own dist/index.d.ts has withParsedStorage/ParsedDocumentStorage
+  (22 hits), but the notebook's node_modules copy is stale (only 4 hits,
+  missing the new types). pnpm file: links can be copies. Let me check the link
+  type and whether the notebook's copy needs a rebuild/reinstall.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && ls -la
+      node_modules/@ontos-ai/ && echo "---is it symlink?---" && readlink -f
+      node_modules/@ontos-ai/know…)
+  ⎿  total 48
+     drwxr-xr-x  2 suguan suguan  4096 Jul  3 23:40 .
+     drwxr-xr-x 68 suguan suguan 36864 Jul  4 15:36 ..
+     … +9 lines (ctrl+o to expand)
+
+  Thought for 21s (ctrl+o to expand)
+
+● The notebook's pnpm copy of the SDK is a stale snapshot (0 hits for
+  withParsedStorage), even though the SDK repo's own dist/ is current. pnpm
+  copied the package at install time. I need to rebuild the SDK dist (to be
+  safe) and refresh the notebook's copy so the new ParsedDocumentStorage types
+  are importable. Let me check the SDK build script and rebuild.
+
+● Bash(node -e "const p=require('./package.json'); console.log('version',
+      p.version); console.log(JSON.stringify(p.scripts,null,2))")
+  ⎿  version 2.0.0
+     {
+       "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+     … +23 lines (ctrl+o to expand)
+
+● Let me rebuild the SDK dist and then refresh the notebook's pnpm copy so the
+  new types are available. First rebuild the SDK.
+
+● Bash(pnpm run build 2>&1 | tail -20 && echo "---verify types present---" &&
+      grep -c "withParsedStorage" dist/index.d.ts)
+  ⎿  > @ontos-ai/knowhere-sdk@2.0.0 build /home/suguan/github.com/ontosAI/k
+     nowhere-node-sdk
+     > tsup src/index.ts --format cjs,esm --dts --clean
+     … +18 lines (ctrl+o to expand)
+
+  Thought for 15s, searched for 1 pattern (ctrl+o to expand)
+
+● All the new types are now exported from the freshly built dist:
+  ParsedDocumentStorage, ParsedDocumentSyncProgress,
+  ParsedDocumentStorageConfig, ParsedDocumentStorageLimits,
+  KnowhereParsedSnapshotManifest, KnowhereParsedSnapshotChunkPage, etc. Now
+  refresh the notebook's pnpm copy so it picks up the rebuilt dist.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm install 2>&1
+      | tail -15 && echo "---verify notebook copy now current---" && grep -c
+      "withParsedStor…)
+  ⎿  │   esbuild@0.27.7, msgpackr-extract@3.0.3, msw@2.14.3.
+              │
+     │   Run "pnpm approve-builds" to pick which dependencies should be all
+     … +18 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -c
+      "interface ParsedDocumentStorage\b\|ParsedDocumentSyncProgress\|ParsedDocu
+      mentStorageConfig\|Par…)
+  ⎿  12
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● The notebook now sees the new types. Now I'll write the Blob adapter (Task
+  #8). All work happens in the notebook repo. Let me create
+  parsed-document-blob-storage.ts.
+
+● Write(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/parsed-docume
+       nt-blob-storage.ts)
+  ⎿  Wrote 291 lines to ../knowhere-notebook/src/domains/sources/parsed-doc
+     ument-blob-storage.ts
+       2 import "server-only"
+       3 import { del, get, head, put, BlobNotFoundError } from "@vercel/
+         blob"
+       4 import type {
+       5   KnowhereParsedSnapshotChunkPage,
+       6   KnowhereParsedSnapshotManifest,
+       7   ParsedDocumentStorage,
+       8   ParsedDocumentStorageAsset,
+       9   ParsedDocumentStorageAssetParams,
+      10   ParsedDocumentStorageChunkPageParams,
+     … +314 lines (ctrl+o to expand)
+
+● Now let me check an existing test in the sources domain to match the test
+  conventions before writing the adapter's test.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && ls
+      src/domains/sources/*.test.ts 2>/dev/null | head && echo "---sample test
+      header---" && sed -n '1,40p'…)
+  ⎿  src/domains/sources/background-reconcile.test.ts
+     src/domains/sources/blob-upload.test.ts
+     src/domains/sources/counts.test.ts
+     … +48 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Now I'll write the adapter test with an in-memory blob store fake.
+
+● Write(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/parsed-docume
+       nt-blob-storage.test.ts)
+  ⎿  Wrote 219 lines to ../knowhere-notebook/src/domains/sources/parsed-doc
+     ument-blob-storage.test.ts
+       1 import { describe, expect, it } from "vitest"
+       2 import type {
+       3   KnowhereParsedSnapshotChunkPage,
+       4   KnowhereParsedSnapshotManifest,
+       5   ParsedDocumentSyncProgress,
+       6 } from "@ontos-ai/knowhere-sdk"
+       7 
+       8 import {
+       9   BlobParsedDocumentStorage,
+      10   type ParsedDocumentBlobStore,
+     … +229 lines (ctrl+o to expand)
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm vitest run
+      src/domains/sources/parsed-document-blob-storage.test.ts 2>&1 | tail -30)
+  ⎿   RUN  v4.1.5 /home/suguan/github.com/ontosAI/knowhere-notebook
+     … +5 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● All 7 tests pass. Let me typecheck the new file, then mark Task #8 done and
+  move to Task #9 (client wiring).
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -20)
+  ⎿  > knowhere-notebook@0.1.0 typecheck /home/suguan/github.com/ontosAI/kn
+     owhere-notebook
+     > tsc --noEmit
+     … +9 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+● A type-only issue in the test fake's new Response(body) when body is a Buffer.
+  Let me fix by normalizing to a Uint8Array in the fake.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/parsed-docum
+        ent-blob-storage.test.ts)
+  ⎿  Added 5 lines, removed 1 line
+      27      get: async (pathname) => {
+      28        const object = objects.get(pathname)
+      29        if (!object) return null
+      30 +      const body =                                             
+      31 +        typeof object.body === "string"                        
+      32 +          ? object.body                                        
+      33 +          : new Uint8Array(object.body)                        
+      34        return {
+      35          statusCode: 200,
+      32 -        stream: new Response(object.body).body as ReadableStrea
+         -m<Uint8Array>,                                                 
+      36 +        stream: new Response(body).body as ReadableStream<Uint8
+         +Array>,                                                        
+      37        }
+      38      },
+      39      put: async (pathname, body, options) => {
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -8 && echo "===TEST===" && pnpm vitest run
+      src/domains/sources/parsed-documen…)
+  ⎿  > knowhere-notebook@0.1.0 typecheck /home/suguan/github.com/ontosAI/kn
+     owhere-notebook
+     > tsc --noEmit
+     … +8 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Typecheck clean, 7/7 tests pass. Task #8 done. Now Task #9 (client wiring) and
+  Task #7 (DB migration + repos) are both unblocked. Let me mark #8 complete
+  and start #9 (client wiring), which unblocks the most downstream work.
+
+  Before wiring, I need to understand the SDK's
+  KnowledgeParsedStorageOptions/ParsedDocumentStorageConfig shape and how
+  withParsedStorage behaves through the logging Proxy. I have the SDK source.
+  Let me check route-dependencies.ts and request-context.ts to see how clients
+  are currently built and where a parsed-storage-configured knowledge should be
+  surfaced.
+
+  Thought for 18s, read 1 file (ctrl+o to expand)
+
+● The Proxy interaction is clear from the SDK source:
+  client.knowledge.withParsedStorage(cfg) resolves through the namespace proxy
+  via Reflect.apply(fn, realKnowledge, [cfg]), and withParsedStorage returns new
+  Knowledge(this.client, ...) where this.client is the real unwrapped Knowhere
+  — so it works correctly. Let me check route-types.ts for the
+  SourceRouteKnowhereClient shape and how client.knowledge is typed/used.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -n
+      "SourceRouteKnowhereClient\|knowledge\|documents\|ChunkKnowhereClient"
+      src/domains/sources/route…)
+  ⎿  2:  ChunkKnowhereClient,
+     28:type SourceRouteKnowhereClient = UploadKnowhereClient &
+     29:  ChunkKnowhereClient & {
+     … +9 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 15s (ctrl+o to expand)
+
+● Now I'll add the client wiring helper. It returns { client, knowledge } where
+  knowledge is configured with the Blob storage + scheduler + limits. The
+  scheduler is injected by the caller (route-chunks binds per-document, chat
+  uses a no-op).
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/integrations/knowhere.ts)
+  ⎿  Added 53 lines
+       1  import Knowhere from "@ontos-ai/knowhere-sdk"
+       2 +import type {                                                  
+       3 +  Knowledge,                                                   
+       4 +  ParsedDocumentStorageLimits,                                 
+       5 +  ParsedDocumentSyncScheduler,                                 
+       6 +} from "@ontos-ai/knowhere-sdk"                                
+       7  import { logger } from "@/lib/logger"
+       8 +import { BlobParsedDocumentStorage } from "@/domains/sources/pa
+         +rsed-document-blob-storage"                                    
+       9  
+      10  /**
+      11 + * Vercel-safe defaults for parsed-document reads and backgroun
+         +d sync. Each read                                              
+      12 + * miss and each background sync step is bounded by page count 
+         +and a deadline so                                              
+      13 + * a single serverless invocation stays well under the platform
+         + ceiling; the                                                  
+      14 + * SDK returns `completed:false` and the caller re-enqueues to 
+         +continue.                                                      
+      15 + */                                                            
+      16 +const defaultParsedStorageLimits: ParsedDocumentStorageLimits =
+         + {                                                             
+      17 +  chunkPageSize: 200,                                          
+      18 +  remotePageSize: 100,                                         
+      19 +  maxPagesPerSync: 10,                                         
+      20 +  maxAssetsPerSync: 20,                                        
+      21 +  syncDeadlineMs: 8000,                                        
+      22 +  grepMaxPages: 50,                                            
+      23 +  grepDeadlineMs: 8000,                                        
+      24 +  outlineMaxPages: 50,                                         
+      25 +  outlineDeadlineMs: 8000,                                     
+      26 +}                                                              
+      27 +                                                               
+      28 +type ParsedStorageOptions = {                                  
+      29 +  readonly workspaceId: string                                 
+      30 +  readonly scheduler?: ParsedDocumentSyncScheduler             
+      31 +  readonly limits?: ParsedDocumentStorageLimits                
+      32 +}                                                              
+      33 +                                                               
+      34 +/**                                                            
+      35   * Create a Knowhere client with the given API key.
+      36   * Use for per-request clients created from Dashboard-issued JW
+          Ts.
+      37   */
+     ...
+      44    return wrapKnowhereClient(client)
+      45  }
+      46  
+      47 +/**                                                            
+      48 + * Create a Knowhere client plus a `Knowledge` configured with 
+         +a Vercel-Blob                                                  
+      49 + * `ParsedDocumentStorage`. Reads through `knowledge` serve fro
+         +m Blob first and                                               
+      50 + * fall back to Knowhere remote transparently; the `scheduler` 
+         +(when provided)                                                
+      51 + * backfills Blob in the background. Use `client` for retrieval
+         +/documents/jobs.                                               
+      52 + *                                                             
+      53 + * `withParsedStorage` is invoked through the logging Proxy so 
+         +`this` binds to                                                
+      54 + * the real Knowledge; the returned Knowledge wraps the unwrapp
+         +ed inner client                                                
+      55 + * (its internal `documents.listChunks` calls are not logged, w
+         +hich is fine).                                                 
+      56 + */                                                            
+      57 +export function makeKnowhereClientWithParsedStorage(           
+      58 +  apiKey: string,                                              
+      59 +  options: ParsedStorageOptions,                               
+      60 +): { readonly client: Knowhere; readonly knowledge: Knowledge }
+         + {                                                             
+      61 +  const client = makeKnowhereClient(apiKey)                    
+      62 +  const knowledge = client.knowledge.withParsedStorage({       
+      63 +    storage: new BlobParsedDocumentStorage({ workspaceId: optio
+         +ns.workspaceId }),                                             
+      64 +    scheduler: options.scheduler,                              
+      65 +    limits: options.limits ?? defaultParsedStorageLimits,      
+      66 +  })                                                           
+      67 +  return { client, knowledge }                                 
+      68 +}                                                              
+      69 +                                                               
+      70  function wrapKnowhereClient(client: Knowhere): Knowhere {
+      71    return new Proxy(client, {
+      72      get(target, prop, receiver) {
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -15)
+  ⎿  > knowhere-notebook@0.1.0 typecheck /home/suguan/github.com/ontosAI/kn
+     owhere-notebook
+     > tsc --noEmit
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Typecheck clean. Task #9 done. Now Task #7 (DB migration + repos) is unblocked
+  and it, plus #10/#12, become available. Task #7 is a prerequisite for the
+  parse flow, read path, scheduler, and retry — let me do it next.
+
+  Let me read the parse-result repository and source-row repository to see
+  exactly what to extend.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now let me read the source-row-repository's markFailedEffect and
+  markReadyEffect to add failureStage, and the updateInWorkspaceWithDb
+  signature.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now let me look at the SourceRowRepository type / interface signatures near
+  the top and SourceUpdate type.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && sed -n '1,120p'
+      src/domains/sources/source-row-repository.ts)
+  ⎿  import "server-only"
+
+     import { and, desc, eq, isNull, sql } from "drizzle-orm"
+     … +117 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Now I have everything for Task #7. Let me make the schema changes. First, the
+  two schema edits: add failureStage to sources and
+  revisionKey/syncStatus/syncError to sourceParseResults.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/infrastructure/db/schema.ts)
+  ⎿  File must be read first
+
+● I read that region via sed, not the Read tool. Let me Read the two schema
+  regions properly, then edit.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/infrastructure/db/schema.ts)
+  ⎿  Added 1 line
+       95      sizeBytes: bigint("size_bytes", { mode: "number" }).notNul
+           l(),
+       96      status: text("status").notNull(),
+       97      failureReason: text("failure_reason"),
+       98 +    failureStage: text("failure_stage"),                      
+       99      knowhereJobId: text("knowhere_job_id"),
+      100      knowhereDocumentId: text("knowhere_document_id"),
+      101      stagedBlobPathname: text("staged_blob_pathname"),
+
+● Now update the doc comment for the sources table to document failure_stage,
+  and the source_parse_results table. Let me read those regions.
+
+  Read 1 file (ctrl+o to expand)
+● Update(~/github.com/ontosAI/knowhere-notebook/src/infrastructure/db/schema.ts)
+  ⎿  Added 3 lines
+      177      resultBlobUrl: text("result_blob_url").notNull(),
+      178      snapshotManifestUrl: text("snapshot_manifest_url"),
+      179      snapshotManifestKey: text("snapshot_manifest_key"),
+      180 +    revisionKey: text("revision_key"),                        
+      181 +    syncStatus: text("sync_status"),                          
+      182 +    syncError: text("sync_error"),                            
+      183      assetUrls: jsonb("asset_urls")
+      184        .$type<Readonly<Record<string, string>>>()
+      185        .notNull(),
+
+● Now update the two doc comments to reflect the new columns. Let me read the
+  sources comment block and the source_parse_results comment block.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/infrastructure/db/schema.ts)
+  ⎿  Added 12 lines, removed 2 lines
+      163   * Notebook-owned parse-result artifact index for one source.
+      164   *
+      165   * Blob is the Notebook-owned read model for parsed chunks aft
+           er source
+      166 - * reconciliation completes. This row stores the current parse
+          -d snapshot                                                    
+      167 - * manifest and the file-path-to-public-URL map for parsed med
+          -ia artifacts.                                                 
+      166 + * reconciliation completes. The parsed snapshot itself (manif
+          +est, chunk pages,                                             
+      167 + * assets, and resumable sync progress) lives in Vercel Blob u
+          +nder                                                          
+      168 + * `workspaces/{ws}/parsed-documents/{documentId}/{revisionKey
+          +}/...`, managed by                                            
+      169 + * the SDK `ParsedDocumentStorage`. This row records:         
+      170 + *   - `revision_key`  — current parsed revision (jobResultId 
+          +?? jobId); the                                                
+      171 + *                       storage fast-path key passed into SDK
+          + reads                                                        
+      172 + *   - `sync_status`   — pending | running | completed | faile
+          +d for the                                                     
+      173 + *                       background/parse-time storage sync   
+      174 + *   - `sync_error`    — last storage-sync error detail when s
+          +ync_status=failed                                             
+      175 + *   - `result_blob_url` / `snapshot_manifest_*` — legacy colu
+          +mns retained for                                              
+      176 + *                       rows written by the pre-migration man
+          +ifest format                                                  
+      177 + *   - `asset_urls`    — legacy file-path-to-public-URL map fo
+          +r older rows                                                  
+      178   */
+      179  export const sourceParseResults = pgTable(
+      180    "source_parse_results",
+
+● Now update the sources doc comment to mention failure_stage.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/infrastructure/db/schema.ts)
+  ⎿  Added 2 lines
+      66   *   - `size_bytes`   — original upload size (for display + quo
+          ta)
+      67   *   - `status`       — lifecycle: uploading | parsing | ready 
+          | failed
+      68   *   - `failure_reason` — human-readable error text when status
+          =failed
+      69 + *   - `failure_stage`  — which stage failed: parse | storage_s
+         +ync; drives                                                    
+      70 + *                        whether a retry reparses or only resu
+         +mes storage sync                                               
+      71   *   - `knowhere_job_id`      — set once the parse job is creat
+          ed
+      72   *   - `knowhere_document_id` — set when parsing completes; use
+          d to import
+      73   *                              parsed snapshots and to exclude
+           a source from a
+
+● Now generate the migration. Let me run pnpm db:generate.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm db:generate
+      2>&1 | tail -20 && echo "---new files---" && git status --short drizzle/)
+  ⎿  > knowhere-notebook@0.1.0 db:generate /home/suguan/github.com/ontosAI/
+     knowhere-notebook
+     > drizzle-kit generate
+     … +17 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Migration 0011_brainy_the_leader.sql generated (only 0011, no edits to
+  existing). Let me verify its contents are exactly the four ADD COLUMNs.
+
+  Read 1 file (ctrl+o to expand)
+
+● Clean — exactly the four additive columns, all nullable. Now extend the
+  repositories. First the parse-result repository: add
+  revisionKey/syncStatus/syncError to the save input and progress reads, and an
+  updateSyncStatusEffect. Let me update source-parse-result-repository.ts.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-parse
+        -result-repository.ts)
+  ⎿  Added 21 lines
+      14    readonly resultBlobUrl: string
+      15    readonly snapshotManifestUrl?: string
+      16    readonly snapshotManifestKey?: string
+      17 +  readonly revisionKey?: string                                
+      18 +  readonly syncStatus?: SourceParseSyncStatus                  
+      19 +  readonly syncError?: string | null                           
+      20    readonly assetUrlsByFilePath: Readonly<Record<string, string>
+          >
+      21  }
+      22  
+      23 +export type SourceParseSyncStatus =                            
+      24 +  | "pending"                                                  
+      25 +  | "running"                                                  
+      26 +  | "completed"                                                
+      27 +  | "failed"                                                   
+      28 +                                                               
+      29  type SourceParseResultProgress = {
+      30    readonly resultBlobUrl: string
+      31    readonly snapshotManifestUrl?: string | null
+      32    readonly snapshotManifestKey?: string | null
+      33 +  readonly revisionKey?: string | null                         
+      34 +  readonly syncStatus?: string | null                          
+      35 +  readonly syncError?: string | null                           
+      36    readonly assetUrlsByFilePath: Readonly<Record<string, string>
+          >
+      37  }
+      38  
+     ...
+      40    readonly resultBlobUrl: string
+      41    readonly snapshotManifestUrl?: string | null
+      42    readonly snapshotManifestKey?: string | null
+      43 +  readonly revisionKey?: string | null                         
+      44 +  readonly syncStatus?: string | null                          
+      45 +  readonly syncError?: string | null                           
+      46    readonly assetUrlsByFilePath: Readonly<Record<string, string>
+          >
+      47  }
+      48  
+      49 +type UpdateSyncStatusInput = {                                 
+      50 +  readonly revisionKey?: string                                
+      51 +  readonly syncStatus: SourceParseSyncStatus                   
+      52 +  readonly syncError?: string | null                           
+      53 +}                                                              
+      54 +                                                               
+      55  type SourceParseResultRepository = {
+      56    readonly saveParseResultEffect: (
+      57      workspaceId: string,
+
+● Now add updateSyncStatusEffect to the repository interface and implementation,
+  and thread the new columns through save/merge/read. Let me update the
+  interface type.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-parse
+        -result-repository.ts)
+  ⎿  Added 5 lines
+      75      workspaceId: string,
+      76      sourceId: string,
+      77    ) => Effect.Effect<Readonly<Record<string, string>>, never, D
+          bClient>
+      78 +  readonly updateSyncStatusEffect: (                           
+      79 +    workspaceId: string,                                       
+      80 +    sourceId: string,                                          
+      81 +    input: UpdateSyncStatusInput,                              
+      82 +  ) => Effect.Effect<SourceParseResult | null, never, DbClient>
+      83  }
+      84  
+      85  export function buildAtomicAssetUrlsMergeSql(
+
+● Now thread the new columns through saveParseResultEffect and
+  mergeParseAssetUrlsEffect insert+update sets.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-parse
+        -result-repository.ts)
+  ⎿  Added 6 lines
+      105              resultBlobUrl: input.resultBlobUrl,
+      106              snapshotManifestUrl: input.snapshotManifestUrl,
+      107              snapshotManifestKey: input.snapshotManifestKey,
+      108 +            revisionKey: input.revisionKey,                   
+      109 +            syncStatus: input.syncStatus,                     
+      110 +            syncError: input.syncError,                       
+      111              assetUrls: input.assetUrlsByFilePath,
+      112            })
+      113            .onConflictDoUpdate({
+     ...
+      116                resultBlobUrl: input.resultBlobUrl,
+      117                snapshotManifestUrl: input.snapshotManifestUrl,
+      118                snapshotManifestKey: input.snapshotManifestKey,
+      119 +              revisionKey: input.revisionKey,                 
+      120 +              syncStatus: input.syncStatus,                   
+      121 +              syncError: input.syncError,                     
+      122                assetUrls: input.assetUrlsByFilePath,
+      123                updatedAt: sql`now()`,
+      124              },
+
+● Now the merge effect: it also should persist revisionKey/syncStatus when
+  provided. Let me update its insert and update sets.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-parse
+        -result-repository.ts)
+  ⎿  Added 6 lines
+      146              resultBlobUrl: input.resultBlobUrl,
+      147              snapshotManifestUrl: input.snapshotManifestUrl,
+      148              snapshotManifestKey: input.snapshotManifestKey,
+      149 +            revisionKey: input.revisionKey,                   
+      150 +            syncStatus: input.syncStatus,                     
+      151 +            syncError: input.syncError,                       
+      152              assetUrls: input.assetUrlsByFilePath,
+      153            })
+      154            .onConflictDoUpdate({
+     ...
+      157                resultBlobUrl: input.resultBlobUrl,
+      158                snapshotManifestUrl: input.snapshotManifestUrl,
+      159                snapshotManifestKey: input.snapshotManifestKey,
+      160 +              revisionKey: input.revisionKey,                 
+      161 +              syncStatus: input.syncStatus,                   
+      162 +              syncError: input.syncError,                     
+      163                assetUrls: buildAtomicAssetUrlsMergeSql(
+      164                  input.assetUrlsByFilePath,
+      165                ),
+
+● Now update getParseResultProgressEffect to select and return the new columns,
+  and add updateSyncStatusEffect, plus register it in the export.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-parse
+        -result-repository.ts)
+  ⎿  Added 33 lines
+      187              resultBlobUrl: sourceParseResults.resultBlobUrl,
+      188              snapshotManifestUrl: sourceParseResults.snapshotMa
+           nifestUrl,
+      189              snapshotManifestKey: sourceParseResults.snapshotMa
+           nifestKey,
+      190 +            revisionKey: sourceParseResults.revisionKey,      
+      191 +            syncStatus: sourceParseResults.syncStatus,        
+      192 +            syncError: sourceParseResults.syncError,          
+      193              assetUrls: sourceParseResults.assetUrls,
+      194            })
+      195            .from(sourceParseResults)
+     ...
+      203          resultBlobUrl: progress.resultBlobUrl,
+      204          snapshotManifestUrl: progress.snapshotManifestUrl,
+      205          snapshotManifestKey: progress.snapshotManifestKey,
+      206 +        revisionKey: progress.revisionKey,                    
+      207 +        syncStatus: progress.syncStatus,                      
+      208 +        syncError: progress.syncError,                        
+      209          assetUrlsByFilePath: progress.assetUrls,
+      210        }
+      211      })
+      212  
+      213 +const updateSyncStatusEffect: SourceParseResultRepository["upd
+          +ateSyncStatusEffect"] =                                       
+      214 +  (workspaceId: string, sourceId: string, input: UpdateSyncSta
+          +tusInput) =>                                                  
+      215 +    Effect.gen(function* () {                                 
+      216 +      const db = yield* DbClient                              
+      217 +      const source = yield* Effect.promise(() =>              
+      218 +        sourceRowRepository.findInWorkspaceWithDb(db, workspac
+          +eId, sourceId),                                               
+      219 +      )                                                       
+      220 +      if (!source) return null                                
+      221 +                                                              
+      222 +      const [result] = yield* Effect.promise(() =>            
+      223 +        db                                                    
+      224 +          .update(sourceParseResults)                         
+      225 +          .set({                                              
+      226 +            ...(input.revisionKey !== undefined               
+      227 +              ? { revisionKey: input.revisionKey }            
+      228 +              : {}),                                          
+      229 +            syncStatus: input.syncStatus,                     
+      230 +            syncError: input.syncError ?? null,               
+      231 +            updatedAt: sql`now()`,                            
+      232 +          })                                                  
+      233 +          .where(eq(sourceParseResults.sourceId, sourceId))   
+      234 +          .returning(),                                       
+      235 +      )                                                       
+      236 +                                                              
+      237 +      return result ?? null                                   
+      238 +    })                                                        
+      239 +                                                              
+      240  const getParseAssetUrlsEffect: SourceParseResultRepository["ge
+           tParseAssetUrlsEffect"] =
+      241    (workspaceId: string, sourceId: string) =>
+      242      Effect.gen(function* () {
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-parse
+        -result-repository.ts)
+  ⎿  Added 1 line
+      270    getParseResultProgressEffect,
+      271    getParseSnapshotMetadataEffect,
+      272    getParseAssetUrlsEffect,
+      273 +  updateSyncStatusEffect,                                     
+      274  }
+
+● Now I need to check how repository.ts re-exports these (workflow-runtime
+  imports sourceRepository.saveParseResultEffect etc). Let me check
+  repository.ts.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -n
+      "ParseResult\|updateSyncStatus\|updateRevisionKey\|sourceParseResultReposi
+      tory\|\.\.\.\|export c…)
+  ⎿  4:import { sourceParseResultRepository } from "./source-parse-result-r
+     epository"
+     17:  readonly updateRevisionKeyEffect: typeof sourceRowRepository.upda
+     … +15 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Let me read repository.ts fully to add the new effects
+  (updateSyncStatusEffect, and markFailedEffect/markReadyEffect will need
+  failureStage support) and the interface.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/repository.t
+        s)
+  ⎿  Added 1 line
+      23    readonly getParseResultProgressEffect: typeof sourceParseResu
+          ltRepository.getParseResultProgressEffect
+      24    readonly getParseSnapshotMetadataEffect: typeof sourceParseRe
+          sultRepository.getParseSnapshotMetadataEffect
+      25    readonly getParseAssetUrlsEffect: typeof sourceParseResultRep
+          ository.getParseAssetUrlsEffect
+      26 +  readonly updateSyncStatusEffect: typeof sourceParseResultRepo
+         +sitory.updateSyncStatusEffect                                  
+      27  }
+      28  
+      29  export const sourceRepository: SourceRepository = {
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/repository.t
+        s)  ⎿  Added 1 line
+      50    getParseSnapshotMetadataEffect:
+      51      sourceParseResultRepository.getParseSnapshotMetadataEffect,
+      52    getParseAssetUrlsEffect: sourceParseResultRepository.getParse
+          AssetUrlsEffect,
+      53 +  updateSyncStatusEffect: sourceParseResultRepository.updateSyn
+         +cStatusEffect,                                                 
+      54  }
+
+● Now add failureStage support to markFailedEffect and clear it in
+  markReadyEffect in source-row-repository.ts. I need to add failureStage to the
+  SourceUpdate type and thread an optional param through markFailedEffect.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-row-r
+        epository.ts)
+  ⎿  Added 1 line
+      26      | "sizeBytes"
+      27      | "status"
+      28      | "failureReason"
+      29 +    | "failureStage"                                           
+      30      | "knowhereJobId"
+      31      | "knowhereDocumentId"
+      32      | "stagedBlobPathname"
+
+● Now update the markFailedEffect signature in the interface and impl to accept
+  an optional failureStage, and clear failureStage in markReadyEffect and
+  markParsingEffect.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-row-r
+        epository.ts)
+  ⎿  Added 1 line
+      84      sourceId: string,
+      85      reason: string,
+      86      requiredStatus?: string,
+      87 +    failureStage?: string,                                     
+      88    ) => Effect.Effect<Source | null, never, DbClient>
+      89    readonly clearStagedBlobEffect: (
+      90      workspaceId: string,
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-row-r
+        epository.ts)
+  ⎿  Added 2 lines
+      195      knowhereJobId: jobId,
+      196      knowhereDocumentId: documentId,
+      197      failureReason: null,
+      198 +    failureStage: null,                                       
+      199    }, requiredStatus)
+      200  
+      201  const markReadyEffect: SourceRowRepository["markReadyEffect"] 
+           = (
+     ...
+      207      status: "ready",
+      208      knowhereDocumentId: documentId,
+      209      failureReason: null,
+      210 +    failureStage: null,                                       
+      211    }, "parsing")
+      212  
+      213  const updateRevisionKeyEffect: SourceRowRepository["updateRevi
+           sionKeyEffect"] = (
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/source-row-r
+        epository.ts)
+  ⎿  Added 2 lines
+      224    sourceId: string,
+      225    reason: string,
+      226    requiredStatus?: string,
+      227 +  failureStage?: string,                                      
+      228  ) =>
+      229    updateInWorkspaceEffect(workspaceId, sourceId, {
+      230      status: "failed",
+      231      failureReason: reason,
+      232 +    failureStage: failureStage ?? null,                       
+      233    }, requiredStatus)
+      234  
+      235  const clearStagedBlobEffect: SourceRowRepository["clearStagedB
+           lobEffect"] = (
+
+● Now update the workflow-runtime.ts facade: markFailed should accept
+  failureStage, and add updateSyncStatus. Let me update the type and impls.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/workflow-run
+        time.ts)
+  ⎿  Added 1 line
+      38      sourceId: string,
+      39      reason: string,
+      40      requiredStatus?: string,
+      41 +    failureStage?: string,                                     
+      42    ) => Promise<Source | null>
+      43  }
+      44  
+
+● Now add updateSyncStatus to the SourceWorkflowRuntime type and implement it.
+  Let me add to the type block after saveParseResult/mergeParseAssetUrls.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/workflow-run
+        time.ts)
+  ⎿  Added 5 lines
+      106      sourceId: string,
+      107      input: SaveSourceParseResultInput,
+      108    ) => Promise<SourceParseResult | null>
+      109 +  readonly updateSyncStatus: (                                
+      110 +    workspaceId: string,                                      
+      111 +    sourceId: string,                                         
+      112 +    input: UpdateSyncStatusInput,                             
+      113 +  ) => Promise<SourceParseResult | null>                      
+      114    readonly softDelete: (
+      115      workspaceId: string,
+      116      sourceId: string,
+
+● Now add the UpdateSyncStatusInput type alias near the other Parameters<...>
+  aliases, update markFailed impl to pass failureStage, add updateSyncStatus
+  impl, and register it in the export object.
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/workflow-run
+        time.ts)
+  ⎿  Added 4 lines
+      17    typeof sourceRepository.saveParseResultEffect
+      18  >[2]
+      19  
+      20 +type UpdateSyncStatusInput = Parameters<                       
+      21 +  typeof sourceRepository.updateSyncStatusEffect               
+      22 +>[2]                                                           
+      23 +                                                               
+      24  type UpsertMaterializedDemoSourceInput = Parameters<
+      25    typeof sourceRepository.upsertMaterializedDemoSourceEffect
+      26  >[1]
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/workflow-run
+        time.ts)
+  ⎿  Added 8 lines, removed 1 line
+      210    sourceId: string,
+      211    reason: string,
+      212    requiredStatus?: string,
+      213 +  failureStage?: string,                                      
+      214  ) =>
+      215    databaseRuntime.runPromise(
+      215 -    sourceRepository.markFailedEffect(workspaceId, sourceId, r
+          -eason, requiredStatus),                                       
+      216 +    sourceRepository.markFailedEffect(                        
+      217 +      workspaceId,                                            
+      218 +      sourceId,                                               
+      219 +      reason,                                                 
+      220 +      requiredStatus,                                         
+      221 +      failureStage,                                           
+      222 +    ),                                                        
+      223    )
+      224  
+      225  const clearStagedBlob: SourceWorkflowRuntime["clearStagedBlob"
+           ] = (
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/workflow-run
+        time.ts)
+  ⎿  Added 9 lines
+      262      sourceRepository.mergeParseAssetUrlsEffect(workspaceId, so
+           urceId, input),
+      263    )
+      264  
+      265 +const updateSyncStatus: SourceWorkflowRuntime["updateSyncStatu
+          +s"] = (                                                       
+      266 +  workspaceId: string,                                        
+      267 +  sourceId: string,                                           
+      268 +  input: UpdateSyncStatusInput,                               
+      269 +) =>                                                          
+      270 +  databaseRuntime.runPromise(                                 
+      271 +    sourceRepository.updateSyncStatusEffect(workspaceId, sourc
+          +eId, input),                                                  
+      272 +  )                                                           
+      273 +                                                              
+      274  const getParseResultProgress: SourceWorkflowRuntime["getParseR
+           esultProgress"] =
+      275    (workspaceId: string, sourceId: string) =>
+      276      databaseRuntime.runPromise(
+
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/workflow-run
+        time.ts)
+  ⎿  Added 1 line
+      342    mergeParseAssetUrls,
+      343    saveParseResult,
+      344    softDelete,
+      345 +  updateSyncStatus,                                           
+      346    upsertMaterializedDemoSource,
+      347  }
+
+● Now typecheck to catch anything I missed in Task #7.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -20)
+  ⎿        Type 'undefined' is not assignable to type 'string | null'.
+     src/domains/sources/route-service.test.ts(18,7): error TS2741: Propert
+     y 'failureStage' is missing in type '{ id: string; workspaceId: string
+     … +61 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● The new non-null failureStage column on the Source type breaks test fixtures
+  that build full Source objects. Test fixtures likely use a shared builder. Let
+  me find how test Source objects are constructed — there's probably a factory
+  to update in one place.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -rln
+      "failureReason: null\|failureReason:" src --include=*.ts | grep -i
+      "test\|fixture\|factory\|mo…)
+  ⎿  (eval):1: no matches found: --include=*.ts
+     ---any shared source factory?---
+     (eval):1: no matches found: --include=*.ts
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -rln
+      "buildSource\|makeSource\|createSource\|sourceFixture\|baseSource\|fakeSou
+      rce\|SourceFactory"…)
+  ⎿  src/app/api/sources/route.ts
+     src/app/api/sources/[sourceId]/chunks/route.ts
+     src/app/api/demo-sources/materialize/route.test.ts
+     … +53 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 21s (ctrl+o to expand)
+
+● The type is legitimately correct (real column), so the fixtures need updating.
+  A few already show failureStage? optional — meaning they spread from a shared
+  base. Let me find that base fixture and see the pattern.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && echo "===
+      source-reconcile-workflow.test.ts 1-40 ===" && sed -n '1,45p'
+      src/domains/sources/source-recon…)
+  ⎿  === source-reconcile-workflow.test.ts 1-40 ===
+     import { describe, expect, it, vi } from "vitest"
+     import type { JobResult } from "@ontos-ai/knowhere-sdk"
+     … +43 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● These are per-file inline Source fixtures, each listing all columns. I need to
+  add failureStage: null to each. Rather than edit each manually, let me find
+  every occurrence of the fixture shape (the line failureReason: null,
+  immediately followed by knowhereJobId) in test/source files and insert
+  failureStage: null, after it. Let me first identify exactly which files
+  construct full Source objects (the failing set plus others), by searching for
+  the adjacent-line pattern.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -rlzP
+      "failureReason:[^\n]*\n\s*knowhereJobId:" src | tr '\0' '\n')  ⎿  src/app/api/sources/[sourceId]/chunks/route.test.ts
+     src/app/api/sources/[sourceId]/route.test.ts
+     src/app/api/sources/route.test.ts
+     … +23 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Two of these are non-test source files (demo-source-repository.ts,
+  source-row-repository.ts) — those are DB inserts where the column is optional
+  (nullable, no default needed), so I should NOT add failureStage there. The
+  rest are test fixtures constructing full Source objects. Let me verify the two
+  source files don't need it (insert values, not full Source literals), then do
+  a targeted insert across the test files only.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && echo "===
+      demo-source-repository.ts ===" && grep -nP "failureReason:"
+      src/domains/sources/demo-source-re…)
+  ⎿  === demo-source-repository.ts ===
+     100:            failureReason: null,
+     113:              failureReason: null,
+     … +7 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 30s (ctrl+o to expand)
+
+● These are full Source/NewSource literals (the two non-test source files are DB
+  insert/update values where the nullable column needs nothing). The Source
+  type now requires failureStage, so every full-source test fixture needs
+  failureStage: null. That's ~24 test files with the identical failureReason: … 
+  ⏎ knowhereJobId: shape — a scripted insert is the right tool here rather than
+  dozens of manual edits. I'll insert failureStage: null, (matching indentation)
+  after each failureReason: line that's immediately followed by knowhereJobId:,
+  across test files only.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && files=$(grep
+      -rlzP "failureReason:[^\n]*\n\s*knowhereJobId:" src | tr '\0' '\n' | grep
+      "\.test\.ts$") &&…)
+  ⎿  src/app/api/sources/[sourceId]/chunks/route.test.ts
+     src/app/api/sources/[sourceId]/route.test.ts
+     src/app/api/sources/route.test.ts
+     … +48 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+  Thought for 27s (ctrl+o to expand)
+
+● The verify shows the insertion did NOT actually apply (line 26-27 unchanged),
+  and the bracketed [sourceId] paths errored due to shell globbing. Let me redo
+  this correctly — test on one file first to confirm the perl regex works.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && perl -0pi -e
+      's/(failureReason:[^\n]*,\n)([ \t]*)(knowhereJobId:)/$1${2}failureStage:
+      null,\n$2$3/g' src…)
+  ⎿  26:    failureReason: null,
+     27-    failureStage: null,
+     28-    knowhereJobId: "job_1",
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● The regex works when run per-file (the earlier for loop failed because the
+  file list from grep -rlz retained NUL/globbing issues). Now apply to the
+  remaining files using a null-safe loop.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && grep -rlzP
+      "failureReason:[^\n]*\n\s*knowhereJobId:" src | while IFS= read -r -d ''
+      f; do case "$f" in *…)
+  ⎿  DONE
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● source-reconcile-workflow.test.ts was already processed once — the loop would
+  double-insert. Let me check it didn't get a duplicate, then typecheck.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && echo "=== dup
+      check (any file with 2 consecutive failureStage lines) ===" && grep -rzoP
+      "failureStage: n…)
+  ⎿  === dup check (any file with 2 consecutive failureStage lines) ===
+     === reconcile-workflow fixture ===
+     26:    failureReason: null,
+     … +64 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Progress but several remain. Two distinct cases:
+  1. workflow-runtime.test.ts, route-service.test.ts — full Source literals
+  where knowhereJobId comes BEFORE failureReason (different field order), so my
+  regex missed them.
+  2. retry.test.ts:118, upload.test.ts:18, view.test.ts:7,
+  initial-state.test.ts:642 — these show failureStage?: undefined meaning they
+  spread a base fixture that has failureStage optional, OR use Partial overrides
+  producing undefined. Let me look at each failing spot.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && echo "===
+      workflow-runtime.test.ts 20-45 ===" && sed -n '20,45p'
+      src/domains/sources/workflow-runtime.te…)
+  ⎿  === workflow-runtime.test.ts 20-45 ===
+           repository.markSourceFailed("workspace_1", "source_1", "failed")
+     ,
+     … +54 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● These two have a conditional failureReason: status === ... ? ... : null,
+  (workflow-runtime) — the [^\n]*,\n matched but the ternary contains no issue;
+  actually route-service.test.ts line 25 has plain failureReason: null, then
+  knowhereJobId: — my regex should have caught it. It seems these files weren't
+  in my processed list or the earlier run's file list differed. Let me just add
+  failureStage: null, after the failureReason line in these two specific files.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && for f in
+      src/domains/sources/workflow-runtime.test.ts
+      src/domains/sources/route-service.test.ts; do perl…)
+  ⎿  === workflow-runtime ===
+     33:    failureReason: status === "failed" ? "failed" : null,
+     34-    failureStage: null,
+     … +4 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Now the other four (retry.test.ts:118, upload.test.ts:18, view.test.ts:7,
+  initial-state.test.ts:642) show failureStage?: undefined, meaning they spread
+  a base object that itself now has failureStage but the override object passes
+  undefined, OR they build via a helper with Partial. Let me look at these.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && echo "===
+      retry.test.ts 100-125 ===" && sed -n '100,125p'
+      src/domains/sources/retry.test.ts && echo "===…)
+  ⎿  === retry.test.ts 100-125 ===
+         }
+     … +55 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● These makeSource helpers use ...overrides — the failureStage?: undefined in
+  the error is because the fixture object still lacks failureStage before the
+  spread. My regex requires failureReason:...,\n<indent>knowhereJobId:. In
+  view.test.ts the pattern matches (line 14→15), so why did it fail? The earlier
+  bulk loop reprocessed the already-done file and possibly the file list from
+  grep -rlz didn't include these because of how I piped. Let me just re-run the
+  per-file perl on the four remaining files directly.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && for f in
+      src/domains/sources/retry.test.ts src/domains/sources/upload.test.ts
+      src/domains/sources/view.t…)
+  ⎿  verify:
+     -- retry --
+     2
+     … +5 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -20)
+  ⎿    Types of property 'failureStage' are incompatible.
+         Type 'string | null | undefined' is not assignable to type 'string
+      | null'.
+     … +47 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Fewer errors. counts.test.ts and reconcile.test.ts still need failureStage (my
+  regex likely missed them — perhaps failureReason uses a different value with
+  a trailing comment or the following line isn't knowhereJobId). And now a
+  SourceParseResult fixture in remote-parsed-snapshot-sync.test.ts:302 needs
+  revisionKey/syncStatus/syncError. Let me inspect these three spots.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && echo "===
+      counts.test.ts 5-15 ===" && sed -n '5,15p'
+      src/domains/sources/counts.test.ts && echo "=== rec…)
+  ⎿  === counts.test.ts 5-15 ===
+
+     import type { Source } from "@/infrastructure/db/schema"
+     … +45 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● counts.test.ts and reconcile.test.ts have the standard shape, so my regex
+  should have caught them — they must not have been in the grep list when I ran
+  the loop (glob issue). Let me apply per-file, and add the three
+  SourceParseResult columns to the parse-result fixture.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && for f in
+      src/domains/sources/counts.test.ts src/domains/sources/reconcile.test.ts;
+      do perl -0pi -e 's/(f…)
+  ⎿  src/domains/sources/reconcile.test.ts:1
+     src/domains/sources/counts.test.ts:1
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Now the SourceParseResult fixture. Let me add revisionKey/syncStatus/syncError
+  to it after snapshotManifestKey.
+
+  Read 1 file (ctrl+o to expand)
+● Update(~/github.com/ontosAI/knowhere-notebook/src/domains/sources/remote-parse
+        d-snapshot-sync.test.ts)
+  ⎿  Added 3 lines
+      308        "https://blob.example/workspaces/workspace_1/sources/000
+           00000-0000-0000-0000-000000000009/parsed-result/manifest/curre
+           nt.json",
+      309      snapshotManifestKey:
+      310        "workspaces/workspace_1/sources/00000000-0000-0000-0000-
+           000000000009/parsed-result/manifest/current.json",
+      311 +    revisionKey: null,                                        
+      312 +    syncStatus: null,                                         
+      313 +    syncError: null,                                          
+      314      assetUrls: {},
+      315      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      316      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -20)
+  ⎿    Types of property 'failureStage' are incompatible.
+         Type 'string | null | undefined' is not assignable to type 'string
+      | null'.
+     … +46 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Still a handful: chat/service.test.ts, chunks/index.test.ts,
+  chunks/server.test.ts, and remote-parsed-snapshot-sync.test.ts:277. My bulk
+  loop clearly didn't touch several files consistently. Let me just check which
+  test files with a full Source literal still lack failureStage and fix them all
+  in one reliable pass. The safest approach: for every .test.ts under src that
+  has the failureReason:...\n...knowhereJobId: pattern but NOT already
+  failureStage, apply the perl.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && changed=""; while
+      IFS= read -r -d '' f; do if ! grep -qzP
+      "failureReason:[^\n]*,\n\s*failureStage:" "$f"…)
+  ⎿  patched:
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● The while-loop input got mangled. Let me take a simpler, deterministic path:
+  iterate a plain explicit list of the four remaining failing files.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && for f in
+      "src/domains/chat/service.test.ts" "src/domains/chunks/index.test.ts"
+      "src/domains/chunks/serve…)
+  ⎿  src/domains/chat/service.test.ts -> 1
+     src/domains/chunks/index.test.ts -> 1
+     src/domains/chunks/server.test.ts -> 1
+     src/domains/sources/remote-parsed-snapshot-sync.test.ts -> 1
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -20)
+  ⎿    Types of property 'failureStage' are incompatible.
+         Type 'string | null | undefined' is not assignable to type 'string
+      | null'.
+     … +46 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● More chat test files. The bulk loop is clearly unreliable in this shell. Let
+  me get the definitive list of ALL remaining offenders from tsc directly and
+  fix exactly those.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | grep -oP "^src/[^(]+\.test\.ts" | sort -u)
+  ⎿  src/app/api/demo-sources/materialize/route.test.ts
+     src/app/api/sources/route.test.ts
+     src/domains/chat/index.test.ts
+     … +4 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Seven files. Let me apply the perl to each explicitly (avoiding the loop-input
+  issue), then check whether any have a different field ordering.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && perl -0pi -e
+      's/(failureReason:[^\n]*,\n)([ \t]*)(knowhereJobId:)/$1${2}failureStage:
+      null,\n$2$3/g' "sr…)
+  ⎿  src/app/api/demo-sources/materialize/route.test.ts -> 1
+     src/app/api/sources/route.test.ts -> 1
+     src/domains/chat/index.test.ts -> 1
+     … +4 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● All patched. Some of these files (e.g. route.test.ts had failureStage reported
+  missing at multiple lines) may have more than one Source literal — the count
+  of 1 suggests only one matched. Let me typecheck to see if any remain.
+
+● Bash(cd /home/suguan/github.com/ontosAI/knowhere-notebook && pnpm typecheck
+      2>&1 | tail -25)
+  ⎿  > knowhere-notebook@0.1.0 typecheck /home/suguan/github.com/ontosAI/kn
+     owhere-notebook
+     > tsc --noEmit
+  ⎿  Shell cwd was reset to 
+     /home/suguan/github.com/ontosAI/knowhere-node-sdk
+
+● Please run /login · API Error: 403 预扣费额度失败, 用户剩余额度: 
+  ¥0.155160, 需要预扣费额度: ¥0.495542 (request id: 
+  202607041425149789930498268d9d69rP7bjXn)
+
+✻ Crunched for 1h 3m 4s

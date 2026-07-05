@@ -1,6 +1,9 @@
+import path from 'path';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
+  DiskParsedDocumentStorage,
   Knowhere,
   VERSION,
   ValidationError,
@@ -51,10 +54,7 @@ export async function createKnowhereMcpServer(
       authTokenProvider: options?.authTokenProvider,
       baseURL: options?.baseURL,
     });
-  const knowledge: Knowledge =
-    options?.cacheDirectory === undefined
-      ? client.knowledge
-      : client.knowledge.withCacheDirectory(options.cacheDirectory);
+  const knowledge: Knowledge = createKnowledgeClient(client, options?.cacheDirectory);
   if (options?.recoverPendingJobsOnStart !== false) {
     await knowledge.recoverPendingAsyncParseJobs();
   }
@@ -82,7 +82,7 @@ export async function createKnowhereMcpServer(
       },
       async (input) =>
         createToolResult(
-          await knowledge.parse({
+          await knowledge.parseToLocalCache({
             url: input.url,
             namespace: input.namespace,
             localDocumentId: input.localDocumentId,
@@ -109,7 +109,7 @@ export async function createKnowhereMcpServer(
       },
       async (input) =>
         createToolResult(
-          await knowledge.parse({
+          await knowledge.parseToLocalCache({
             file: input.file,
             fileName: input.fileName,
             namespace: input.namespace,
@@ -227,11 +227,12 @@ export async function createKnowhereMcpServer(
     'knowhere_get_document_outline',
     {
       description:
-        'Return the outline for a parsed document. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Return the outline for one parsed document. Pass localDocumentId, published documentId, or completed jobId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and schedules bounded sync only when parsed storage is explicitly configured.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
         jobId: z.string().optional(),
+        revisionKey: z.string().optional(),
       },
       outputSchema: objectOutputSchema,
     },
@@ -242,17 +243,21 @@ export async function createKnowhereMcpServer(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from a parsed document. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and only returns durable asset URLs when assetUrlPolicy is durable and storage hardening succeeds.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
         jobId: z.string().optional(),
+        revisionKey: z.string().optional(),
+        page: z.number().int().positive().optional(),
+        pageSize: z.number().int().positive().optional(),
         sectionPath: z.string().optional(),
         startChunk: z.number().int().positive().optional(),
         endChunk: z.number().int().positive().optional(),
         chunkId: z.string().optional(),
         chunkType: z.enum(['text', 'image', 'table', 'page']).optional(),
         limit: z.number().int().positive().optional(),
+        assetUrlPolicy: z.enum(['none', 'durable']).optional(),
       },
       outputSchema: objectOutputSchema,
     },
@@ -263,12 +268,14 @@ export async function createKnowhereMcpServer(
     'knowhere_grep_chunks',
     {
       description:
-        'Run grep-style literal or regex matching against parsed document chunks. Pass localDocumentId, published documentId, or completed jobId. The response document includes resultDirectoryPath; expanded chunks are stored in chunks.json under that directory.',
+        'Run grep-style literal or regex matching against one parsed document. Pass localDocumentId, published documentId, or completed jobId. Broad workspace search belongs to knowhere_search; documentId grep streams remote chunks without asset URLs when parsed storage is missing or stale.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
         jobId: z.string().optional(),
+        revisionKey: z.string().optional(),
         pattern: z.string(),
+        continuationCursor: z.string().optional(),
         isRegex: z.boolean().optional(),
         isCaseSensitive: z.boolean().optional(),
         maxResults: z.number().int().positive().optional(),
@@ -305,6 +312,16 @@ export async function runKnowhereMcpServer(options?: KnowhereMcpServerOptions): 
   const server = await createKnowhereMcpServer(options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+}
+
+function createKnowledgeClient(client: Knowhere, cacheDirectory: string | undefined): Knowledge {
+  if (cacheDirectory === undefined) {
+    return client.knowledge;
+  }
+
+  return client.knowledge.withCacheDirectory(cacheDirectory).withParsedStorage({
+    storage: new DiskParsedDocumentStorage(path.join(cacheDirectory, 'parsed-documents')),
+  });
 }
 
 function createToolResult(result: ToolResult): {

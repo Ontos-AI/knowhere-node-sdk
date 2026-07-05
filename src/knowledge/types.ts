@@ -1,6 +1,13 @@
 import type { ParseParams } from '../types/params.js';
 import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
+import type {
+  KnowhereAssetStorageOptions,
+  KnowhereParsedSnapshotManifest,
+  KnowhereParsedSnapshot,
+  ParsedDocumentAssetUrlPolicy,
+  ParsedDocumentStorageConfig,
+} from '../types/storage.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
 
@@ -35,6 +42,8 @@ export interface LocalKnowledgeDocument {
 export interface LocalKnowledgeParseResponse {
   document: LocalKnowledgeDocument;
   result: ParseResult;
+  assetUrlsByFilePath?: Readonly<Record<string, string>>;
+  parsedSnapshot?: KnowhereParsedSnapshot;
 }
 
 export interface KnowledgeAsyncParseParams extends ParseParams {
@@ -72,11 +81,24 @@ export interface KnowledgeStartupRecoveryResponse {
   results: KnowledgeAsyncJobStatusResponse[];
 }
 
-export interface KnowledgeCacheJobResultParams {
+export interface KnowledgeLoadJobResultParams {
   jobId: string;
-  localDocumentId?: string;
   verifyChecksum?: boolean;
+  storageAdapter?: KnowhereAssetStorageOptions;
 }
+
+export interface KnowledgeImportJobResultParams extends KnowledgeLoadJobResultParams {
+  localDocumentId?: string;
+}
+
+export interface KnowledgeJobResultResponse {
+  result: ParseResult;
+  assetUrlsByFilePath?: Readonly<Record<string, string>>;
+  parsedSnapshot?: KnowhereParsedSnapshot;
+}
+
+/** @deprecated Use KnowledgeImportJobResultParams with importJobResult instead. */
+export type KnowledgeCacheJobResultParams = KnowledgeImportJobResultParams;
 
 export interface KnowledgeCacheDocumentParams {
   /** Canonical Knowhere document identifier from published retrieval results. */
@@ -92,6 +114,19 @@ export interface KnowledgeDocumentReference {
   documentId?: string;
   /** Server parse job identifier whose completed result should be cached before reading. */
   jobId?: string;
+  /** Current parsed revision key when the caller already has it. */
+  revisionKey?: string;
+}
+
+export type KnowledgeParsedStorageOptions = ParsedDocumentStorageConfig;
+
+export type KnowledgeSyncParsedDocumentParams = KnowledgeDocumentReference;
+
+export interface KnowledgeSyncParsedDocumentResponse {
+  documentId: string;
+  revisionKey: string;
+  completed: boolean;
+  manifest?: KnowhereParsedSnapshotManifest;
 }
 
 export interface KnowledgeSection {
@@ -112,15 +147,20 @@ export interface KnowledgeOutline {
   typeCounts: Record<KnowledgeChunkType, number>;
   sections: KnowledgeSection[];
   sectionTree: KnowledgeSection[];
+  truncated?: boolean;
+  continuationCursor?: string;
 }
 
 export interface KnowledgeReadParams extends KnowledgeDocumentReference {
+  page?: number;
+  pageSize?: number;
   sectionPath?: string;
   startChunk?: number;
   endChunk?: number;
   chunkId?: string;
   chunkType?: KnowledgeChunkType;
   limit?: number;
+  assetUrlPolicy?: ParsedDocumentAssetUrlPolicy;
 }
 
 export interface KnowledgeReadChunk {
@@ -135,6 +175,7 @@ export interface KnowledgeReadChunk {
   sectionPath: string;
   sourceChunkPath: string;
   filePath?: string;
+  assetUrl?: string;
   pageNumbers?: number[];
   metadata: Record<string, unknown>;
 }
@@ -143,10 +184,15 @@ export interface KnowledgeReadResponse {
   document: LocalKnowledgeDocument;
   chunks: KnowledgeReadChunk[];
   nextChunk?: number;
+  page?: number;
+  pageSize?: number;
+  totalChunks?: number;
+  totalPages?: number;
 }
 
 export interface KnowledgeGrepParams extends KnowledgeDocumentReference {
   pattern: string;
+  continuationCursor?: string;
   isRegex?: boolean;
   isCaseSensitive?: boolean;
   maxResults?: number;
@@ -172,6 +218,7 @@ export interface KnowledgeGrepResponse {
   matches: KnowledgeGrepMatch[];
   scannedChunks: number;
   truncated: boolean;
+  continuationCursor?: string;
 }
 
 export interface KnowledgeSearchParams {
@@ -222,6 +269,7 @@ export interface IndexedKnowledgeChunk {
   sectionPath: string;
   sourceChunkPath: string;
   filePath?: string;
+  assetUrl?: string;
   pageNumbers?: number[];
   metadata: Record<string, unknown>;
 }

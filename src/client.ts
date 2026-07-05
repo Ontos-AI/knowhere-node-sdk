@@ -13,6 +13,7 @@ import { Knowledge } from './knowledge/index.js';
 import { DEFAULT_BASE_URL, ENV } from './constants.js';
 import { ValidationError } from './errors/index.js';
 import { enrichParseResult } from './lib/utils.js';
+import { storeParseResultAssets } from './storage/asset-storage.js';
 
 function inferFileName(file: ParseParams['file'], explicitFileName?: string): string | undefined {
   if (explicitFileName) {
@@ -145,7 +146,13 @@ export class Knowhere {
       verifyChecksum: params.verifyChecksum,
     });
 
-    return enrichParseResult(result, jobResult);
+    const enrichedResult = enrichParseResult(result, {
+      namespace: jobResult.namespace,
+      documentId: jobResult.documentId ?? params.documentId,
+    });
+
+    const storedResult = await storeParseResultAssets(enrichedResult, params.storageAdapter);
+    return storedResult.result;
   }
 
   /**

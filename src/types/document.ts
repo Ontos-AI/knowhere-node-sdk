@@ -89,7 +89,7 @@ export interface DocumentChunkListParams {
   pageSize?: number;
   /** Optional chunk type filter */
   chunkType?: DocumentChunkType;
-  /** Set true to include 7-day asset URLs for media chunks */
+  /** Set true to include 7-day asset URLs for media and page citation assets */
   includeAssetUrls?: boolean;
 }
 
@@ -97,7 +97,7 @@ export interface DocumentChunkListParams {
  * Query parameters for GET /v2/documents/{document_id}/chunks/{document_chunk_id}.
  */
 export interface DocumentChunkGetParams {
-  /** Set true to include 7-day asset URLs for media chunks */
+  /** Set true to include 7-day asset URLs for media and page citation assets */
   includeAssetUrls?: boolean;
 }
 
@@ -127,10 +127,25 @@ export interface DocumentChunk {
   sortOrder: number;
   /** Chunk metadata returned by the API */
   metadata: Record<string, unknown>;
-  /** 7-day asset URL for media chunks when available */
+  /** 7-day asset URL for media or page citation assets when available */
   assetUrl?: string | null;
   /** Chunk creation timestamp */
   createdAt?: Date;
+}
+
+/**
+ * Response from GET /v2/documents/{document_id}/files/page-citation-source.
+ */
+export interface DocumentPageCitationSource {
+  documentId: string;
+  namespace?: string;
+  jobId?: string;
+  jobResultId?: string;
+  variant?: string;
+  fileName: string;
+  contentType: string;
+  url: string;
+  expiresAt?: Date;
 }
 
 /**

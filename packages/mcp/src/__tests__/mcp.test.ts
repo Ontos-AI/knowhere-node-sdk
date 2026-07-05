@@ -30,8 +30,8 @@ describe('knowhere MCP wrapper', () => {
     expect(statusTool?.description).toContain('5s, 10s, 20s, 40s, 80s');
     expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
     expect(listTool?.description).toContain('remote API');
-    expect(readTool?.description).toContain('resultDirectoryPath');
-    expect(readTool?.description).toContain('chunks.json');
+    expect(readTool?.description).toContain('configured parsed storage first');
+    expect(readTool?.description).toContain('assetUrlPolicy is durable');
     await client.close();
     await server.close();
   });
@@ -107,7 +107,7 @@ describe('knowhere MCP wrapper', () => {
       },
     });
 
-    expect(knowhereClient.knowledge.parse).toHaveBeenCalledWith({
+    expect(knowhereClient.knowledge.parseToLocalCache).toHaveBeenCalledWith({
       file: './report.md',
       fileName: undefined,
       namespace: undefined,
@@ -160,16 +160,21 @@ describe('knowhere MCP wrapper', () => {
       name: 'knowhere_read_chunks',
       arguments: {
         documentId: 'doc_remote',
-        sectionPath: 'Overview',
+        revisionKey: 'jres_remote',
+        page: 1,
+        pageSize: 3,
         chunkType: 'page',
         limit: 3,
+        assetUrlPolicy: 'none',
       },
     });
     await client.callTool({
       name: 'knowhere_grep_chunks',
       arguments: {
         documentId: 'doc_remote',
+        revisionKey: 'jres_remote',
         pattern: 'revenue',
+        continuationCursor: 'cursor-1',
         chunkType: 'page',
       },
     });
@@ -179,13 +184,18 @@ describe('knowhere MCP wrapper', () => {
     });
     expect(knowhereClient.knowledge.readChunks).toHaveBeenCalledWith({
       documentId: 'doc_remote',
-      sectionPath: 'Overview',
+      revisionKey: 'jres_remote',
+      page: 1,
+      pageSize: 3,
       chunkType: 'page',
       limit: 3,
+      assetUrlPolicy: 'none',
     });
     expect(knowhereClient.knowledge.grepChunks).toHaveBeenCalledWith({
       documentId: 'doc_remote',
+      revisionKey: 'jres_remote',
       pattern: 'revenue',
+      continuationCursor: 'cursor-1',
       chunkType: 'page',
     });
     await client.close();
@@ -318,6 +328,7 @@ describe('knowhere MCP wrapper', () => {
     expect(knowhereClient.knowledge.withCacheDirectory).toHaveBeenCalledWith(
       '/tmp/knowhere-mcp-cache',
     );
+    expect(knowhereClient.knowledge.withParsedStorage).toHaveBeenCalledOnce();
     expect(knowhereClient.knowledge.recoverPendingAsyncParseJobs).toHaveBeenCalledOnce();
     expect(knowhereClient.knowledge.readChunks).toHaveBeenCalledWith({
       localDocumentId: 'local-report',
@@ -414,7 +425,7 @@ function createClient(): Knowhere & {
   knowledge: KnowledgeWithMocks;
 } {
   const knowledge: KnowledgeWithMocks = {
-    parse: vi.fn().mockResolvedValue({
+    parseToLocalCache: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
       result: { jobId: 'job-1' },
     }),
@@ -430,7 +441,7 @@ function createClient(): Knowhere & {
         document: { localDocumentId: 'local-report' },
       },
     }),
-    cacheJobResult: vi.fn().mockResolvedValue({
+    importJobResult: vi.fn().mockResolvedValue({
       document: { localDocumentId: 'local-report' },
     }),
     recoverPendingAsyncParseJobs: vi.fn().mockResolvedValue({
@@ -448,8 +459,10 @@ function createClient(): Knowhere & {
     grepChunks: vi.fn().mockResolvedValue({ matches: [] }),
     search: vi.fn().mockResolvedValue({ results: [] }),
     withCacheDirectory: vi.fn(),
+    withParsedStorage: vi.fn(),
   };
   knowledge.withCacheDirectory.mockReturnValue(knowledge as unknown as Knowledge);
+  knowledge.withParsedStorage.mockReturnValue(knowledge as unknown as Knowledge);
   const archiveDocument = vi.fn().mockResolvedValue({
     documentId: 'doc-1',
     status: 'archived',
@@ -482,10 +495,10 @@ function createClient(): Knowhere & {
 
 type KnowledgeWithMocks = Pick<
   Knowledge,
-  | 'parse'
+  | 'parseToLocalCache'
   | 'startParse'
   | 'getJobStatus'
-  | 'cacheJobResult'
+  | 'importJobResult'
   | 'recoverPendingAsyncParseJobs'
   | 'listDocuments'
   | 'getDocumentOutline'
@@ -493,11 +506,12 @@ type KnowledgeWithMocks = Pick<
   | 'grepChunks'
   | 'search'
   | 'withCacheDirectory'
+  | 'withParsedStorage'
 > & {
-  parse: Mock<Knowledge['parse']>;
+  parseToLocalCache: Mock<Knowledge['parseToLocalCache']>;
   startParse: Mock<Knowledge['startParse']>;
   getJobStatus: Mock<Knowledge['getJobStatus']>;
-  cacheJobResult: Mock<Knowledge['cacheJobResult']>;
+  importJobResult: Mock<Knowledge['importJobResult']>;
   recoverPendingAsyncParseJobs: Mock<Knowledge['recoverPendingAsyncParseJobs']>;
   listDocuments: Mock<Knowledge['listDocuments']>;
   getDocumentOutline: Mock<Knowledge['getDocumentOutline']>;
@@ -505,4 +519,5 @@ type KnowledgeWithMocks = Pick<
   grepChunks: Mock<Knowledge['grepChunks']>;
   search: Mock<Knowledge['search']>;
   withCacheDirectory: Mock<Knowledge['withCacheDirectory']>;
+  withParsedStorage: Mock<Knowledge['withParsedStorage']>;
 };
