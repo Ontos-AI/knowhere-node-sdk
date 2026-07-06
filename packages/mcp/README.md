@@ -182,12 +182,13 @@ When logged in with Read only permission, the MCP server exposes only
   and makes the parsed document available to outline/read/grep/search tools.
 - `knowhere_parse_file`: blocking parse for a file path available to the MCP
   process; waits for completion and makes the parsed document available to
-  outline/read/grep/search tools.
+  outline/read/grep/search tools. The path is resolved on the machine running
+  this stdio MCP server.
 - `knowhere_async_parse_url`: start parsing a remote URL and return the job
   immediately. When checking status, use exponential backoff.
 - `knowhere_async_parse_file`: start parsing a local file path, upload it if
   needed, and return the job immediately. When checking status, use exponential
-  backoff.
+  backoff. The path is resolved on the machine running this stdio MCP server.
 - `knowhere_async_get_job_status`: check a parse job status. For large PDFs or
   OCR-heavy files, parsing can take 10+ minutes; poll with `5s`, `10s`, `20s`,
   `40s`, `80s`, then cap at `120s` between follow-up status checks. After
@@ -203,12 +204,14 @@ When logged in with Read only permission, the MCP server exposes only
 - `knowhere_read_chunks`: read exact chunks from one parsed document by passing
   `localDocumentId`, published `documentId`, or completed `jobId`. Use
   `page`/`pageSize` for display reads; asset URLs are returned when the source
-  or configured storage provides them.
+  or configured storage provides them. Page screenshots are returned under chunk
+  `metadata.pageAssets`, not as image chunks.
 - `knowhere_grep_chunks`: run literal or regex grep over one parsed document by
   passing `localDocumentId`, published `documentId`, or completed `jobId`.
   Broad workspace search belongs to `knowhere_search`.
 - `knowhere_search`: search published documents through the Knowhere API
-  retrieval query.
+  retrieval query. Use follow-up `knowhere_read_chunks` calls to inspect page
+  screenshots under chunk `metadata.pageAssets`.
 
 Local-cache tool responses include `document.resultDirectoryPath`; expanded
 chunks are stored at `<resultDirectoryPath>/chunks.json` for direct filesystem

@@ -96,7 +96,7 @@ export async function createKnowhereMcpServer(
       'knowhere_parse_file',
       {
         description:
-          'Blocking parse: submit a local file path available to this MCP process, wait for completion, then make the parsed document available to outline/read/grep/search tools.',
+          'Blocking parse: submit a local file path available to this MCP process, wait for completion, then make the parsed document available to outline/read/grep/search tools. The file path is resolved on the machine running this stdio MCP server, not on a remote chat client.',
         inputSchema: {
           file: z.string().describe('Local file path available to this MCP server process.'),
           fileName: z.string().optional(),
@@ -150,7 +150,7 @@ export async function createKnowhereMcpServer(
       'knowhere_async_parse_file',
       {
         description:
-          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. When checking status, call knowhere_async_get_job_status with exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large PDFs or OCR-heavy files can take 10+ minutes; prefer sparse follow-up status checks over rapid repeated calls. After completion, use the returned localDocumentId, documentId, or jobId with outline/read/grep tools.',
+          'Start parsing a local file path available to this MCP process, upload it if needed, and return immediately with the parse job. The file path is resolved on the machine running this stdio MCP server, not on a remote chat client. When checking status, call knowhere_async_get_job_status with exponential backoff: 5s, 10s, 20s, 40s, 80s, then cap at 120s. Large PDFs or OCR-heavy files can take 10+ minutes; prefer sparse follow-up status checks over rapid repeated calls. After completion, use the returned localDocumentId, documentId, or jobId with outline/read/grep tools.',
         inputSchema: {
           file: z.string().describe('Local file path available to this MCP server process.'),
           fileName: z.string().optional(),
@@ -243,7 +243,7 @@ export async function createKnowhereMcpServer(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and returns asset URLs when the source or storage provides them.',
+        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and returns asset URLs when the source or storage provides them. Page screenshots are returned under chunk metadata.pageAssets, not as image chunks.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -291,7 +291,7 @@ export async function createKnowhereMcpServer(
     'knowhere_search',
     {
       description:
-        'Search published Knowhere documents with the Knowhere API retrieval query. localDocumentIds only map returned server document IDs back to local cache IDs when available.',
+        'Search published Knowhere documents with the Knowhere API retrieval query. localDocumentIds only map returned server document IDs back to local cache IDs when available. Page screenshots are exposed by follow-up read calls under chunk metadata.pageAssets, not as image chunks.',
       inputSchema: {
         query: z.string(),
         namespace: z.string().optional(),
