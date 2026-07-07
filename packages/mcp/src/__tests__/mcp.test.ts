@@ -12,7 +12,12 @@ describe('knowhere MCP wrapper', () => {
     const toolNames = tools.tools.map((tool) => tool.name).sort();
     const statusTool = tools.tools.find((tool) => tool.name === 'knowhere_async_get_job_status');
     const listTool = tools.tools.find((tool) => tool.name === 'knowhere_list_documents');
+    const parseFileTool = tools.tools.find((tool) => tool.name === 'knowhere_parse_file');
+    const asyncParseFileTool = tools.tools.find(
+      (tool) => tool.name === 'knowhere_async_parse_file',
+    );
     const readTool = tools.tools.find((tool) => tool.name === 'knowhere_read_chunks');
+    const searchTool = tools.tools.find((tool) => tool.name === 'knowhere_search');
 
     expect(toolNames).toEqual([
       'knowhere_async_get_job_status',
@@ -30,8 +35,16 @@ describe('knowhere MCP wrapper', () => {
     expect(statusTool?.description).toContain('5s, 10s, 20s, 40s, 80s');
     expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
     expect(listTool?.description).toContain('remote API');
+    expect(parseFileTool?.description).toContain(
+      'resolved on the machine running this stdio MCP server',
+    );
+    expect(asyncParseFileTool?.description).toContain(
+      'resolved on the machine running this stdio MCP server',
+    );
     expect(readTool?.description).toContain('configured parsed storage first');
     expect(readTool?.description).toContain('returns asset URLs');
+    expect(readTool?.description).toContain('metadata.pageAssets');
+    expect(searchTool?.description).toContain('metadata.pageAssets');
     await client.close();
     await server.close();
   });
