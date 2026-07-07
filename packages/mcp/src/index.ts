@@ -2,6 +2,7 @@ import path from 'path';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   DiskParsedDocumentStorage,
   Knowhere,
@@ -15,8 +16,7 @@ import {
 import * as z from 'zod/v4';
 
 import type { Permission } from './auth.js';
-
-type ToolResult = object;
+import { createKnowhereToolResult } from './tool-result-formatter.js';
 
 const parsingParamsSchema = z
   .object({
@@ -31,10 +31,6 @@ const parsingParamsSchema = z
     addFragDesc: z.string().optional(),
   })
   .optional();
-
-const objectOutputSchema = {
-  result: z.record(z.string(), z.unknown()),
-};
 
 export interface KnowhereMcpServerOptions {
   client?: Knowhere;
@@ -78,10 +74,10 @@ export async function createKnowhereMcpServer(
           dataId: z.string().optional(),
           parsingParams: parsingParamsSchema,
         },
-        outputSchema: objectOutputSchema,
       },
       async (input) =>
         createToolResult(
+          'parseUrl',
           await knowledge.parseToLocalCache({
             url: input.url,
             namespace: input.namespace,
@@ -105,10 +101,10 @@ export async function createKnowhereMcpServer(
           dataId: z.string().optional(),
           parsingParams: parsingParamsSchema,
         },
-        outputSchema: objectOutputSchema,
       },
       async (input) =>
         createToolResult(
+          'parseFile',
           await knowledge.parseToLocalCache({
             file: input.file,
             fileName: input.fileName,
@@ -132,10 +128,10 @@ export async function createKnowhereMcpServer(
           dataId: z.string().optional(),
           parsingParams: parsingParamsSchema,
         },
-        outputSchema: objectOutputSchema,
       },
       async (input) =>
         createToolResult(
+          'asyncParseUrl',
           await knowledge.startParse({
             url: input.url,
             namespace: input.namespace,
@@ -159,10 +155,10 @@ export async function createKnowhereMcpServer(
           dataId: z.string().optional(),
           parsingParams: parsingParamsSchema,
         },
-        outputSchema: objectOutputSchema,
       },
       async (input) =>
         createToolResult(
+          'asyncParseFile',
           await knowledge.startParse({
             file: input.file,
             fileName: input.fileName,
@@ -183,9 +179,8 @@ export async function createKnowhereMcpServer(
       inputSchema: {
         jobId: z.string(),
       },
-      outputSchema: objectOutputSchema,
     },
-    async (input) => createToolResult(await knowledge.getJobStatus(input.jobId)),
+    async (input) => createToolResult('jobStatus', await knowledge.getJobStatus(input.jobId)),
   );
 
   server.registerTool(
@@ -196,10 +191,10 @@ export async function createKnowhereMcpServer(
       inputSchema: {
         namespace: z.string().optional(),
       },
-      outputSchema: objectOutputSchema,
     },
     async (input) =>
       createToolResult(
+        'listDocuments',
         await client.documents.list({
           namespace: input.namespace,
         }),
@@ -216,10 +211,12 @@ export async function createKnowhereMcpServer(
           documentId: z.string().optional(),
           localDocumentId: z.string().optional(),
         },
-        outputSchema: objectOutputSchema,
       },
       async (input) =>
-        createToolResult(await archiveDocument({ client, knowledge, params: input })),
+        createToolResult(
+          'deleteDocument',
+          await archiveDocument({ client, knowledge, params: input }),
+        ),
     );
   }
 
@@ -234,16 +231,15 @@ export async function createKnowhereMcpServer(
         jobId: z.string().optional(),
         revisionKey: z.string().optional(),
       },
-      outputSchema: objectOutputSchema,
     },
-    async (input) => createToolResult(await knowledge.getDocumentOutline(input)),
+    async (input) => createToolResult('outline', await knowledge.getDocumentOutline(input)),
   );
 
   server.registerTool(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and returns asset URLs when the source or storage provides them. Page screenshots are returned under chunk metadata.pageAssets, not as image chunks.',
+        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and returns asset URLs when the source or storage provides them. Page screenshots are returned as tagged <pageAssets> entries before preview text, not as image chunks.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -258,9 +254,8 @@ export async function createKnowhereMcpServer(
         chunkType: z.enum(['text', 'image', 'table', 'page']).optional(),
         limit: z.number().int().positive().optional(),
       },
-      outputSchema: objectOutputSchema,
     },
-    async (input) => createToolResult(await knowledge.readChunks(input)),
+    async (input) => createToolResult('readChunks', await knowledge.readChunks(input)),
   );
 
   server.registerTool(
@@ -282,16 +277,15 @@ export async function createKnowhereMcpServer(
         sectionPathPrefix: z.string().optional(),
         contextChars: z.number().int().nonnegative().optional(),
       },
-      outputSchema: objectOutputSchema,
     },
-    async (input) => createToolResult(await knowledge.grepChunks(input)),
+    async (input) => createToolResult('grepChunks', await knowledge.grepChunks(input)),
   );
 
   server.registerTool(
     'knowhere_search',
     {
       description:
-        'Search published Knowhere documents with the Knowhere API retrieval query. localDocumentIds only map returned server document IDs back to local cache IDs when available. Page screenshots are exposed by follow-up read calls under chunk metadata.pageAssets, not as image chunks.',
+        'Search published Knowhere documents with the Knowhere API retrieval query. localDocumentIds only map returned server document IDs back to local cache IDs when available. Page results are marked with hasPageAssets="true"; use follow-up read calls to get tagged <pageAssets> entries.',
       inputSchema: {
         query: z.string(),
         namespace: z.string().optional(),
@@ -299,9 +293,8 @@ export async function createKnowhereMcpServer(
         localDocumentIds: z.array(z.string()).optional(),
         useAgentic: z.boolean().optional(),
       },
-      outputSchema: objectOutputSchema,
     },
-    async (input) => createToolResult(await knowledge.search(input)),
+    async (input) => createToolResult('search', await knowledge.search(input)),
   );
 
   return server;
@@ -323,15 +316,8 @@ function createKnowledgeClient(client: Knowhere, cacheDirectory: string | undefi
   });
 }
 
-function createToolResult(result: ToolResult): {
-  content: { type: 'text'; text: string }[];
-  structuredContent: { result: ToolResult };
-} {
-  const structuredContent = { result };
-  return {
-    content: [{ type: 'text', text: JSON.stringify(structuredContent, null, 2) }],
-    structuredContent,
-  };
+function createToolResult(operation: string, result: unknown): CallToolResult {
+  return createKnowhereToolResult({ operation, result });
 }
 
 function toFlatParsingParams(
