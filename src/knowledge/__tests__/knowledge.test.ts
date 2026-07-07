@@ -321,6 +321,83 @@ describe('Knowledge', () => {
     expect(read.totalChunks).toBe(3);
   });
 
+  it('should read committed parsed result objects concurrently after the commit gate', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = createParseResult();
+    const storage = createInMemoryParsedStorage();
+    const readEvents: string[] = [];
+    const delayedResultPaths = new Set(['manifest.json', 'chunks.json', 'doc_nav.json']);
+    const releaseByPath = new Map<string, () => void>();
+    let shouldDelayResultReads = true;
+
+    storage.seedResult({
+      documentId: 'doc_remote',
+      revisionKey: 'jres_remote',
+      result: parseResult,
+    });
+
+    const readObject = storage.readObject.bind(storage);
+    storage.readObject = async (
+      params: ParsedDocumentObjectParams,
+    ): Promise<ParsedDocumentObject | null> => {
+      readEvents.push(`start:${params.path}`);
+      if (delayedResultPaths.has(params.path) && shouldDelayResultReads) {
+        await new Promise<void>((resolve) => {
+          releaseByPath.set(params.path, resolve);
+        });
+      }
+
+      const object = await readObject(params);
+      readEvents.push(`finish:${params.path}`);
+      return object;
+    };
+
+    const releaseDelayedReads = (): void => {
+      shouldDelayResultReads = false;
+      for (const release of releaseByPath.values()) {
+        release();
+      }
+      releaseByPath.clear();
+    };
+
+    const { client, documentsListChunks } = createClient(parseResult);
+    const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({ storage });
+    const readPromise = knowledge.readChunks({
+      documentId: 'doc_remote',
+      revisionKey: 'jres_remote',
+      page: 1,
+      pageSize: 2,
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+
+      const commitFinishIndex = readEvents.indexOf('finish:.knowhere-sdk/commit.json');
+      const resultStartIndexes = ['manifest.json', 'chunks.json', 'doc_nav.json'].map(
+        (objectPath) => readEvents.indexOf(`start:${objectPath}`),
+      );
+
+      expect(commitFinishIndex).toBeGreaterThanOrEqual(0);
+      expect(resultStartIndexes.every((index) => index > commitFinishIndex)).toBe(true);
+      expect(readEvents.filter((event) => event.startsWith('start:'))).toEqual([
+        'start:.knowhere-sdk/commit.json',
+        'start:manifest.json',
+        'start:chunks.json',
+        'start:doc_nav.json',
+      ]);
+
+      releaseDelayedReads();
+      const read = await readPromise;
+
+      expect(documentsListChunks).not.toHaveBeenCalled();
+      expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['chunk-intro', 'chunk-table']);
+    } finally {
+      releaseDelayedReads();
+    }
+  });
+
   it('should hydrate stored page asset URLs from snake_case chunks metadata', async () => {
     const cacheDirectory = await createTempDirectory();
     const storage = createInMemoryParsedStorage();

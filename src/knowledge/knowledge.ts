@@ -1081,16 +1081,23 @@ export class Knowledge {
       return null;
     }
 
-    const manifestObject = await parsedStorageConfig.storage.readObject({
-      documentId,
-      revisionKey,
-      path: 'manifest.json',
-    });
-    const chunksObject = await parsedStorageConfig.storage.readObject({
-      documentId,
-      revisionKey,
-      path: 'chunks.json',
-    });
+    const [manifestObject, chunksObject, docNavObject] = await Promise.all([
+      parsedStorageConfig.storage.readObject({
+        documentId,
+        revisionKey,
+        path: 'manifest.json',
+      }),
+      parsedStorageConfig.storage.readObject({
+        documentId,
+        revisionKey,
+        path: 'chunks.json',
+      }),
+      parsedStorageConfig.storage.readObject({
+        documentId,
+        revisionKey,
+        path: 'doc_nav.json',
+      }),
+    ]);
     if (!manifestObject || !chunksObject) {
       return null;
     }
@@ -1099,11 +1106,6 @@ export class Knowledge {
     const chunks = parseStoredResultChunks({
       payload: readJsonObject<unknown>(chunksObject),
       sourceFileName: manifest.sourceFileName,
-    });
-    const docNavObject = await parsedStorageConfig.storage.readObject({
-      documentId,
-      revisionKey,
-      path: 'doc_nav.json',
     });
     const docNav = docNavObject
       ? readJsonObject<{ readonly sections?: DocNavSection[] }>(docNavObject)
