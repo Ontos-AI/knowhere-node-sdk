@@ -1,5 +1,14 @@
 # @ontos-ai/knowhere-mcp
 
+## 2.1.3
+
+### Patch Changes
+
+- [#113](https://github.com/Ontos-AI/knowhere-node-sdk/pull/113) [`e2bc39a`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/e2bc39a8ad97547590ffc843986bb4e3fba6d035) Thanks [@suguanYang](https://github.com/suguanYang)! - Improve MCP read guidance for page assets and default durable asset URLs for display reads.
+
+- Updated dependencies [[`cebe98a`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/cebe98ad6dd997b481e0a4536c3fb26ef4594cfb)]:
+  - @ontos-ai/knowhere-sdk@2.1.3
+
 ## 2.1.2
 
 ### Patch Changes
