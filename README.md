@@ -352,7 +352,7 @@ helpers still write under the SDK cache directory by design, while published
 Knowhere's remote chunk API without importing the result ZIP into local disk.
 Server workflows can configure parsed storage with
 `client.knowledge.withParsedStorage(...)` so Notebook, MCP, and CLI surfaces
-share the same snapshot model.
+share the same committed result-layout model.
 
 ```typescript
 const parsed = await client.knowledge.parseToLocalCache({
@@ -391,9 +391,10 @@ or stale. Search uses the Knowhere API retrieval query; local document IDs only
 help map returned server document IDs back to local cache IDs when available.
 When `knowledge.parseToLocalCache(...)`, `knowledge.importJobResult(...)`, or
 `knowledge.loadJobResult(...)` runs with configured parsed storage, the SDK
-writes chunk pages, durable assets, sync progress, and a committed
-`manifest/current.json` before returning. Partial snapshots are ignored until
-the manifest is committed.
+writes the expanded Knowhere result layout (`manifest.json`, `chunks.json`,
+sidecars, and assets), sync progress, and a final `.knowhere-sdk/commit.json`
+before returning. Partial storage writes are ignored until the commit marker is
+present.
 
 ```typescript
 const knowledge = client.knowledge.withParsedStorage({
@@ -405,8 +406,8 @@ const knowledge = client.knowledge.withParsedStorage({
 
 If a search result only has a published `documentId`, read-oriented helpers can
 accept that remote identifier directly. `readChunks` supports display paging;
-`assetUrlPolicy: 'durable'` hardens only returned assets through configured
-storage and omits asset URLs if hardening fails:
+remote fallback requests asset URLs from the Knowhere API, and storage hits use
+stored object URLs when the configured storage can resolve them:
 
 ```typescript
 const remoteRead = await knowledge.readChunks({
@@ -414,7 +415,6 @@ const remoteRead = await knowledge.readChunks({
   page: 1,
   pageSize: 20,
   chunkType: 'page',
-  assetUrlPolicy: 'durable',
 });
 
 const remoteOutline = await knowledge.getDocumentOutline({

@@ -31,7 +31,7 @@ describe('knowhere MCP wrapper', () => {
     expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
     expect(listTool?.description).toContain('remote API');
     expect(readTool?.description).toContain('configured parsed storage first');
-    expect(readTool?.description).toContain('assetUrlPolicy is durable');
+    expect(readTool?.description).toContain('returns asset URLs');
     await client.close();
     await server.close();
   });
@@ -165,7 +165,6 @@ describe('knowhere MCP wrapper', () => {
         pageSize: 3,
         chunkType: 'page',
         limit: 3,
-        assetUrlPolicy: 'none',
       },
     });
     await client.callTool({
@@ -189,7 +188,6 @@ describe('knowhere MCP wrapper', () => {
       pageSize: 3,
       chunkType: 'page',
       limit: 3,
-      assetUrlPolicy: 'none',
     });
     expect(knowhereClient.knowledge.grepChunks).toHaveBeenCalledWith({
       documentId: 'doc_remote',

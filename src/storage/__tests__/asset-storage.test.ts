@@ -89,65 +89,9 @@ describe('storeParseResultAssets', () => {
       }),
     ]);
     expect(stored.result.pageChunks[0]).not.toHaveProperty('pageAssets');
-    expect(stored.snapshot?.manifest).toMatchObject({
-      version: 1,
-      kind: 'knowhere-parsed-result-snapshot',
-      jobId: 'job-1',
-      sourceFileName: 'report.pdf',
-      totalChunks: 3,
-      chunkPageSize: 200,
-      assetUrlsByFilePath: {
-        'images/chart.png':
-          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/images/chart.png',
-        'page_citation_assets/page-1.png':
-          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
-        'tables/revenue.html':
-          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/tables/revenue.html',
-      },
-    });
-    expect(stored.snapshot?.manifestKey).toBe(
-      'workspaces/workspace-1/sources/source-1/parsed-result/manifest/current.json',
-    );
-    expect(stored.snapshot?.indexKey).toBe(
-      'workspaces/workspace-1/sources/source-1/parsed-result/index.json',
-    );
-    expect(stored.snapshot?.manifest.chunkPages).toEqual([
-      expect.objectContaining({
-        page: 1,
-        chunkCount: 3,
-        key: 'workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
-        url: 'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/chunks/page-1.json',
-      }),
-    ]);
-    const chunkPageWrite = writes.find((write) => write.key.endsWith('/chunks/page-1.json'));
-    expect(chunkPageWrite).toBeDefined();
-    const chunkPage = JSON.parse(chunkPageWrite?.bodyText ?? '{}') as {
-      readonly chunks: readonly {
-        readonly chunkId: string;
-        readonly chunkType: string;
-        readonly assetUrl?: string;
-        readonly metadata: Record<string, unknown>;
-      }[];
-    };
-    expect(chunkPage.chunks.map((chunk) => chunk.chunkId)).toEqual([
-      'image-1',
-      'table-1',
-      'page-1',
-    ]);
-    expect(chunkPage.chunks[0]).toMatchObject({
-      chunkType: 'image',
-      assetUrl:
-        'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/images/chart.png',
-    });
-    expect(chunkPage.chunks[2]?.metadata.pageAssets).toEqual([
-      expect.objectContaining({
-        assetUrl:
-          'https://blob.example/workspaces/workspace-1/sources/source-1/parsed-result/page_citation_assets/page-1.png',
-      }),
-    ]);
   });
 
-  it('stores paged chunk snapshots even when a result has no media assets', async () => {
+  it('does not write parsed result metadata objects for text-only results', async () => {
     const result = createParseResult([
       {
         chunkId: 'text-1',
@@ -189,23 +133,10 @@ describe('storeParseResultAssets', () => {
     const stored = await storeParseResultAssets(result, {
       adapter,
       keyPrefix: 'parsed-result',
-      chunkPageSize: 1,
     });
 
     expect(stored.assetUrlsByFilePath).toEqual({});
-    expect(stored.snapshot?.manifest.chunkPages).toEqual([
-      expect.objectContaining({ page: 1, chunkCount: 1, key: 'parsed-result/chunks/page-1.json' }),
-      expect.objectContaining({ page: 2, chunkCount: 1, key: 'parsed-result/chunks/page-2.json' }),
-    ]);
-    expect(writes.map((write) => write.key)).toEqual([
-      'parsed-result/chunks/page-1.json',
-      'parsed-result/chunks/page-2.json',
-      'parsed-result/manifest/current.json',
-      'parsed-result/index.json',
-    ]);
-    expect(writes.every((write) => write.contentType === 'application/json; charset=utf-8')).toBe(
-      true,
-    );
+    expect(writes).toEqual([]);
   });
 
   it('uses existing storage URLs when skipExisting is enabled', async () => {
@@ -257,9 +188,6 @@ describe('storeParseResultAssets', () => {
     expect(stored.result.imageChunks[0]?.assetUrl).toBe(
       'https://blob.example/existing/parsed-result/images/chart.png',
     );
-    expect(stored.snapshot?.manifestUrl).toBe(
-      'https://blob.example/parsed-result/manifest/current.json',
-    );
   });
 
   it('rejects unsafe storage key prefixes and ignores unsafe asset refs', async () => {
@@ -299,9 +227,8 @@ describe('storeParseResultAssets', () => {
       keyPrefix: 'parsed-result',
     });
 
-    expect(writeObject).toHaveBeenCalledTimes(3);
+    expect(writeObject).not.toHaveBeenCalled();
     expect(stored.assetUrlsByFilePath).toEqual({});
-    expect(stored.snapshot?.manifest.totalChunks).toBe(1);
   });
 });
 

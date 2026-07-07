@@ -3,9 +3,7 @@ import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
 import type {
   KnowhereAssetStorageOptions,
-  KnowhereParsedSnapshotManifest,
-  KnowhereParsedSnapshot,
-  ParsedDocumentAssetUrlPolicy,
+  ParsedDocumentCommit,
   ParsedDocumentStorageConfig,
 } from '../types/storage.js';
 
@@ -43,7 +41,6 @@ export interface LocalKnowledgeParseResponse {
   document: LocalKnowledgeDocument;
   result: ParseResult;
   assetUrlsByFilePath?: Readonly<Record<string, string>>;
-  parsedSnapshot?: KnowhereParsedSnapshot;
 }
 
 export interface KnowledgeAsyncParseParams extends ParseParams {
@@ -94,7 +91,6 @@ export interface KnowledgeImportJobResultParams extends KnowledgeLoadJobResultPa
 export interface KnowledgeJobResultResponse {
   result: ParseResult;
   assetUrlsByFilePath?: Readonly<Record<string, string>>;
-  parsedSnapshot?: KnowhereParsedSnapshot;
 }
 
 /** @deprecated Use KnowledgeImportJobResultParams with importJobResult instead. */
@@ -126,7 +122,7 @@ export interface KnowledgeSyncParsedDocumentResponse {
   documentId: string;
   revisionKey: string;
   completed: boolean;
-  manifest?: KnowhereParsedSnapshotManifest;
+  commit?: ParsedDocumentCommit;
 }
 
 export interface KnowledgeSection {
@@ -160,7 +156,6 @@ export interface KnowledgeReadParams extends KnowledgeDocumentReference {
   chunkId?: string;
   chunkType?: KnowledgeChunkType;
   limit?: number;
-  assetUrlPolicy?: ParsedDocumentAssetUrlPolicy;
 }
 
 export interface KnowledgeReadChunk {
