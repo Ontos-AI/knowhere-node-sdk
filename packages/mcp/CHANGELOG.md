@@ -1,5 +1,11 @@
 # @ontos-ai/knowhere-mcp
 
+## 2.1.4
+
+### Patch Changes
+
+- [#118](https://github.com/Ontos-AI/knowhere-node-sdk/pull/118) [`f7d6601`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/f7d6601a25b2407e7cf7b79a556476f63ab4eff3) Thanks [@suguanYang](https://github.com/suguanYang)! - Return Knowhere MCP tool results as single tagged text payloads without structuredContent or output schemas.
+
 ## 2.1.3
 
 ### Patch Changes
