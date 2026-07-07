@@ -204,20 +204,53 @@ When logged in with Read only permission, the MCP server exposes only
 - `knowhere_read_chunks`: read exact chunks from one parsed document by passing
   `localDocumentId`, published `documentId`, or completed `jobId`. Use
   `page`/`pageSize` for display reads; asset URLs are returned when the source
-  or configured storage provides them. Page screenshots are returned under chunk
-  `metadata.pageAssets`, not as image chunks.
+  or configured storage provides them. Page screenshots are listed as primary
+  `<pageAsset>` entries before chunk preview text.
 - `knowhere_grep_chunks`: run literal or regex grep over one parsed document by
   passing `localDocumentId`, published `documentId`, or completed `jobId`.
   Broad workspace search belongs to `knowhere_search`.
 - `knowhere_search`: search published documents through the Knowhere API
-  retrieval query. Use follow-up `knowhere_read_chunks` calls to inspect page
-  screenshots under chunk `metadata.pageAssets`.
+  retrieval query. Page results and references are marked
+  `hasPageAssets="true"` when a follow-up `knowhere_read_chunks` call should be
+  used to inspect readable page asset URLs and chunk storage locations.
 
-Local-cache tool responses include `document.resultDirectoryPath`; expanded
-chunks are stored at `<resultDirectoryPath>/chunks.json` for direct filesystem
-reads when a local cache entry exists. Remote fallback responses use
-`remote:<documentId>` or `parsed-storage:<documentId>` markers instead of
-claiming a local expanded result directory.
+## Response Contract
+
+All tools return a single MCP text content item:
+
+```json
+{
+  "content": [{ "type": "text", "text": "<knowhere operation=\"...\">..." }]
+}
+```
+
+The MCP package does not expose `structuredContent` or tool `outputSchema`
+fields. Each response is tagged text rooted at
+`<knowhere operation="...">`, using SDK-native camelCase field names such as
+`documentId`, `jobId`, `localDocumentId`, `chunkId`, `assetUrl`,
+`chunkPath`, `filePath`, and `storageRoot`.
+
+Document tags include `storageRoot` when the SDK response has
+`document.resultDirectoryPath`. Local cache roots remain local directory paths.
+Remote fallback roots use marker values such as `remote:<documentId>` and
+configured parsed-storage roots use `parsed-storage:<documentId>`.
+
+Chunk tags include `chunkPath` from `sourceChunkPath` and a display-only
+`storageLocation` when it can be derived. Media and table chunks prefer
+`filePath` for that location and include `assetUrl` when available. Text and
+page chunks use `chunkPath`, so marker roots render as logical paths such as
+`parsed-storage:doc_x/chunks/page-1`.
+
+For page chunks, `<pageAssets primary="true">` appears immediately before
+`<previewText>`. Each `<pageAsset>` carries `pageNum`, `artifactRef`,
+`assetUrl`, `contentType`, `width`, and `height` when the SDK provides them.
+The following `<instruction>` tells callers to open or fetch the listed
+`assetUrl` before relying on preview text. If a page asset exists without an
+`assetUrl`, the text says that the asset is not directly readable.
+
+Blocking parse responses summarize document/job identifiers, chunk counts, and
+asset URL mappings. They intentionally do not dump the full parse result, ZIP
+bytes, or every chunk.
 
 ## Package Boundary
 
