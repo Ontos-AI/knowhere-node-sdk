@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.3
+
+### Patch Changes
+
+- [#113](https://github.com/Ontos-AI/knowhere-node-sdk/pull/113) [`cebe98a`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/cebe98ad6dd997b481e0a4536c3fb26ef4594cfb) Thanks [@suguanYang](https://github.com/suguanYang)! - Read committed parsed-storage result objects concurrently after validating the commit marker.
+
 ## 2.1.2
 
 ### Patch Changes
