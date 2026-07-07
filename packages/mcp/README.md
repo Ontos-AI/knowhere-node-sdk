@@ -22,7 +22,7 @@ npx -y @ontos-ai/knowhere-mcp
 The server uses stdio transport. Parse tools store expanded Knowhere result
 files under the SDK local knowledge cache; published `documentId` reads use the
 SDK's remote chunk fallback unless the host explicitly configures a cache
-directory for parsed-storage snapshots. `knowhere-mcp login` opens the Knowhere
+directory for parsed result-layout storage. `knowhere-mcp login` opens the Knowhere
 dashboard in your browser and stores a local MCP login at
 `~/.knowhere-node-sdk/mcp/auth.json`.
 
@@ -202,8 +202,8 @@ When logged in with Read only permission, the MCP server exposes only
   passing `localDocumentId`, published `documentId`, or completed `jobId`.
 - `knowhere_read_chunks`: read exact chunks from one parsed document by passing
   `localDocumentId`, published `documentId`, or completed `jobId`. Use
-  `page`/`pageSize` for display reads; `assetUrlPolicy: "durable"` returns only
-  storage-hardened asset URLs.
+  `page`/`pageSize` for display reads; asset URLs are returned when the source
+  or configured storage provides them.
 - `knowhere_grep_chunks`: run literal or regex grep over one parsed document by
   passing `localDocumentId`, published `documentId`, or completed `jobId`.
   Broad workspace search belongs to `knowhere_search`.

@@ -243,7 +243,7 @@ export async function createKnowhereMcpServer(
     'knowhere_read_chunks',
     {
       description:
-        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and only returns durable asset URLs when assetUrlPolicy is durable and storage hardening succeeds.',
+        'Read exact chunks from one parsed document. Pass localDocumentId, published documentId, or completed jobId. page/pageSize are for display reads and cannot be combined with sectionPath/startChunk/endChunk/chunkId. The SDK reads configured parsed storage first, falls back to remote document chunks for documentId reads, and returns asset URLs when the source or storage provides them.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),
@@ -257,7 +257,6 @@ export async function createKnowhereMcpServer(
         chunkId: z.string().optional(),
         chunkType: z.enum(['text', 'image', 'table', 'page']).optional(),
         limit: z.number().int().positive().optional(),
-        assetUrlPolicy: z.enum(['none', 'durable']).optional(),
       },
       outputSchema: objectOutputSchema,
     },
@@ -268,7 +267,7 @@ export async function createKnowhereMcpServer(
     'knowhere_grep_chunks',
     {
       description:
-        'Run grep-style literal or regex matching against one parsed document. Pass localDocumentId, published documentId, or completed jobId. Broad workspace search belongs to knowhere_search; documentId grep streams remote chunks without asset URLs when parsed storage is missing or stale.',
+        'Run grep-style literal or regex matching against one parsed document. Pass localDocumentId, published documentId, or completed jobId. Broad workspace search belongs to knowhere_search; grep matches include file paths and snippets, not asset URL fields.',
       inputSchema: {
         localDocumentId: z.string().optional(),
         documentId: z.string().optional(),

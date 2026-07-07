@@ -3,11 +3,22 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import type {
-  KnowhereParsedSnapshotChunkPage,
-  KnowhereParsedSnapshotManifest,
+  ParsedDocumentObject,
+  ParsedDocumentObjectHead,
+  ParsedDocumentObjectParams,
+  ParsedDocumentRevisionParams,
   ParsedDocumentStorage,
   ParsedDocumentSyncProgress,
+  ParsedDocumentWriteObjectParams,
+  ParsedDocumentWriteObjectResult,
 } from '../types/storage.js';
+
+const syncProgressPath = '.knowhere-sdk/sync-progress.json';
+
+interface StoredObjectMetadata {
+  readonly contentType?: string;
+  readonly metadata?: Readonly<Record<string, string>>;
+}
 
 export class DiskParsedDocumentStorage implements ParsedDocumentStorage {
   private readonly rootDirectory: string;
@@ -16,80 +27,19 @@ export class DiskParsedDocumentStorage implements ParsedDocumentStorage {
     this.rootDirectory = rootDirectory;
   }
 
-  async readManifest(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-  }): Promise<KnowhereParsedSnapshotManifest | null> {
-    return this.readOptionalJson<KnowhereParsedSnapshotManifest>(
-      this.getManifestPath(params.documentId, params.revisionKey),
-    );
-  }
-
-  async writeManifest(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly manifest: KnowhereParsedSnapshotManifest;
-  }): Promise<void> {
-    await this.writeJson(
-      this.getManifestPath(params.documentId, params.revisionKey),
-      params.manifest,
-    );
-  }
-
-  async readChunkPage(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly page: number;
-  }): Promise<KnowhereParsedSnapshotChunkPage | null> {
-    return this.readOptionalJson<KnowhereParsedSnapshotChunkPage>(
-      this.getChunkPagePath(params.documentId, params.revisionKey, params.page),
-    );
-  }
-
-  async writeChunkPage(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly page: KnowhereParsedSnapshotChunkPage;
-  }): Promise<void> {
-    await this.writeJson(
-      this.getChunkPagePath(params.documentId, params.revisionKey, params.page.page),
-      params.page,
-    );
-  }
-
-  async writeAsset(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly sourcePath: string;
-    readonly body: Uint8Array;
-    readonly contentType: string;
-    readonly metadata?: Readonly<Record<string, string>>;
-  }): Promise<{
-    readonly sourcePath: string;
-    readonly url?: string;
-  }> {
-    const assetPath = this.getAssetPath(params.documentId, params.revisionKey, params.sourcePath);
-    await fs.mkdir(path.dirname(assetPath), { recursive: true });
-    await fs.writeFile(assetPath, params.body);
-    await this.writeJson(`${assetPath}.metadata.json`, {
-      contentType: params.contentType,
-      metadata: params.metadata ?? {},
-    });
-    return {
-      sourcePath: params.sourcePath,
-      url: toFileUrl(assetPath),
-    };
-  }
-
-  async getAssetUrl(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly sourcePath: string;
-  }): Promise<string | null> {
-    const assetPath = this.getAssetPath(params.documentId, params.revisionKey, params.sourcePath);
+  async readObject(params: ParsedDocumentObjectParams): Promise<ParsedDocumentObject | null> {
+    const objectPath = this.getObjectPath(params);
     try {
-      await fs.access(assetPath);
-      return toFileUrl(assetPath);
+      const body = await fs.readFile(objectPath);
+      const metadata = await this.readObjectMetadata(objectPath);
+      return {
+        ...params,
+        body,
+        contentType: metadata?.contentType,
+        contentLength: body.byteLength,
+        metadata: metadata?.metadata,
+        url: toFileUrl(objectPath),
+      };
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -98,63 +48,101 @@ export class DiskParsedDocumentStorage implements ParsedDocumentStorage {
     }
   }
 
-  async readSyncProgress(params: {
-    readonly documentId: string;
-    readonly revisionKey: string;
-  }): Promise<ParsedDocumentSyncProgress | null> {
-    return this.readOptionalJson<ParsedDocumentSyncProgress>(
-      this.getProgressPath(params.documentId, params.revisionKey),
-    );
+  async writeObject(
+    params: ParsedDocumentWriteObjectParams,
+  ): Promise<ParsedDocumentWriteObjectResult> {
+    const objectPath = this.getObjectPath(params);
+    await fs.mkdir(path.dirname(objectPath), { recursive: true });
+    await fs.writeFile(objectPath, params.body);
+    await this.writeObjectMetadata(objectPath, {
+      contentType: params.contentType,
+      metadata: params.metadata,
+    });
+    return {
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: params.path,
+      url: toFileUrl(objectPath),
+    };
+  }
+
+  async headObject(params: ParsedDocumentObjectParams): Promise<ParsedDocumentObjectHead | null> {
+    const objectPath = this.getObjectPath(params);
+    try {
+      const stat = await fs.stat(objectPath);
+      const metadata = await this.readObjectMetadata(objectPath);
+      return {
+        ...params,
+        contentType: metadata?.contentType,
+        contentLength: stat.size,
+        metadata: metadata?.metadata,
+        url: toFileUrl(objectPath),
+      };
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async getObjectUrl(params: ParsedDocumentObjectParams): Promise<string | null> {
+    const head = await this.headObject(params);
+    return head?.url ?? null;
+  }
+
+  async deletePrefix(params: ParsedDocumentRevisionParams): Promise<void> {
+    await fs.rm(this.getRevisionDirectory(params.documentId, params.revisionKey), {
+      recursive: true,
+      force: true,
+    });
+  }
+
+  async readSyncProgress(
+    params: ParsedDocumentRevisionParams,
+  ): Promise<ParsedDocumentSyncProgress | null> {
+    return this.readOptionalJson<ParsedDocumentSyncProgress>({
+      ...params,
+      path: syncProgressPath,
+    });
   }
 
   async writeSyncProgress(params: ParsedDocumentSyncProgress): Promise<void> {
-    await this.writeJson(this.getProgressPath(params.documentId, params.revisionKey), params);
+    await this.writeObject({
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: syncProgressPath,
+      body: Buffer.from(JSON.stringify(params, null, 2), 'utf8'),
+      contentType: 'application/json; charset=utf-8',
+    });
   }
 
-  private getManifestPath(documentId: string, revisionKey: string): string {
-    return path.join(
-      this.getRevisionDirectory(documentId, revisionKey),
-      'manifest',
-      'current.json',
-    );
-  }
-
-  private getChunkPagePath(documentId: string, revisionKey: string, page: number): string {
-    return path.join(
-      this.getRevisionDirectory(documentId, revisionKey),
-      'chunks',
-      `page-${page}.json`,
-    );
-  }
-
-  private getProgressPath(documentId: string, revisionKey: string): string {
-    return path.join(this.getRevisionDirectory(documentId, revisionKey), 'sync-progress.json');
-  }
-
-  private getAssetPath(documentId: string, revisionKey: string, sourcePath: string): string {
-    const normalizedSourcePath = normalizeRelativeStoragePath(sourcePath);
-    const assetPath = path.resolve(
-      this.getRevisionDirectory(documentId, revisionKey),
-      'assets',
-      normalizedSourcePath,
-    );
-    const assetsDirectory = path.resolve(
-      this.getRevisionDirectory(documentId, revisionKey),
-      'assets',
-    );
-    if (!isPathInsideDirectory(assetPath, assetsDirectory)) {
-      throw new Error(`Parsed asset path resolves outside storage: ${sourcePath}`);
+  private getObjectPath(params: ParsedDocumentObjectParams): string {
+    const revisionDirectory = this.getRevisionDirectory(params.documentId, params.revisionKey);
+    const objectPath = path.resolve(revisionDirectory, normalizeRelativeStoragePath(params.path));
+    if (!isPathInsideDirectory(objectPath, revisionDirectory)) {
+      throw new Error(`Parsed document object path resolves outside storage: ${params.path}`);
     }
-    return assetPath;
+    return objectPath;
   }
 
   private getRevisionDirectory(documentId: string, revisionKey: string): string {
     return path.join(this.rootDirectory, hashPathPart(documentId), hashPathPart(revisionKey));
   }
 
-  private async readOptionalJson<T>(filePath: string): Promise<T | null> {
+  private async readOptionalJson<T>(params: ParsedDocumentObjectParams): Promise<T | null> {
+    const object = await this.readObject(params);
+    if (!object) {
+      return null;
+    }
+    return JSON.parse(Buffer.from(object.body).toString('utf8')) as T;
+  }
+
+  private async readObjectMetadata(filePath: string): Promise<StoredObjectMetadata | null> {
     try {
-      return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
+      return JSON.parse(
+        await fs.readFile(getMetadataPath(filePath), 'utf8'),
+      ) as StoredObjectMetadata;
     } catch (error) {
       if (isMissingFileError(error)) {
         return null;
@@ -163,17 +151,27 @@ export class DiskParsedDocumentStorage implements ParsedDocumentStorage {
     }
   }
 
-  private async writeJson(filePath: string, value: unknown): Promise<void> {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, JSON.stringify(value, null, 2), {
+  private async writeObjectMetadata(
+    filePath: string,
+    metadata: StoredObjectMetadata,
+  ): Promise<void> {
+    await fs.writeFile(getMetadataPath(filePath), JSON.stringify(metadata, null, 2), {
       encoding: 'utf8',
       flag: 'w',
     });
   }
 }
 
+function getMetadataPath(filePath: string): string {
+  return `${filePath}.metadata.json`;
+}
+
 function hashPathPart(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 24);
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new Error('Parsed document storage path part must be a non-empty value.');
+  }
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 24);
 }
 
 function normalizeRelativeStoragePath(value: string): string {

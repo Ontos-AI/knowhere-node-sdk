@@ -6,12 +6,18 @@ import type {
   DocumentChunk,
   DocNavSection,
   DocumentChunkListResponse,
+  Manifest,
   ParseResult,
   RetrievalResult,
 } from '../types/index.js';
 import { ValidationError } from '../errors/index.js';
 import { storeParseResultAssets } from '../storage/asset-storage.js';
-import { syncParseResultToParsedDocumentStorage } from '../storage/parsed-document-storage.js';
+import {
+  readJsonObject,
+  readParsedDocumentCommit,
+  syncParseResultToParsedDocumentStorage,
+} from '../storage/parsed-document-storage.js';
+import { keysToCamel } from '../lib/utils.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
   IndexedKnowledgeChunk,
@@ -47,10 +53,7 @@ import type {
   LocalKnowledgeParseResponse,
 } from './types.js';
 import type {
-  KnowhereParsedSnapshotChunk,
-  KnowhereParsedSnapshotChunkPage,
-  KnowhereParsedSnapshotManifest,
-  ParsedDocumentAssetUrlPolicy,
+  ParsedDocumentCommit,
   ParsedDocumentStorageConfig,
   ParsedDocumentStorageLimits,
 } from '../types/storage.js';
@@ -64,7 +67,6 @@ const MAX_GREP_LIMIT = 50;
 const DEFAULT_CONTEXT_CHARS = 80;
 const DEFAULT_REMOTE_SCAN_PAGE_SIZE = 100;
 const DEFAULT_MAX_SYNC_PAGES = 10;
-const DEFAULT_MAX_SYNC_ASSETS = 20;
 const DEFAULT_SYNC_DEADLINE_MS = 8000;
 const DEFAULT_GREP_MAX_PAGES = 50;
 const DEFAULT_GREP_DEADLINE_MS = 8000;
@@ -72,6 +74,7 @@ const DEFAULT_OUTLINE_MAX_PAGES = 50;
 const DEFAULT_OUTLINE_DEADLINE_MS = 8000;
 const SAFE_LOCAL_DOCUMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const REMOTE_DOCUMENT_ID_PATTERN = /^doc[_-]/;
+const remoteReconstructionPageDirectory = '.knowhere-sdk/remote-reconstruction/pages';
 
 export class Knowledge {
   private readonly client: Knowhere;
@@ -120,7 +123,6 @@ export class Knowledge {
       document,
       result,
       assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
-      parsedSnapshot: storedAssets.snapshot,
     };
   }
 
@@ -171,7 +173,6 @@ export class Knowledge {
     return {
       result,
       assetUrlsByFilePath: storedAssets.assetUrlsByFilePath,
-      parsedSnapshot: syncedStorage.snapshot ?? storedAssets.snapshot,
     };
   }
 
@@ -187,7 +188,6 @@ export class Knowledge {
       document,
       result,
       assetUrlsByFilePath: stored.assetUrlsByFilePath,
-      parsedSnapshot: stored.parsedSnapshot,
     };
   }
 
@@ -219,13 +219,12 @@ export class Knowledge {
         storage: parsedStorageConfig.storage,
         documentId: loadedResult.documentId ?? normalized.localDocumentId ?? normalized.jobId,
         revisionKey: params.revisionKey ?? normalized.jobId,
-        chunkPageSize: parsedStorageConfig.limits?.chunkPageSize,
       });
       return {
         documentId: synced.documentId,
         revisionKey: synced.revisionKey,
         completed: true,
-        manifest: synced.snapshot?.manifest,
+        commit: synced.commit,
       };
     }
 
@@ -239,19 +238,18 @@ export class Knowledge {
       storage: parsedStorageConfig.storage,
       documentId: result.documentId ?? normalized.localDocumentId,
       revisionKey: params.revisionKey ?? result.jobId,
-      chunkPageSize: parsedStorageConfig.limits?.chunkPageSize,
     });
     return {
       documentId: synced.documentId,
       revisionKey: synced.revisionKey,
       completed: true,
-      manifest: synced.snapshot?.manifest,
+      commit: synced.commit,
     };
   }
 
   private async syncParseResultToConfiguredStorage(result: ParseResult): Promise<{
     result: ParseResult;
-    snapshot?: Awaited<ReturnType<typeof syncParseResultToParsedDocumentStorage>>['snapshot'];
+    commit?: Awaited<ReturnType<typeof syncParseResultToParsedDocumentStorage>>['commit'];
   }> {
     const parsedStorageConfig = this.parsedStorageConfig;
     if (!parsedStorageConfig) {
@@ -261,11 +259,10 @@ export class Knowledge {
     const synced = await syncParseResultToParsedDocumentStorage({
       result,
       storage: parsedStorageConfig.storage,
-      chunkPageSize: parsedStorageConfig.limits?.chunkPageSize,
     });
     return {
       result: synced.result,
-      snapshot: synced.snapshot,
+      commit: synced.commit,
     };
   }
 
@@ -593,10 +590,7 @@ export class Knowledge {
       page: pageParams.page,
       pageSize: pageParams.pageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: shouldRequestRemoteAssetUrls(
-        params.assetUrlPolicy,
-        this.parsedStorageConfig,
-      ),
+      includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(remotePage);
     const stored = await this.tryReadChunksFromParsedStorage({
@@ -608,12 +602,7 @@ export class Knowledge {
       return stored;
     }
 
-    const chunks = await this.toRemoteReadChunks({
-      documentId,
-      revisionKey,
-      chunks: remotePage.chunks,
-      assetUrlPolicy: params.assetUrlPolicy,
-    });
+    const chunks = remotePage.chunks.map((chunk) => toRemoteReadChunk(chunk));
     this.scheduleParsedStorageSync(documentId, revisionKey);
     return {
       document: createRemoteKnowledgeDocument({
@@ -651,10 +640,7 @@ export class Knowledge {
       page: 1,
       pageSize: limits.remotePageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: shouldRequestRemoteAssetUrls(
-        params.assetUrlPolicy,
-        this.parsedStorageConfig,
-      ),
+      includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
     const stored = await this.tryReadChunksFromParsedStorage({
@@ -689,19 +675,11 @@ export class Knowledge {
         page,
         pageSize: limits.remotePageSize,
         chunkType: params.chunkType,
-        includeAssetUrls: shouldRequestRemoteAssetUrls(
-          params.assetUrlPolicy,
-          this.parsedStorageConfig,
-        ),
+        includeAssetUrls: true,
       });
     }
 
-    const chunks = await this.toRemoteReadChunks({
-      documentId,
-      revisionKey,
-      chunks: selected.slice(0, limit),
-      assetUrlPolicy: params.assetUrlPolicy,
-    });
+    const chunks = selected.slice(0, limit).map((chunk) => toRemoteReadChunk(chunk));
     this.scheduleParsedStorageSync(documentId, revisionKey);
     return {
       document: createRemoteKnowledgeDocument({
@@ -742,7 +720,7 @@ export class Knowledge {
       page: startPage,
       pageSize: limits.remotePageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: false,
+      includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
     const stored =
@@ -860,7 +838,7 @@ export class Knowledge {
         page,
         pageSize: limits.remotePageSize,
         chunkType: params.chunkType,
-        includeAssetUrls: false,
+        includeAssetUrls: true,
       });
     }
   }
@@ -880,7 +858,7 @@ export class Knowledge {
     const firstPage = await this.client.documents.listChunks(documentId, {
       page: 1,
       pageSize: limits.remotePageSize,
-      includeAssetUrls: false,
+      includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
     const stored = await this.tryReadOutlineFromParsedStorage(documentId, revisionKey);
@@ -908,7 +886,7 @@ export class Knowledge {
       response = await this.client.documents.listChunks(documentId, {
         page,
         pageSize: limits.remotePageSize,
-        includeAssetUrls: false,
+        includeAssetUrls: true,
       });
     }
 
@@ -942,31 +920,15 @@ export class Knowledge {
     revisionKey: string;
     params: KnowledgeReadParams;
   }): Promise<KnowledgeReadResponse | null> {
-    const parsedStorageConfig = this.parsedStorageConfig;
-    if (!parsedStorageConfig) {
-      return null;
-    }
-
-    const manifest = await this.readFreshParsedStorageManifest(
+    const storedResult = await this.readCommittedParsedStorageResult(
       params.documentId,
       params.revisionKey,
     );
-    if (!manifest) {
-      return null;
-    }
-
+    if (!storedResult) return null;
     const pageParams = getReadPageParams(params.params);
-    const indexedChunks = await this.readStoredSnapshotChunks({
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      manifest,
-      chunkType: params.params.chunkType,
-    });
-    if (!indexedChunks) {
-      return null;
-    }
-
-    const scopedChunks = indexedChunks.filter((chunk) => matchesReadScope(chunk, params.params));
+    const scopedChunks = storedResult.chunks
+      .filter((chunk) => !params.params.chunkType || chunk.chunkType === params.params.chunkType)
+      .filter((chunk) => matchesReadScope(chunk, params.params));
     const selected = hasScanReadFilters(params.params)
       ? selectReadWindow(
           scopedChunks,
@@ -977,17 +939,18 @@ export class Knowledge {
           (pageParams.page - 1) * pageParams.pageSize,
           pageParams.page * pageParams.pageSize,
         );
-    const visibleChunks = applyAssetUrlPolicyToReadChunks(
-      selected.map(toReadChunk),
-      params.params.assetUrlPolicy,
-    );
+    const visibleChunks = await applyStoredAssetUrlsToReadChunks({
+      storageConfig: this.requireParsedStorageConfig(),
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      chunks: selected.map(toReadChunk),
+    });
     const totalChunks = scopedChunks.length;
     return {
       document: createStoredKnowledgeDocument({
         documentId: params.documentId,
-        manifest,
+        storedResult,
         revisionKey: params.revisionKey,
-        typeCounts: countIndexedTypes(indexedChunks),
       }),
       chunks: visibleChunks,
       page: hasScanReadFilters(params.params) ? undefined : pageParams.page,
@@ -1003,33 +966,18 @@ export class Knowledge {
     revisionKey: string;
     params: KnowledgeGrepParams;
   }): Promise<KnowledgeGrepResponse | null> {
-    const parsedStorageConfig = this.parsedStorageConfig;
-    if (!parsedStorageConfig) {
-      return null;
-    }
-
-    const manifest = await this.readFreshParsedStorageManifest(
+    const storedResult = await this.readCommittedParsedStorageResult(
       params.documentId,
       params.revisionKey,
     );
-    if (!manifest) {
-      return null;
-    }
-
-    const indexedChunks = await this.readStoredSnapshotChunks({
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      manifest,
-      chunkType: params.params.chunkType,
-    });
-    if (!indexedChunks) {
-      return null;
-    }
+    if (!storedResult) return null;
 
     const maxResults = clampLimit(params.params.maxResults, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
     const contextChars = params.params.contextChars ?? DEFAULT_CONTEXT_CHARS;
     const matcher = createMatcher(params.params);
-    const scopedChunks = indexedChunks.filter((chunk) => matchesGrepScope(chunk, params.params));
+    const scopedChunks = storedResult.chunks
+      .filter((chunk) => !params.params.chunkType || chunk.chunkType === params.params.chunkType)
+      .filter((chunk) => matchesGrepScope(chunk, params.params));
     const matches: KnowledgeGrepMatch[] = [];
     let scannedChunks = 0;
 
@@ -1051,9 +999,8 @@ export class Knowledge {
           return {
             document: createStoredKnowledgeDocument({
               documentId: params.documentId,
-              manifest,
+              storedResult,
               revisionKey: params.revisionKey,
-              typeCounts: countIndexedTypes(indexedChunks),
             }),
             matches,
             scannedChunks,
@@ -1066,9 +1013,8 @@ export class Knowledge {
     return {
       document: createStoredKnowledgeDocument({
         documentId: params.documentId,
-        manifest,
+        storedResult,
         revisionKey: params.revisionKey,
-        typeCounts: countIndexedTypes(indexedChunks),
       }),
       matches,
       scannedChunks,
@@ -1080,126 +1026,95 @@ export class Knowledge {
     documentId: string,
     revisionKey: string,
   ): Promise<KnowledgeOutline | null> {
-    const manifest = await this.readFreshParsedStorageManifest(documentId, revisionKey);
-    if (!manifest) {
-      return null;
-    }
-
-    const indexedChunks = await this.readStoredSnapshotChunks({
-      documentId,
-      revisionKey,
-      manifest,
-    });
-    if (!indexedChunks) {
-      return null;
-    }
-
-    const sections = buildFlatSectionsFromIndexedChunks(indexedChunks);
-    const typeCounts = countIndexedTypes(indexedChunks);
+    const storedResult = await this.readCommittedParsedStorageResult(documentId, revisionKey);
+    if (!storedResult) return null;
+    const sections =
+      storedResult.docNav?.sections && storedResult.docNav.sections.length > 0
+        ? flattenSections(
+            storedResult.docNav.sections.map((section) =>
+              toKnowledgeSection(
+                section,
+                storedResult.chunks,
+                storedResult.manifest.sourceFileName,
+              ),
+            ),
+          )
+        : buildFlatSectionsFromIndexedChunks(storedResult.chunks);
     return {
       document: createStoredKnowledgeDocument({
         documentId,
-        manifest,
+        storedResult,
         revisionKey,
-        typeCounts,
       }),
-      totalChunks: manifest.totalChunks,
-      typeCounts,
+      totalChunks: storedResult.chunks.length,
+      typeCounts: storedResult.typeCounts,
       sections,
-      sectionTree: nestSections(sections),
+      sectionTree:
+        storedResult.docNav?.sections && storedResult.docNav.sections.length > 0
+          ? storedResult.docNav.sections.map((section) =>
+              toKnowledgeSection(
+                section,
+                storedResult.chunks,
+                storedResult.manifest.sourceFileName,
+              ),
+            )
+          : nestSections(sections),
       truncated: false,
     };
   }
 
-  private async readFreshParsedStorageManifest(
+  private async readCommittedParsedStorageResult(
     documentId: string,
     revisionKey: string,
-  ): Promise<KnowhereParsedSnapshotManifest | null> {
+  ): Promise<StoredParsedDocumentResult | null> {
     const parsedStorageConfig = this.parsedStorageConfig;
     if (!parsedStorageConfig) {
       return null;
     }
 
-    const manifest = await parsedStorageConfig.storage.readManifest({
+    const commit = await readParsedDocumentCommit({
+      storage: parsedStorageConfig.storage,
       documentId,
       revisionKey,
     });
-    if (!manifest || !isFreshManifest(manifest, revisionKey)) {
-      return null;
-    }
-    return manifest;
-  }
-
-  private async readStoredSnapshotChunks(params: {
-    documentId: string;
-    revisionKey: string;
-    manifest: KnowhereParsedSnapshotManifest;
-    chunkType?: KnowledgeChunkType;
-  }): Promise<IndexedKnowledgeChunk[] | null> {
-    const parsedStorageConfig = this.parsedStorageConfig;
-    if (!parsedStorageConfig) {
+    if (!commit) {
       return null;
     }
 
-    const chunks: IndexedKnowledgeChunk[] = [];
-    for (const pageReference of params.manifest.chunkPages) {
-      const page = await parsedStorageConfig.storage.readChunkPage({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        page: pageReference.page,
-        chunkType: params.chunkType,
-      });
-      if (!page) {
-        return null;
-      }
-      chunks.push(
-        ...page.chunks
-          .filter((chunk) => !params.chunkType || chunk.chunkType === params.chunkType)
-          .map(toIndexedSnapshotChunk),
-      );
-    }
-    return chunks.sort((left, right) => left.position - right.position);
-  }
-
-  private async toRemoteReadChunks(params: {
-    documentId: string;
-    revisionKey: string;
-    chunks: readonly DocumentChunk[];
-    assetUrlPolicy: ParsedDocumentAssetUrlPolicy | undefined;
-  }): Promise<KnowledgeReadChunk[]> {
-    const readChunks = params.chunks.map((chunk) => toRemoteReadChunk(chunk));
-    if (params.assetUrlPolicy === 'durable') {
-      return this.hardenReadChunkAssetUrls({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        chunks: readChunks,
-      });
-    }
-    return applyAssetUrlPolicyToReadChunks(readChunks, params.assetUrlPolicy);
-  }
-
-  private async hardenReadChunkAssetUrls(params: {
-    documentId: string;
-    revisionKey: string;
-    chunks: readonly KnowledgeReadChunk[];
-  }): Promise<KnowledgeReadChunk[]> {
-    const parsedStorageConfig = this.parsedStorageConfig;
-    if (!parsedStorageConfig) {
-      return applyAssetUrlPolicyToReadChunks(params.chunks, 'none');
+    const manifestObject = await parsedStorageConfig.storage.readObject({
+      documentId,
+      revisionKey,
+      path: 'manifest.json',
+    });
+    const chunksObject = await parsedStorageConfig.storage.readObject({
+      documentId,
+      revisionKey,
+      path: 'chunks.json',
+    });
+    if (!manifestObject || !chunksObject) {
+      return null;
     }
 
-    const hardenedChunks: KnowledgeReadChunk[] = [];
-    for (const chunk of params.chunks) {
-      hardenedChunks.push(
-        await hardenReadChunkAssetUrls({
-          storageConfig: parsedStorageConfig,
-          documentId: params.documentId,
-          revisionKey: params.revisionKey,
-          chunk,
-        }),
-      );
-    }
-    return hardenedChunks;
+    const manifest = readJsonObject<Manifest>(manifestObject);
+    const chunks = parseStoredResultChunks({
+      payload: readJsonObject<unknown>(chunksObject),
+      sourceFileName: manifest.sourceFileName,
+    });
+    const docNavObject = await parsedStorageConfig.storage.readObject({
+      documentId,
+      revisionKey,
+      path: 'doc_nav.json',
+    });
+    const docNav = docNavObject
+      ? readJsonObject<{ readonly sections?: DocNavSection[] }>(docNavObject)
+      : undefined;
+    return {
+      commit,
+      manifest,
+      chunks,
+      docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
+      typeCounts: countIndexedTypes(chunks),
+    };
   }
 
   private scheduleParsedStorageSync(documentId: string, revisionKey: string): void {
@@ -1221,7 +1136,6 @@ export class Knowledge {
           documentId,
           revisionKey,
           nextChunkPage: 1,
-          nextAssetIndex: 0,
           status: 'failed',
           updatedAt: new Date().toISOString(),
           error: error instanceof Error ? error.message : String(error),
@@ -1237,31 +1151,76 @@ export class Knowledge {
     revisionKey?: string;
     parsedStorageConfig: ParsedDocumentStorageConfig;
   }): Promise<KnowledgeSyncParsedDocumentResponse> {
-    const limits = getParsedStorageLimits(params.parsedStorageConfig.limits);
-    const existingProgress = params.revisionKey
-      ? await params.parsedStorageConfig.storage.readSyncProgress({
-          documentId: params.documentId,
-          revisionKey: params.revisionKey,
-        })
-      : null;
-    let nextPage = existingProgress?.status === 'running' ? existingProgress.nextChunkPage : 1;
-    let response = await this.client.documents.listChunks(params.documentId, {
-      page: nextPage,
-      pageSize: limits.remotePageSize,
+    const firstPage = await this.client.documents.listChunks(params.documentId, {
+      page: 1,
+      pageSize: 1,
       includeAssetUrls: true,
     });
-    const revisionKey = params.revisionKey ?? getRemoteRevisionKey(response);
-    if (params.revisionKey && getRemoteRevisionKey(response) !== params.revisionKey) {
-      response = await this.client.documents.listChunks(params.documentId, {
-        page: 1,
-        pageSize: limits.remotePageSize,
-        includeAssetUrls: true,
+    const revisionKey = params.revisionKey ?? getRemoteRevisionKey(firstPage);
+    if (params.revisionKey && getRemoteRevisionKey(firstPage) !== params.revisionKey) {
+      return this.syncRemoteDocumentToParsedStorage({
+        documentId: params.documentId,
+        parsedStorageConfig: params.parsedStorageConfig,
       });
-      nextPage = 1;
     }
 
+    if (firstPage.jobId) {
+      try {
+        const loadedResult = await this.client.jobs.load(firstPage.jobId);
+        const synced = await syncParseResultToParsedDocumentStorage({
+          result: loadedResult,
+          storage: params.parsedStorageConfig.storage,
+          documentId: params.documentId,
+          revisionKey,
+          source: 'resultZip',
+        });
+        await params.parsedStorageConfig.storage.writeSyncProgress({
+          documentId: params.documentId,
+          revisionKey,
+          status: 'completed',
+          updatedAt: new Date().toISOString(),
+        });
+        return {
+          documentId: synced.documentId,
+          revisionKey: synced.revisionKey,
+          completed: true,
+          commit: synced.commit,
+        };
+      } catch {
+        // Fall back to reconstructing a minimal result from listChunks below.
+      }
+    }
+
+    return this.syncRemoteDocumentChunksToParsedStorage({
+      documentId: params.documentId,
+      revisionKey,
+      firstPage,
+      parsedStorageConfig: params.parsedStorageConfig,
+    });
+  }
+
+  private async syncRemoteDocumentChunksToParsedStorage(params: {
+    documentId: string;
+    revisionKey: string;
+    firstPage: DocumentChunkListResponse;
+    parsedStorageConfig: ParsedDocumentStorageConfig;
+  }): Promise<KnowledgeSyncParsedDocumentResponse> {
+    const limits = getParsedStorageLimits(params.parsedStorageConfig.limits);
+    const existingProgress = await params.parsedStorageConfig.storage.readSyncProgress({
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+    });
+    let nextPage =
+      existingProgress?.status === 'running' ? (existingProgress.nextChunkPage ?? 1) : 1;
+    let response =
+      nextPage === 1 && params.firstPage.pagination.pageSize === limits.remotePageSize
+        ? params.firstPage
+        : await this.client.documents.listChunks(params.documentId, {
+            page: nextPage,
+            pageSize: limits.remotePageSize,
+            includeAssetUrls: true,
+          });
     const totalPages = response.pagination.totalPages;
-    const chunkPages: KnowhereParsedSnapshotChunkPage[] = [];
     let syncedPages = 0;
     const startedAt = Date.now();
 
@@ -1274,29 +1233,19 @@ export class Knowledge {
         });
       }
 
-      const readChunks = await this.hardenReadChunkAssetUrls({
+      await params.parsedStorageConfig.storage.writeObject({
         documentId: params.documentId,
-        revisionKey,
-        chunks: response.chunks.map(toRemoteReadChunk),
+        revisionKey: params.revisionKey,
+        path: getRemoteReconstructionPagePath(response.pagination.page),
+        body: Buffer.from(JSON.stringify({ chunks: response.chunks }), 'utf8'),
+        contentType: 'application/json; charset=utf-8',
       });
-      const page = toSnapshotChunkPageFromReadChunks({
-        response,
-        revisionKey,
-        chunks: readChunks,
-      });
-      await params.parsedStorageConfig.storage.writeChunkPage({
-        documentId: params.documentId,
-        revisionKey,
-        page,
-      });
-      chunkPages.push(page);
       nextPage += 1;
       syncedPages += 1;
       await params.parsedStorageConfig.storage.writeSyncProgress({
         documentId: params.documentId,
-        revisionKey,
+        revisionKey: params.revisionKey,
         nextChunkPage: nextPage,
-        nextAssetIndex: 0,
         status: 'running',
         updatedAt: new Date().toISOString(),
       });
@@ -1307,36 +1256,76 @@ export class Knowledge {
       ) {
         return {
           documentId: params.documentId,
-          revisionKey,
+          revisionKey: params.revisionKey,
           completed: false,
         };
       }
     }
 
-    const manifest = createRemoteSnapshotManifest({
-      response,
-      revisionKey,
-      chunkPages,
-    });
-    await params.parsedStorageConfig.storage.writeManifest({
+    const chunks = await this.readRemoteReconstructionChunks({
       documentId: params.documentId,
-      revisionKey,
-      manifest,
+      revisionKey: params.revisionKey,
+      totalPages,
+      parsedStorageConfig: params.parsedStorageConfig,
+    });
+    if (!chunks) {
+      return {
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        completed: false,
+      };
+    }
+
+    const synced = await syncParseResultToParsedDocumentStorage({
+      result: createMinimalParseResultFromRemoteChunks({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        response,
+        chunks,
+      }),
+      storage: params.parsedStorageConfig.storage,
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      source: 'remoteReconstruction',
     });
     await params.parsedStorageConfig.storage.writeSyncProgress({
       documentId: params.documentId,
-      revisionKey,
+      revisionKey: params.revisionKey,
       nextChunkPage: totalPages + 1,
-      nextAssetIndex: 0,
       status: 'completed',
       updatedAt: new Date().toISOString(),
     });
     return {
       documentId: params.documentId,
-      revisionKey,
+      revisionKey: params.revisionKey,
       completed: true,
-      manifest,
+      commit: synced.commit,
     };
+  }
+
+  private async readRemoteReconstructionChunks(params: {
+    documentId: string;
+    revisionKey: string;
+    totalPages: number;
+    parsedStorageConfig: ParsedDocumentStorageConfig;
+  }): Promise<DocumentChunk[] | null> {
+    const chunks: DocumentChunk[] = [];
+    for (let page = 1; page <= params.totalPages; page += 1) {
+      const object = await params.parsedStorageConfig.storage.readObject({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: getRemoteReconstructionPagePath(page),
+      });
+      if (!object) {
+        return null;
+      }
+      const payload = readJsonObject<{ readonly chunks?: unknown }>(object);
+      if (!isDocumentChunkArray(payload.chunks)) {
+        return null;
+      }
+      chunks.push(...payload.chunks);
+    }
+    return chunks;
   }
 
   private requireParsedStorageConfig(): ParsedDocumentStorageConfig {
@@ -1357,6 +1346,7 @@ export class Knowledge {
     const response: DocumentChunkListResponse = await this.client.documents.listChunks(documentId, {
       page: 1,
       pageSize: 1,
+      includeAssetUrls: true,
     });
     if (!response.jobId) {
       throw new Error(
@@ -1395,10 +1385,8 @@ function createLocalDocumentIdForRemote(documentId: string): string {
 }
 
 interface NormalizedParsedStorageLimits {
-  readonly chunkPageSize: number;
   readonly remotePageSize: number;
   readonly maxPagesPerSync: number;
-  readonly maxAssetsPerSync: number;
   readonly syncDeadlineMs: number;
   readonly grepMaxPages: number;
   readonly grepDeadlineMs: number;
@@ -1414,6 +1402,16 @@ interface ContinuationCursor {
   readonly nextMatchIndex?: number;
 }
 
+interface StoredParsedDocumentResult {
+  readonly commit: ParsedDocumentCommit;
+  readonly manifest: Manifest;
+  readonly chunks: IndexedKnowledgeChunk[];
+  readonly docNav?: {
+    readonly sections: DocNavSection[];
+  };
+  readonly typeCounts: Record<KnowledgeChunkType, number>;
+}
+
 const defaultParsedStorageScheduler = {
   schedule(task: () => Promise<void>): void {
     void task();
@@ -1424,14 +1422,12 @@ function getParsedStorageLimits(
   limits: ParsedDocumentStorageLimits | undefined,
 ): NormalizedParsedStorageLimits {
   return {
-    chunkPageSize: clampLimit(limits?.chunkPageSize, DEFAULT_REMOTE_SCAN_PAGE_SIZE, MAX_PAGE_SIZE),
     remotePageSize: clampLimit(
       limits?.remotePageSize,
       DEFAULT_REMOTE_SCAN_PAGE_SIZE,
       MAX_PAGE_SIZE,
     ),
     maxPagesPerSync: clampLimit(limits?.maxPagesPerSync, DEFAULT_MAX_SYNC_PAGES, 1000),
-    maxAssetsPerSync: clampLimit(limits?.maxAssetsPerSync, DEFAULT_MAX_SYNC_ASSETS, 1000),
     syncDeadlineMs: clampLimit(limits?.syncDeadlineMs, DEFAULT_SYNC_DEADLINE_MS, 60000),
     grepMaxPages: clampLimit(limits?.grepMaxPages, DEFAULT_GREP_MAX_PAGES, 1000),
     grepDeadlineMs: clampLimit(limits?.grepDeadlineMs, DEFAULT_GREP_DEADLINE_MS, 60000),
@@ -1441,10 +1437,7 @@ function getParsedStorageLimits(
 }
 
 function validateReadParams(params: KnowledgeReadParams): void {
-  const usesPagedDisplay =
-    params.page !== undefined ||
-    params.pageSize !== undefined ||
-    params.assetUrlPolicy !== undefined;
+  const usesPagedDisplay = params.page !== undefined || params.pageSize !== undefined;
   if (!usesPagedDisplay) {
     return;
   }
@@ -1456,7 +1449,7 @@ function validateReadParams(params: KnowledgeReadParams): void {
     params.chunkId !== undefined
   ) {
     throw new ValidationError(
-      'page, pageSize, and assetUrlPolicy cannot be combined with sectionPath, startChunk, endChunk, or chunkId',
+      'page and pageSize cannot be combined with sectionPath, startChunk, endChunk, or chunkId',
     );
   }
 }
@@ -1480,13 +1473,6 @@ function getReadPageParams(params: KnowledgeReadParams): {
   };
 }
 
-function shouldRequestRemoteAssetUrls(
-  assetUrlPolicy: ParsedDocumentAssetUrlPolicy | undefined,
-  parsedStorageConfig: ParsedDocumentStorageConfig | undefined,
-): boolean {
-  return assetUrlPolicy === 'durable' && parsedStorageConfig !== undefined;
-}
-
 function getRemoteRevisionKey(response: DocumentChunkListResponse): string {
   const revisionKey = response.jobResultId ?? response.jobId;
   if (!revisionKey) {
@@ -1495,6 +1481,10 @@ function getRemoteRevisionKey(response: DocumentChunkListResponse): string {
     );
   }
   return revisionKey;
+}
+
+function getRemoteReconstructionPagePath(page: number): string {
+  return `${remoteReconstructionPageDirectory}/page-${page}.json`;
 }
 
 function createRemoteKnowledgeDocument(params: {
@@ -1517,28 +1507,118 @@ function createRemoteKnowledgeDocument(params: {
   };
 }
 
-function createStoredKnowledgeDocument(params: {
+function createMinimalParseResultFromRemoteChunks(params: {
   readonly documentId: string;
-  readonly manifest: KnowhereParsedSnapshotManifest;
   readonly revisionKey: string;
-  readonly typeCounts: Record<KnowledgeChunkType, number>;
-}): LocalKnowledgeDocument {
+  readonly response: DocumentChunkListResponse;
+  readonly chunks: readonly DocumentChunk[];
+}): ParseResult {
+  const chunks = params.chunks.map(toMinimalChunkFromRemoteChunk);
+  const typeCounts = countRemoteChunkTypes(params.chunks);
   return {
-    localDocumentId: params.documentId,
-    jobId: params.manifest.jobId || params.revisionKey,
-    documentId: params.manifest.documentId ?? params.documentId,
-    namespace: params.manifest.namespace,
-    sourceFileName: params.manifest.sourceFileName,
-    chunkCount: params.manifest.totalChunks,
-    typeCounts: params.typeCounts,
-    resultDirectoryPath: `parsed-storage:${params.documentId}`,
-    createdAt: new Date(params.manifest.createdAt),
-    updatedAt: new Date(params.manifest.createdAt),
+    manifest: {
+      version: '2.0',
+      jobId: params.response.jobId ?? params.revisionKey,
+      sourceFileName: params.documentId,
+      statistics: {
+        totalChunks: chunks.length,
+        textChunks: typeCounts.text,
+        imageChunks: typeCounts.image,
+        tableChunks: typeCounts.table,
+        pageChunks: typeCounts.page,
+      },
+    },
+    chunks,
+    rawZip: Buffer.from(''),
+    namespace: params.response.namespace,
+    documentId: params.documentId,
+    textChunks: chunks.filter(
+      (chunk): chunk is Extract<Chunk, { type: 'text' }> => chunk.type === 'text',
+    ),
+    imageChunks: chunks.filter(
+      (chunk): chunk is Extract<Chunk, { type: 'image' }> => chunk.type === 'image',
+    ),
+    tableChunks: chunks.filter(
+      (chunk): chunk is Extract<Chunk, { type: 'table' }> => chunk.type === 'table',
+    ),
+    pageChunks: chunks.filter(
+      (chunk): chunk is Extract<Chunk, { type: 'page' }> => chunk.type === 'page',
+    ),
+    jobId: params.response.jobId ?? params.revisionKey,
+    statistics: {
+      totalChunks: chunks.length,
+      textChunks: typeCounts.text,
+      imageChunks: typeCounts.image,
+      tableChunks: typeCounts.table,
+      pageChunks: typeCounts.page,
+    },
+    getChunk: (chunkId: string) => chunks.find((chunk) => chunk.chunkId === chunkId),
+    save: (): Promise<string> =>
+      Promise.reject(new Error('Minimal remote reconstruction cannot be saved directly.')),
   };
 }
 
-function isFreshManifest(manifest: KnowhereParsedSnapshotManifest, revisionKey: string): boolean {
-  return (manifest.revisionKey ?? manifest.jobId) === revisionKey;
+function toMinimalChunkFromRemoteChunk(chunk: DocumentChunk): Chunk {
+  const baseChunk = {
+    chunkId: chunk.chunkId,
+    contentSource: chunk.contentSource ?? undefined,
+    content: chunk.content ?? '',
+    path: chunk.sourceChunkPath ?? chunk.sectionPath ?? '',
+    metadata: cloneMetadata(chunk.metadata),
+  };
+
+  if (chunk.chunkType === 'image') {
+    return {
+      ...baseChunk,
+      type: 'image',
+      filePath: chunk.filePath ?? '',
+      assetUrl: chunk.assetUrl ?? undefined,
+      data: Buffer.alloc(0),
+      format: inferContentTypeFromPath(chunk.filePath ?? '').replace('image/', ''),
+      save: (): Promise<string> => Promise.resolve(chunk.filePath ?? ''),
+    };
+  }
+
+  if (chunk.chunkType === 'table') {
+    return {
+      ...baseChunk,
+      type: 'table',
+      filePath: chunk.filePath ?? '',
+      assetUrl: chunk.assetUrl ?? undefined,
+      html: chunk.content ?? '',
+      save: (): Promise<string> => Promise.resolve(chunk.filePath ?? ''),
+    };
+  }
+
+  if (chunk.chunkType === 'page') {
+    return {
+      ...baseChunk,
+      type: 'page',
+    };
+  }
+
+  return {
+    ...baseChunk,
+    type: 'text',
+  };
+}
+
+function createStoredKnowledgeDocument(params: {
+  readonly documentId: string;
+  readonly storedResult: StoredParsedDocumentResult;
+  readonly revisionKey: string;
+}): LocalKnowledgeDocument {
+  return {
+    localDocumentId: params.documentId,
+    jobId: params.storedResult.manifest.jobId || params.revisionKey,
+    documentId: params.documentId,
+    sourceFileName: params.storedResult.manifest.sourceFileName,
+    chunkCount: params.storedResult.chunks.length,
+    typeCounts: params.storedResult.typeCounts,
+    resultDirectoryPath: `parsed-storage:${params.documentId}`,
+    createdAt: new Date(params.storedResult.commit.committedAt),
+    updatedAt: new Date(params.storedResult.commit.committedAt),
+  };
 }
 
 function toRemoteReadChunk(chunk: DocumentChunk): KnowledgeReadChunk {
@@ -1576,26 +1656,81 @@ function toIndexedRemoteChunk(chunk: DocumentChunk): IndexedKnowledgeChunk {
   return toIndexedReadChunk(readChunk);
 }
 
-function toIndexedSnapshotChunk(chunk: KnowhereParsedSnapshotChunk): IndexedKnowledgeChunk {
-  return toIndexedReadChunk({
-    position: chunk.sortOrder,
-    chunkId: chunk.chunkId,
-    chunkType: chunk.chunkType as KnowledgeChunkType,
-    contentSource: chunk.contentSource,
-    content: chunk.content,
-    readableContent:
-      chunk.chunkType === 'page' &&
-      typeof chunk.metadata.summary === 'string' &&
-      chunk.metadata.summary.trim().length > 0
-        ? chunk.metadata.summary
-        : chunk.content,
-    sectionPath: chunk.sectionPath ?? '',
-    sourceChunkPath: chunk.sourceChunkPath,
-    filePath: chunk.filePath,
-    assetUrl: chunk.assetUrl,
-    pageNumbers: getChunkPageNumbers(chunk.metadata),
-    metadata: cloneMetadata(chunk.metadata),
+function parseStoredResultChunks(params: {
+  readonly payload: unknown;
+  readonly sourceFileName: string;
+}): IndexedKnowledgeChunk[] {
+  const rawChunks = extractStoredChunkRecords(params.payload);
+  return rawChunks.map((record, index) => {
+    const metadata = readRecordMetadata(record);
+    const chunkType = readRecordString(record, 'type', 'chunkType', 'chunk_type');
+    const content = readRecordString(record, 'content') ?? '';
+    const sourceChunkPath =
+      readRecordString(record, 'path', 'sourceChunkPath', 'source_chunk_path') ?? '';
+    const chunk: KnowledgeReadChunk = {
+      position: index + 1,
+      chunkId: readRecordString(record, 'chunkId', 'chunk_id') ?? '',
+      chunkType: isKnowledgeChunkType(chunkType) ? chunkType : 'text',
+      contentSource: readRecordString(record, 'contentSource', 'content_source'),
+      content,
+      readableContent:
+        chunkType === 'page' &&
+        typeof metadata.summary === 'string' &&
+        metadata.summary.trim().length > 0
+          ? metadata.summary
+          : content,
+      sectionPath: normalizeSectionPath(sourceChunkPath, params.sourceFileName),
+      sourceChunkPath,
+      filePath:
+        readRecordString(record, 'filePath', 'file_path') ??
+        (typeof metadata.filePath === 'string' ? metadata.filePath : undefined),
+      assetUrl: readRecordString(record, 'assetUrl', 'asset_url'),
+      pageNumbers: getChunkPageNumbers(metadata),
+      metadata,
+    };
+    return toIndexedReadChunk(chunk);
   });
+}
+
+function extractStoredChunkRecords(payload: unknown): readonly Record<string, unknown>[] {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord);
+  }
+  if (isRecord(payload) && Array.isArray(payload.chunks)) {
+    return payload.chunks.filter(isRecord);
+  }
+  return [];
+}
+
+function readRecordString(
+  record: Record<string, unknown>,
+  ...keys: readonly string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string') return value;
+  }
+  return undefined;
+}
+
+function readRecordNumber(
+  record: Record<string, unknown>,
+  ...keys: readonly string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number') return value;
+  }
+  return undefined;
+}
+
+function readRecordMetadata(record: Record<string, unknown>): Record<string, unknown> {
+  const metadata = record.metadata;
+  return isRecord(metadata) ? keysToCamel<Record<string, unknown>>(metadata) : {};
+}
+
+function isKnowledgeChunkType(value: string | undefined): value is KnowledgeChunkType {
+  return value === 'text' || value === 'image' || value === 'table' || value === 'page';
 }
 
 function toIndexedReadChunk(chunk: KnowledgeReadChunk): IndexedKnowledgeChunk {
@@ -1660,286 +1795,140 @@ function getNextChunkPosition(
   return chunks[chunks.indexOf(lastSelected) + 1]?.position;
 }
 
-function applyAssetUrlPolicyToReadChunks(
-  chunks: readonly KnowledgeReadChunk[],
-  assetUrlPolicy: ParsedDocumentAssetUrlPolicy | undefined,
-): KnowledgeReadChunk[] {
-  if (assetUrlPolicy !== 'none') {
-    return chunks.map((chunk) => ({
-      ...chunk,
-      metadata: cloneMetadata(chunk.metadata),
-    }));
-  }
-
-  return chunks.map((chunk) => ({
-    ...chunk,
-    assetUrl: undefined,
-    metadata: removeAssetUrlsFromMetadata(chunk.metadata),
-  }));
+async function applyStoredAssetUrlsToReadChunks(params: {
+  readonly storageConfig: ParsedDocumentStorageConfig;
+  readonly documentId: string;
+  readonly revisionKey: string;
+  readonly chunks: readonly KnowledgeReadChunk[];
+}): Promise<KnowledgeReadChunk[]> {
+  return Promise.all(
+    params.chunks.map((chunk) =>
+      applyStoredAssetUrlsToReadChunk({
+        ...params,
+        chunk,
+      }),
+    ),
+  );
 }
 
-async function hardenReadChunkAssetUrls(params: {
+async function applyStoredAssetUrlsToReadChunk(params: {
   readonly storageConfig: ParsedDocumentStorageConfig;
   readonly documentId: string;
   readonly revisionKey: string;
   readonly chunk: KnowledgeReadChunk;
 }): Promise<KnowledgeReadChunk> {
   const metadata = cloneMetadata(params.chunk.metadata);
-  const assetUrl = await hardenPrimaryAssetUrl(params, metadata);
-  const pageAssets = await hardenPageAssetUrls(params, metadata);
+  const storedAssetUrl = await getStoredObjectUrl({
+    storageConfig: params.storageConfig,
+    documentId: params.documentId,
+    revisionKey: params.revisionKey,
+    path: params.chunk.filePath,
+  });
+  const pageAssets = await applyStoredPageAssetUrls({
+    storageConfig: params.storageConfig,
+    documentId: params.documentId,
+    revisionKey: params.revisionKey,
+    metadata,
+  });
   if (pageAssets) {
     metadata.pageAssets = pageAssets;
+    delete metadata.page_assets;
   }
 
   return {
     ...params.chunk,
-    assetUrl,
+    assetUrl: storedAssetUrl ?? params.chunk.assetUrl,
     metadata,
   };
 }
 
-async function hardenPrimaryAssetUrl(
-  params: {
-    readonly storageConfig: ParsedDocumentStorageConfig;
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly chunk: KnowledgeReadChunk;
-  },
-  metadata: Record<string, unknown>,
-): Promise<string | undefined> {
-  if (!params.chunk.assetUrl || !params.chunk.filePath) {
-    return undefined;
-  }
-
-  return writeDurableAssetUrl({
-    storageConfig: params.storageConfig,
-    documentId: params.documentId,
-    revisionKey: params.revisionKey,
-    sourcePath: params.chunk.filePath,
-    sourceUrl: params.chunk.assetUrl,
-    fallbackContentType: inferContentTypeFromPath(params.chunk.filePath),
-    metadata: {
-      chunkId: params.chunk.chunkId,
-      chunkType: params.chunk.chunkType,
-      sourcePath: params.chunk.filePath,
-      ...stringifyFlatMetadata(metadata),
-    },
-  });
-}
-
-async function hardenPageAssetUrls(
-  params: {
-    readonly storageConfig: ParsedDocumentStorageConfig;
-    readonly documentId: string;
-    readonly revisionKey: string;
-    readonly chunk: KnowledgeReadChunk;
-  },
-  metadata: Record<string, unknown>,
-): Promise<unknown[] | undefined> {
-  const pageAssets = toUnknownArray(metadata.pageAssets);
-  if (!pageAssets) {
-    return undefined;
-  }
-
-  const hardenedAssets: unknown[] = [];
-  for (const pageAsset of pageAssets) {
-    if (!isRecord(pageAsset)) {
-      hardenedAssets.push(pageAsset);
-      continue;
-    }
-
-    const artifactRef = pageAsset.artifactRef;
-    const sourceUrl = pageAsset.assetUrl;
-    if (typeof artifactRef !== 'string' || typeof sourceUrl !== 'string') {
-      hardenedAssets.push(removeAssetUrlField(pageAsset));
-      continue;
-    }
-
-    const durableUrl = await writeDurableAssetUrl({
-      storageConfig: params.storageConfig,
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      sourcePath: artifactRef,
-      sourceUrl,
-      fallbackContentType:
-        typeof pageAsset.contentType === 'string'
-          ? pageAsset.contentType
-          : inferContentTypeFromPath(artifactRef),
-      metadata: {
-        chunkId: params.chunk.chunkId,
-        chunkType: params.chunk.chunkType,
-        sourcePath: artifactRef,
-      },
-    });
-    const rest = removeAssetUrlField(pageAsset);
-    hardenedAssets.push(durableUrl ? { ...rest, assetUrl: durableUrl } : rest);
-  }
-
-  return hardenedAssets;
-}
-
-async function writeDurableAssetUrl(params: {
+async function applyStoredPageAssetUrls(params: {
   readonly storageConfig: ParsedDocumentStorageConfig;
   readonly documentId: string;
   readonly revisionKey: string;
-  readonly sourcePath: string;
-  readonly sourceUrl: string;
-  readonly fallbackContentType: string;
-  readonly metadata: Readonly<Record<string, string>>;
-}): Promise<string | undefined> {
-  const existingUrl = await params.storageConfig.storage.getAssetUrl({
-    documentId: params.documentId,
-    revisionKey: params.revisionKey,
-    sourcePath: params.sourcePath,
-  });
-  if (existingUrl) {
-    return existingUrl;
-  }
-
-  try {
-    const fetched = await fetchAsset(params.sourceUrl, params.fallbackContentType);
-    const written = await params.storageConfig.storage.writeAsset({
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      sourcePath: params.sourcePath,
-      body: fetched.body,
-      contentType: fetched.contentType,
-      metadata: params.metadata,
-    });
-    return (
-      written.url ??
-      (await params.storageConfig.storage.getAssetUrl({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        sourcePath: params.sourcePath,
-      })) ??
-      undefined
-    );
-  } catch {
+  readonly metadata: Record<string, unknown>;
+}): Promise<unknown[] | undefined> {
+  const pageAssets = getStoredPageAssets(params.metadata);
+  if (!pageAssets) {
     return undefined;
   }
-}
 
-async function fetchAsset(
-  sourceUrl: string,
-  fallbackContentType: string,
-): Promise<{
-  readonly body: Uint8Array;
-  readonly contentType: string;
-}> {
-  const response = await fetch(sourceUrl);
-  if (!response.ok) {
-    throw new Error(`Unable to fetch parsed asset: ${response.status}`);
-  }
+  return Promise.all(
+    pageAssets.map(async (pageAsset) => {
+      if (!isRecord(pageAsset)) {
+        return pageAsset;
+      }
 
-  return {
-    body: new Uint8Array(await response.arrayBuffer()),
-    contentType: response.headers.get('content-type') ?? fallbackContentType,
-  };
-}
+      const artifactRef = readRecordString(pageAsset, 'artifactRef', 'artifact_ref');
+      if (typeof artifactRef !== 'string') {
+        return pageAsset;
+      }
 
-function removeAssetUrlsFromMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  const cloned = cloneMetadata(metadata);
-  const pageAssets = toUnknownArray(cloned.pageAssets);
-  if (!pageAssets) {
-    return cloned;
-  }
-
-  cloned.pageAssets = pageAssets.map((pageAsset) => {
-    if (!isRecord(pageAsset)) {
+      const storedAssetUrl = await getStoredObjectUrl({
+        storageConfig: params.storageConfig,
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: artifactRef,
+      });
+      if (storedAssetUrl) {
+        return {
+          ...pageAsset,
+          artifactRef,
+          assetUrl: storedAssetUrl,
+        };
+      }
       return pageAsset;
-    }
-    return removeAssetUrlField(pageAsset);
-  });
-  return cloned;
+    }),
+  );
 }
 
-function removeAssetUrlField(value: Record<string, unknown>): Record<string, unknown> {
-  const cloned = { ...value };
-  delete cloned.assetUrl;
-  return cloned;
+function getStoredPageAssets(metadata: Record<string, unknown>): readonly unknown[] | undefined {
+  const pageAssets =
+    toUnknownArray(metadata.pageAssets) ?? toUnknownArray(metadata.page_assets) ?? undefined;
+  return pageAssets?.map(normalizeStoredPageAsset);
 }
 
-function toSnapshotChunkPageFromReadChunks(params: {
-  readonly response: DocumentChunkListResponse;
+function normalizeStoredPageAsset(pageAsset: unknown): unknown {
+  if (!isRecord(pageAsset)) {
+    return pageAsset;
+  }
+
+  const normalizedPageAsset: Record<string, unknown> = { ...pageAsset };
+  delete normalizedPageAsset.page_num;
+  delete normalizedPageAsset.artifact_ref;
+  delete normalizedPageAsset.asset_url;
+  delete normalizedPageAsset.content_type;
+  const pageNum = readRecordNumber(pageAsset, 'pageNum', 'page_num');
+  const artifactRef = readRecordString(pageAsset, 'artifactRef', 'artifact_ref');
+  const assetUrl = readRecordString(pageAsset, 'assetUrl', 'asset_url');
+  const contentType = readRecordString(pageAsset, 'contentType', 'content_type');
+
+  return {
+    ...normalizedPageAsset,
+    ...(pageNum === undefined ? {} : { pageNum }),
+    ...(artifactRef === undefined ? {} : { artifactRef }),
+    ...(assetUrl === undefined ? {} : { assetUrl }),
+    ...(contentType === undefined ? {} : { contentType }),
+  };
+}
+
+async function getStoredObjectUrl(params: {
+  readonly storageConfig: ParsedDocumentStorageConfig;
+  readonly documentId: string;
   readonly revisionKey: string;
-  readonly chunks: readonly KnowledgeReadChunk[];
-}): KnowhereParsedSnapshotChunkPage {
-  return {
-    version: 1,
-    jobId: params.response.jobId ?? params.revisionKey,
-    revisionKey: params.revisionKey,
-    documentId: params.response.documentId,
-    namespace: params.response.namespace,
-    sourceFileName: params.response.documentId,
-    page: params.response.pagination.page,
-    pageSize: params.response.pagination.pageSize,
-    total: params.response.pagination.total,
-    totalPages: params.response.pagination.totalPages,
-    chunks: params.chunks.map(toSnapshotChunkFromReadChunk),
-  };
-}
+  readonly path: string | undefined;
+}): Promise<string | undefined> {
+  if (!params.path) {
+    return undefined;
+  }
 
-function toSnapshotChunkFromReadChunk(chunk: KnowledgeReadChunk): KnowhereParsedSnapshotChunk {
-  return {
-    id: chunk.chunkId,
-    chunkId: chunk.chunkId,
-    chunkType: chunk.chunkType,
-    contentSource: chunk.contentSource,
-    content: chunk.content,
-    sectionPath: chunk.sectionPath,
-    sourceChunkPath: chunk.sourceChunkPath,
-    filePath: chunk.filePath,
-    sortOrder: chunk.position,
-    metadata: cloneMetadata(chunk.metadata),
-    assetUrl: chunk.assetUrl,
-  };
-}
-
-function createRemoteSnapshotManifest(params: {
-  readonly response: DocumentChunkListResponse;
-  readonly revisionKey: string;
-  readonly chunkPages: readonly KnowhereParsedSnapshotChunkPage[];
-}): KnowhereParsedSnapshotManifest {
-  return {
-    version: 1,
-    kind: 'knowhere-parsed-result-snapshot',
-    jobId: params.response.jobId ?? params.revisionKey,
-    revisionKey: params.revisionKey,
-    documentId: params.response.documentId,
-    namespace: params.response.namespace,
-    sourceFileName: params.response.documentId,
-    totalChunks: params.response.pagination.total,
-    typeCounts: countSnapshotPagesTypes(params.chunkPages),
-    chunkPageSize: params.response.pagination.pageSize,
-    chunkPages: Array.from({ length: params.response.pagination.totalPages }, (_, index) => ({
-      page: index + 1,
-      pageSize: params.response.pagination.pageSize,
-      chunkCount:
-        index + 1 === params.response.pagination.totalPages
-          ? params.response.pagination.total -
-            params.response.pagination.pageSize * (params.response.pagination.totalPages - 1)
-          : params.response.pagination.pageSize,
-      key: `parsed/chunks/page-${index + 1}.json`,
-    })),
-    assetUrlsByFilePath: {},
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function countSnapshotPagesTypes(
-  pages: readonly KnowhereParsedSnapshotChunkPage[],
-): Record<KnowledgeChunkType, number> {
-  return pages
-    .flatMap((page) => page.chunks)
-    .reduce<Record<KnowledgeChunkType, number>>(
-      (counts, chunk) => {
-        const chunkType = chunk.chunkType as KnowledgeChunkType;
-        counts[chunkType] += 1;
-        return counts;
-      },
-      { text: 0, image: 0, table: 0, page: 0 },
-    );
+  return (
+    (await params.storageConfig.storage.getObjectUrl?.({
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: params.path,
+    })) ?? undefined
+  );
 }
 
 function countRemoteChunkTypes(
@@ -2047,19 +2036,6 @@ function cloneMetadata(metadata: Record<string, unknown>): Record<string, unknow
   return { ...metadata };
 }
 
-function stringifyFlatMetadata(metadata: Record<string, unknown>): Record<string, string> {
-  const entries = Object.entries(metadata).flatMap(([key, value]): Array<[string, string]> => {
-    if (typeof value === 'string') {
-      return [[key, value]];
-    }
-    if (typeof value === 'number' || typeof value === 'boolean') {
-      return [[key, String(value)]];
-    }
-    return [];
-  });
-  return Object.fromEntries(entries);
-}
-
 function toUnknownArray(value: unknown): readonly unknown[] | null {
   return Array.isArray(value) ? (value as readonly unknown[]) : null;
 }
@@ -2074,6 +2050,10 @@ function inferContentTypeFromPath(filePath: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isDocumentChunkArray(value: unknown): value is DocumentChunk[] {
+  return Array.isArray(value) && value.every(isRecord);
 }
 
 function indexChunks(result: ParseResult): IndexedKnowledgeChunk[] {
