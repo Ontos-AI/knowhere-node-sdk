@@ -30,8 +30,8 @@ During login, the dashboard asks for a Permission:
 
 - Read only: query Knowhere and read existing parsed documents. Parse and
   delete tools are not exposed to the MCP host.
-- Full access: query, read, parse URLs/files, cache completed parse jobs, and
-  archive documents.
+- Full access: query, read, start async URL/file parse jobs, cache completed
+  parse jobs, and archive documents.
 
 Useful auth commands:
 
@@ -178,12 +178,6 @@ When logged in with Read only permission, the MCP server exposes only
 `knowhere_get_document_outline`, `knowhere_read_chunks`,
 `knowhere_grep_chunks`, and `knowhere_async_get_job_status`.
 
-- `knowhere_parse_url`: blocking parse for a remote URL; waits for completion
-  and makes the parsed document available to outline/read/grep/search tools.
-- `knowhere_parse_file`: blocking parse for a file path available to the MCP
-  process; waits for completion and makes the parsed document available to
-  outline/read/grep/search tools. The path is resolved on the machine running
-  this stdio MCP server.
 - `knowhere_async_parse_url`: start parsing a remote URL and return the job
   immediately. When checking status, use exponential backoff.
 - `knowhere_async_parse_file`: start parsing a local file path, upload it if
@@ -248,9 +242,10 @@ The following `<instruction>` tells callers to open or fetch the listed
 `assetUrl` before relying on preview text. If a page asset exists without an
 `assetUrl`, the text says that the asset is not directly readable.
 
-Blocking parse responses summarize document/job identifiers, chunk counts, and
-asset URL mappings. They intentionally do not dump the full parse result, ZIP
-bytes, or every chunk.
+Async parse responses return the job identifier and source metadata
+immediately. Use `knowhere_async_get_job_status` to poll the job until it
+completes, then pass the returned `localDocumentId`, `documentId`, or `jobId`
+to outline, read, or grep tools.
 
 ## Package Boundary
 

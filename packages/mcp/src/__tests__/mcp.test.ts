@@ -17,7 +17,6 @@ describe('knowhere MCP wrapper', () => {
     const toolNames = tools.tools.map((tool) => tool.name).sort();
     const statusTool = tools.tools.find((tool) => tool.name === 'knowhere_async_get_job_status');
     const listTool = tools.tools.find((tool) => tool.name === 'knowhere_list_documents');
-    const parseFileTool = tools.tools.find((tool) => tool.name === 'knowhere_parse_file');
     const asyncParseFileTool = tools.tools.find(
       (tool) => tool.name === 'knowhere_async_parse_file',
     );
@@ -32,8 +31,6 @@ describe('knowhere MCP wrapper', () => {
       'knowhere_get_document_outline',
       'knowhere_grep_chunks',
       'knowhere_list_documents',
-      'knowhere_parse_file',
-      'knowhere_parse_url',
       'knowhere_read_chunks',
       'knowhere_search',
     ]);
@@ -43,9 +40,6 @@ describe('knowhere MCP wrapper', () => {
     expect(statusTool?.description).toContain('5s, 10s, 20s, 40s, 80s');
     expect(statusTool?.description).toContain('Large PDFs or OCR-heavy files can take 10+ minutes');
     expect(listTool?.description).toContain('remote API');
-    expect(parseFileTool?.description).toContain(
-      'resolved on the machine running this stdio MCP server',
-    );
     expect(asyncParseFileTool?.description).toContain(
       'resolved on the machine running this stdio MCP server',
     );
@@ -104,12 +98,12 @@ describe('knowhere MCP wrapper', () => {
     await server.close();
   });
 
-  it('should delegate parse and grep calls to the SDK knowledge module', async () => {
+  it('should delegate async parse and grep calls to the SDK knowledge module', async () => {
     const knowhereClient = createClient();
     const { client, server } = await connectTestClient(knowhereClient);
 
     const parseResponse = await client.callTool({
-      name: 'knowhere_parse_file',
+      name: 'knowhere_async_parse_file',
       arguments: {
         file: './report.md',
         localDocumentId: 'local-report',
@@ -127,7 +121,7 @@ describe('knowhere MCP wrapper', () => {
       },
     });
 
-    expect(knowhereClient.knowledge.parseToLocalCache).toHaveBeenCalledWith({
+    expect(knowhereClient.knowledge.startParse).toHaveBeenCalledWith({
       file: './report.md',
       fileName: undefined,
       namespace: undefined,
@@ -149,16 +143,8 @@ describe('knowhere MCP wrapper', () => {
     });
     expectToolText(
       parseResponse,
-      `<knowhere operation="parseFile">
-  <document localDocumentId="local-report" documentId="doc-1" jobId="job-1" namespace="support-center" sourceFileName="report.md" storageRoot="/tmp/knowhere/local-report">
-    <chunkCounts total="3" text="1" image="0" table="0" page="2" />
-  </document>
-  <parseResult jobId="job-1" documentId="doc-1" namespace="support-center" sourceFileName="report.md">
-    <chunkCounts total="3" text="1" image="0" table="0" page="2" />
-  </parseResult>
-  <assetUrls count="1">
-    <assetUrl filePath="page_citation_assets/page-1.png" assetUrl="https://assets.example/page-1.png" />
-  </assetUrls>
+      `<knowhere operation="asyncParseFile">
+  <job localDocumentId="local-report" jobId="job-async" status="running" sourceType="file" documentId="doc-async" namespace="support-center" />
 </knowhere>`,
     );
     expectToolText(
@@ -807,44 +793,18 @@ function createClient(): Knowhere & {
   knowledge: KnowledgeWithMocks;
 } {
   const knowledge: KnowledgeWithMocks = {
-    parseToLocalCache: vi.fn().mockResolvedValue({
-      document: createLocalDocument(),
-      result: {
-        jobId: 'job-1',
-        documentId: 'doc-1',
-        namespace: 'support-center',
-        manifest: {
-          jobId: 'job-1',
-          sourceFileName: 'report.md',
-          statistics: {
-            totalChunks: 3,
-            textChunks: 1,
-            imageChunks: 0,
-            tableChunks: 0,
-            pageChunks: 2,
-          },
+    startParse: vi.fn().mockImplementation((params: Parameters<Knowledge['startParse']>[0]) =>
+      Promise.resolve({
+        job: {
+          jobId: 'job-async',
+          status: 'running',
+          sourceType: 'file' in params ? 'file' : 'url',
+          documentId: 'doc-async',
+          namespace: 'support-center',
         },
-        rawZip: Buffer.from('not rendered'),
-        chunks: [
-          {
-            chunkId: 'not-rendered',
-          },
-        ],
-      },
-      assetUrlsByFilePath: {
-        'page_citation_assets/page-1.png': 'https://assets.example/page-1.png',
-      },
-    }),
-    startParse: vi.fn().mockResolvedValue({
-      job: {
-        jobId: 'job-async',
-        status: 'running',
-        sourceType: 'url',
-        documentId: 'doc-async',
-        namespace: 'support-center',
-      },
-      localDocumentId: 'local-report',
-    }),
+        localDocumentId: 'local-report',
+      }),
+    ),
     getJobStatus: vi.fn().mockResolvedValue({
       job: {
         jobId: 'job-async',
@@ -996,7 +956,6 @@ type ToolCallResponse = Awaited<ReturnType<Client['callTool']>>;
 
 type KnowledgeWithMocks = Pick<
   Knowledge,
-  | 'parseToLocalCache'
   | 'startParse'
   | 'getJobStatus'
   | 'importJobResult'
@@ -1009,7 +968,6 @@ type KnowledgeWithMocks = Pick<
   | 'withCacheDirectory'
   | 'withParsedStorage'
 > & {
-  parseToLocalCache: Mock<Knowledge['parseToLocalCache']>;
   startParse: Mock<Knowledge['startParse']>;
   getJobStatus: Mock<Knowledge['getJobStatus']>;
   importJobResult: Mock<Knowledge['importJobResult']>;
