@@ -63,60 +63,6 @@ export async function createKnowhereMcpServer(
 
   if (hasWritePermission) {
     server.registerTool(
-      'knowhere_parse_url',
-      {
-        description:
-          'Blocking parse: submit a remote URL to Knowhere, wait for completion, then make the parsed document available to outline/read/grep/search tools.',
-        inputSchema: {
-          url: z.string().url(),
-          namespace: z.string().optional(),
-          localDocumentId: z.string().optional(),
-          dataId: z.string().optional(),
-          parsingParams: parsingParamsSchema,
-        },
-      },
-      async (input) =>
-        createToolResult(
-          'parseUrl',
-          await knowledge.parseToLocalCache({
-            url: input.url,
-            namespace: input.namespace,
-            localDocumentId: input.localDocumentId,
-            dataId: input.dataId,
-            ...toFlatParsingParams(input.parsingParams),
-          }),
-        ),
-    );
-
-    server.registerTool(
-      'knowhere_parse_file',
-      {
-        description:
-          'Blocking parse: submit a local file path available to this MCP process, wait for completion, then make the parsed document available to outline/read/grep/search tools. The file path is resolved on the machine running this stdio MCP server, not on a remote chat client.',
-        inputSchema: {
-          file: z.string().describe('Local file path available to this MCP server process.'),
-          fileName: z.string().optional(),
-          namespace: z.string().optional(),
-          localDocumentId: z.string().optional(),
-          dataId: z.string().optional(),
-          parsingParams: parsingParamsSchema,
-        },
-      },
-      async (input) =>
-        createToolResult(
-          'parseFile',
-          await knowledge.parseToLocalCache({
-            file: input.file,
-            fileName: input.fileName,
-            namespace: input.namespace,
-            localDocumentId: input.localDocumentId,
-            dataId: input.dataId,
-            ...toFlatParsingParams(input.parsingParams),
-          }),
-        ),
-    );
-
-    server.registerTool(
       'knowhere_async_parse_url',
       {
         description:

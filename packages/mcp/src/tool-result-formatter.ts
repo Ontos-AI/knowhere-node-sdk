@@ -51,10 +51,6 @@ function formatOperationResult(operation: string, result: unknown): string {
   const lines: string[] = [`<knowhere operation="${escapeAttribute(operation)}">`];
 
   switch (operation) {
-    case 'parseUrl':
-    case 'parseFile':
-      appendBlockingParseResult(lines, result);
-      break;
     case 'asyncParseUrl':
     case 'asyncParseFile':
       appendAsyncParseResult(lines, result);
@@ -90,13 +86,6 @@ function formatOperationResult(operation: string, result: unknown): string {
 
   lines.push('</knowhere>');
   return lines.join('\n');
-}
-
-function appendBlockingParseResult(lines: string[], result: unknown): void {
-  const response: UnknownRecord | undefined = toRecord(result);
-  appendDocument(lines, readRecord(response, 'document'), 1);
-  appendParseSummary(lines, readRecord(response, 'result'), 1);
-  appendAssetUrls(lines, readRecord(response, 'assetUrlsByFilePath'), 1);
 }
 
 function appendAsyncParseResult(lines: string[], result: unknown): void {
@@ -254,54 +243,6 @@ function appendSearchResult(lines: string[], result: unknown): void {
   appendSearchReferences(lines, references, 2);
   appendSearchResults(lines, results, 2);
   lines.push(`${indent(1)}</search>`);
-}
-
-function appendParseSummary(
-  lines: string[],
-  result: UnknownRecord | undefined,
-  depth: number,
-): void {
-  const manifest: UnknownRecord | undefined = readRecord(result, 'manifest');
-  const statistics: UnknownRecord | undefined = readRecord(manifest, 'statistics');
-  lines.push(
-    `${indent(depth)}<parseResult${formatAttributes({
-      jobId: readString(result, 'jobId') ?? readString(manifest, 'jobId'),
-      documentId: readString(result, 'documentId'),
-      namespace: readString(result, 'namespace'),
-      sourceFileName: readString(manifest, 'sourceFileName'),
-    })}>`,
-  );
-  appendChunkCounts(lines, statistics, depth + 1, readNumber(statistics, 'totalChunks'));
-  lines.push(`${indent(depth)}</parseResult>`);
-}
-
-function appendAssetUrls(
-  lines: string[],
-  assetUrlsByFilePath: UnknownRecord | undefined,
-  depth: number,
-): void {
-  if (!assetUrlsByFilePath) {
-    return;
-  }
-
-  const entries: readonly [string, string][] = Object.entries(assetUrlsByFilePath).filter(
-    (entry): entry is [string, string] => typeof entry[1] === 'string',
-  );
-  if (entries.length === 0) {
-    return;
-  }
-
-  lines.push(`${indent(depth)}<assetUrls${formatAttributes({ count: entries.length })}>`);
-  for (const [filePath, assetUrl] of entries) {
-    appendSelfClosingTag(lines, depth + 1, {
-      name: 'assetUrl',
-      attributes: {
-        filePath,
-        assetUrl,
-      },
-    });
-  }
-  lines.push(`${indent(depth)}</assetUrls>`);
 }
 
 function appendDocument(lines: string[], document: UnknownRecord | undefined, depth: number): void {
