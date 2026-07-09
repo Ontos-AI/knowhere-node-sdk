@@ -1,5 +1,12 @@
 # @ontos-ai/knowhere-mcp
 
+## 0.1.0
+
+### Patch Changes
+
+- Backfill the MCP package from the `v0.7.0` source line as the first `0.1.x`
+  release.
+
 ## 0.2.0
 
 ### Minor Changes
