@@ -1,5 +1,11 @@
 # @ontos-ai/knowhere-mcp
 
+## 0.4.3
+
+### Patch Changes
+
+- Republish the `0.4.x` MCP line from the `v0.10.0` source line.
+
 ## 0.4.2
 
 ### Patch Changes
