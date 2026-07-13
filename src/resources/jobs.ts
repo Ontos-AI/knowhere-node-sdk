@@ -2,6 +2,10 @@ import { BaseResource } from './base.js';
 import type { Job, JobResult } from '../types/job.js';
 import type { CreateJobParams, UploadParams, WaitOptions, LoadOptions } from '../types/params.js';
 import type { ParseResult } from '../types/result.js';
+import {
+  mergeDocumentMetadataDefaults,
+  NODE_SDK_DOCUMENT_METADATA_DEFAULTS,
+} from '../lib/document-metadata.js';
 import { uploadFile } from '../lib/upload.js';
 import { pollJobStatus } from '../lib/polling.js';
 import { parseResult } from '../lib/result-parser.js';
@@ -15,10 +19,20 @@ export class Jobs extends BaseResource {
   private pendingUploadJobs = new Map<string, Job>();
 
   /**
-   * Create a new parsing job
+   * Create a new parsing job.
+   *
+   * Auto-attaches `documentMetadata.createdByClient` / `clientVersion` for
+   * OSS telemetry. Caller-provided metadata keys win; defaults fill gaps only.
    */
   async create(params: CreateJobParams): Promise<Job> {
-    const job = await this.httpClient.post<Job>(this.endpoint('/jobs'), params);
+    const documentMetadata = mergeDocumentMetadataDefaults(
+      NODE_SDK_DOCUMENT_METADATA_DEFAULTS,
+      params.documentMetadata,
+    );
+    const job = await this.httpClient.post<Job>(this.endpoint('/jobs'), {
+      ...params,
+      documentMetadata,
+    });
     if (job.uploadUrl) {
       this.pendingUploadJobs.set(job.jobId, job);
     }

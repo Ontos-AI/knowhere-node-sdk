@@ -4,6 +4,12 @@ export { Knowhere, Knowhere as default } from './client.js';
 // Version
 export { VERSION } from './version.js';
 
+// Document metadata helpers (official-client telemetry defaults)
+export {
+  mergeDocumentMetadataDefaults,
+  NODE_SDK_DOCUMENT_METADATA_DEFAULTS,
+} from './lib/document-metadata.js';
+
 // Types
 export type {
   // Client types

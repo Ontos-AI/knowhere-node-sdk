@@ -5,6 +5,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Jobs } from '../jobs.js';
+import { VERSION } from '../../version.js';
 import { InvalidStateError, NotFoundError } from '../../errors/index.js';
 import type { HttpClient } from '../../lib/http-client.js';
 import type { Job } from '../../types/job.js';
@@ -77,6 +78,10 @@ describe('Jobs Resource', () => {
       expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/jobs', {
         sourceType: 'url',
         sourceUrl: 'https://example.com/doc.pdf',
+        documentMetadata: {
+          createdByClient: 'node-sdk',
+          clientVersion: VERSION,
+        },
       });
     });
 
@@ -230,7 +235,36 @@ describe('Jobs Resource', () => {
         expect.objectContaining({
           documentMetadata: {
             createdByClient: 'notebook',
+            clientVersion: VERSION,
             title: 'Document.pdf',
+          },
+        }),
+      );
+    });
+
+    it('should let caller clientVersion override the SDK default', async () => {
+      mockHttpClient.post.mockResolvedValue({
+        jobId: 'job-override',
+        status: 'pending',
+        sourceType: 'url',
+        createdAt: new Date(),
+      });
+
+      await jobs.create({
+        sourceType: 'url',
+        sourceUrl: 'https://example.com/doc.pdf',
+        documentMetadata: {
+          createdByClient: 'cli',
+          clientVersion: '9.9.9',
+        },
+      });
+
+      expect(mockHttpClient.post).toHaveBeenCalledWith(
+        '/v2/jobs',
+        expect.objectContaining({
+          documentMetadata: {
+            createdByClient: 'cli',
+            clientVersion: '9.9.9',
           },
         }),
       );
