@@ -6,7 +6,6 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   DiskParsedDocumentStorage,
   Knowhere,
-  VERSION,
   ValidationError,
   type AuthTokenProvider,
   type Knowledge,
@@ -16,7 +15,9 @@ import {
 import * as z from 'zod/v4';
 
 import type { Permission } from './auth.js';
+import { MCP_DOCUMENT_METADATA_DEFAULTS } from './document-metadata.js';
 import { createKnowhereToolResult } from './tool-result-formatter.js';
+import { VERSION } from './version.js';
 
 const parsingParamsSchema = z
   .object({
@@ -83,6 +84,7 @@ export async function createKnowhereMcpServer(
             namespace: input.namespace,
             localDocumentId: input.localDocumentId,
             dataId: input.dataId,
+            documentMetadata: { ...MCP_DOCUMENT_METADATA_DEFAULTS },
             ...toFlatParsingParams(input.parsingParams),
           }),
         ),
@@ -111,6 +113,7 @@ export async function createKnowhereMcpServer(
             namespace: input.namespace,
             localDocumentId: input.localDocumentId,
             dataId: input.dataId,
+            documentMetadata: { ...MCP_DOCUMENT_METADATA_DEFAULTS },
             ...toFlatParsingParams(input.parsingParams),
           }),
         ),

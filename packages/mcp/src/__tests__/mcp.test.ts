@@ -2,6 +2,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
+import { MCP_DOCUMENT_METADATA_DEFAULTS } from '../document-metadata.js';
 import { createKnowhereMcpServer } from '../index.js';
 import type {
   Knowhere,
@@ -127,6 +128,7 @@ describe('knowhere MCP wrapper', () => {
       namespace: undefined,
       localDocumentId: 'local-report',
       dataId: undefined,
+      documentMetadata: { ...MCP_DOCUMENT_METADATA_DEFAULTS },
       model: 'base',
       ocr: true,
       docType: undefined,
@@ -289,6 +291,7 @@ describe('knowhere MCP wrapper', () => {
       namespace: undefined,
       localDocumentId: 'local-report',
       dataId: undefined,
+      documentMetadata: { ...MCP_DOCUMENT_METADATA_DEFAULTS },
       model: 'advanced',
       ocr: undefined,
       docType: undefined,
