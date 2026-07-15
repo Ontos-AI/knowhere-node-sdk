@@ -58,13 +58,16 @@ export interface LlmProviderConfig {
 /**
  * Bring-your-own-key LLM configuration for text and vision providers.
  *
- * Each slot overrides only its own channel; missing slots keep server defaults.
- * For one multimodal model, set both slots to the same credentials.
+ * - `provider`: shared multimodal credentials for both channels
+ * - `text` / `vision`: per-channel overrides (win over `provider`)
+ * - a channel with neither a slot nor `provider` keeps server defaults
  */
 export interface LlmConfig {
-  /** Text / chat provider credentials */
+  /** Shared multimodal credentials for both text and vision */
+  provider?: LlmProviderConfig;
+  /** Text / chat provider credentials (overrides provider) */
   text?: LlmProviderConfig;
-  /** Vision / VLM provider credentials */
+  /** Vision / VLM provider credentials (overrides provider) */
   vision?: LlmProviderConfig;
 }
 

@@ -148,21 +148,18 @@ const result = await client.parse({
 ### Bring Your Own Key (BYOK)
 
 Pass per-request LLM credentials via `llmConfig` on parse/job create and
-retrieval queries. Each of `text` / `vision` overrides only its own channel;
-missing slots keep server defaults. For one multimodal model, set both slots to
-the same credentials. Use camelCase in TypeScript; the HTTP client serializes to
-snake_case on the wire.
+retrieval queries. Use `provider` for a single multimodal model (both channels).
+Use `text` / `vision` to override one channel; missing channels without
+`provider` keep server defaults. Use camelCase in TypeScript; the HTTP client
+serializes to snake_case on the wire.
 
 ```typescript
+// Multimodal shorthand — one model for text + vision
 const llmConfig = {
-  text: {
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-4o-mini',
-    baseUrl: 'https://api.openai.com/v1',
-  },
-  vision: {
+  provider: {
     apiKey: process.env.OPENAI_API_KEY,
     model: 'gpt-4o',
+    baseUrl: 'https://api.openai.com/v1',
   },
 };
 
