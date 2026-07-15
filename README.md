@@ -148,7 +148,9 @@ const result = await client.parse({
 ### Bring Your Own Key (BYOK)
 
 Pass per-request LLM credentials via `llmConfig` on parse/job create and
-retrieval queries. Use camelCase in TypeScript; the HTTP client serializes to
+retrieval queries. Each of `text` / `vision` overrides only its own channel;
+missing slots keep server defaults. For one multimodal model, set both slots to
+the same credentials. Use camelCase in TypeScript; the HTTP client serializes to
 snake_case on the wire.
 
 ```typescript
