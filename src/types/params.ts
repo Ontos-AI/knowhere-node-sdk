@@ -44,6 +44,50 @@ export interface WebhookConfig {
 }
 
 /**
+ * Per-provider BYOK credentials and routing overrides.
+ */
+export interface LlmProviderConfig {
+  /** Provider API key */
+  apiKey?: string;
+  /** Model identifier */
+  model?: string;
+  /** Provider base URL override */
+  baseUrl?: string;
+}
+
+/**
+ * Per-channel model ids that share root apiKey / baseUrl.
+ */
+export interface LlmModelsConfig {
+  /** Text / planning model id */
+  text?: string;
+  /** Vision / VLM model id */
+  vision?: string;
+}
+
+/**
+ * Bring-your-own-key LLM configuration.
+ *
+ * Flat root (`apiKey` / `model` / `baseUrl`) applies to both channels.
+ * Use `models` for different model ids on the same endpoint, or `text` /
+ * `vision` objects for different provider endpoints.
+ */
+export interface LlmConfig {
+  /** Default provider API key (with model/models + baseUrl) */
+  apiKey?: string;
+  /** Default model for both channels (overridden by models.*) */
+  model?: string;
+  /** Default OpenAI-compatible base URL */
+  baseUrl?: string;
+  /** Per-channel model ids sharing root apiKey / baseUrl */
+  models?: LlmModelsConfig;
+  /** Text / chat credentials (replaces root for text) */
+  text?: LlmProviderConfig;
+  /** Vision / VLM credentials (replaces root for vision) */
+  vision?: LlmProviderConfig;
+}
+
+/**
  * Client-provided display metadata copied onto the published document.
  */
 export type DocumentMetadata = Record<string, unknown>;
@@ -68,6 +112,8 @@ export interface CreateJobParams {
   documentMetadata?: DocumentMetadata;
   /** Parsing configuration */
   parsingParams?: ParsingParams;
+  /** Bring-your-own-key LLM credentials for this job */
+  llmConfig?: LlmConfig;
   /** Webhook configuration */
   webhook?: WebhookConfig;
 }
@@ -153,6 +199,8 @@ export interface ParseParams {
    * assets into application-owned storage before the result is returned.
    */
   storageAdapter?: KnowhereAssetStorageOptions;
+  /** Bring-your-own-key LLM credentials for this parse */
+  llmConfig?: LlmConfig;
   /** Webhook configuration */
   webhook?: WebhookConfig;
   /** Upload progress callback */

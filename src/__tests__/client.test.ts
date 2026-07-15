@@ -398,6 +398,42 @@ describe('Knowhere Client', () => {
       );
     });
 
+    it('should forward llmConfig from parse/startParse to job creation', async () => {
+      const llmConfig = {
+        text: {
+          apiKey: 'sk-text',
+          model: 'gpt-4o-mini',
+          baseUrl: 'https://api.openai.com/v1',
+        },
+        vision: {
+          apiKey: 'sk-vision',
+          model: 'gpt-4o',
+        },
+      };
+
+      await client.parse({
+        url: 'https://example.com/doc.pdf',
+        llmConfig,
+      });
+
+      expect(client.jobs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          llmConfig,
+        }),
+      );
+
+      await client.startParse({
+        url: 'https://example.com/doc.pdf',
+        llmConfig,
+      });
+
+      expect(client.jobs.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          llmConfig,
+        }),
+      );
+    });
+
     it('should handle upload progress callback', async () => {
       const progressUpdates: number[] = [];
 

@@ -139,6 +139,48 @@ describe('Jobs Resource', () => {
       );
     });
 
+    it('should include llmConfig when provided', async () => {
+      mockHttpClient.post.mockResolvedValue({
+        jobId: 'job-byok',
+        status: 'pending',
+        sourceType: 'url',
+        createdAt: new Date(),
+      });
+
+      await jobs.create({
+        sourceType: 'url',
+        sourceUrl: 'https://example.com/doc.pdf',
+        llmConfig: {
+          text: {
+            apiKey: 'sk-text',
+            model: 'gpt-4o-mini',
+            baseUrl: 'https://api.openai.com/v1',
+          },
+          vision: {
+            apiKey: 'sk-vision',
+            model: 'gpt-4o',
+          },
+        },
+      });
+
+      expect(mockHttpClient.post).toHaveBeenCalledWith(
+        '/v2/jobs',
+        expect.objectContaining({
+          llmConfig: {
+            text: {
+              apiKey: 'sk-text',
+              model: 'gpt-4o-mini',
+              baseUrl: 'https://api.openai.com/v1',
+            },
+            vision: {
+              apiKey: 'sk-vision',
+              model: 'gpt-4o',
+            },
+          },
+        }),
+      );
+    });
+
     it('should include webhook configuration', async () => {
       mockHttpClient.post.mockResolvedValue({
         jobId: 'job-abc',
