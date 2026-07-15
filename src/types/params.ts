@@ -56,18 +56,22 @@ export interface LlmProviderConfig {
 }
 
 /**
- * Bring-your-own-key LLM configuration for text and vision providers.
+ * Bring-your-own-key LLM configuration.
  *
- * - `provider`: shared multimodal credentials for both channels
- * - `text` / `vision`: per-channel overrides (win over `provider`)
- * - a channel with neither a slot nor `provider` keeps server defaults
+ * Flat root (`apiKey` / `model` / `baseUrl`) applies to both channels.
+ * Optional `text` / `vision` fully replace the default for that channel —
+ * use both when text and vision use different provider endpoints.
  */
 export interface LlmConfig {
-  /** Shared multimodal credentials for both text and vision */
-  provider?: LlmProviderConfig;
-  /** Text / chat provider credentials (overrides provider) */
+  /** Default provider API key (with model + baseUrl) */
+  apiKey?: string;
+  /** Default model identifier */
+  model?: string;
+  /** Default OpenAI-compatible base URL */
+  baseUrl?: string;
+  /** Text / chat credentials (replaces root for text) */
   text?: LlmProviderConfig;
-  /** Vision / VLM provider credentials (overrides provider) */
+  /** Vision / VLM credentials (replaces root for vision) */
   vision?: LlmProviderConfig;
 }
 
