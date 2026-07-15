@@ -56,19 +56,31 @@ export interface LlmProviderConfig {
 }
 
 /**
+ * Per-channel model ids that share root apiKey / baseUrl.
+ */
+export interface LlmModelsConfig {
+  /** Text / planning model id */
+  text?: string;
+  /** Vision / VLM model id */
+  vision?: string;
+}
+
+/**
  * Bring-your-own-key LLM configuration.
  *
  * Flat root (`apiKey` / `model` / `baseUrl`) applies to both channels.
- * Optional `text` / `vision` fully replace the default for that channel —
- * use both when text and vision use different provider endpoints.
+ * Use `models` for different model ids on the same endpoint, or `text` /
+ * `vision` objects for different provider endpoints.
  */
 export interface LlmConfig {
-  /** Default provider API key (with model + baseUrl) */
+  /** Default provider API key (with model/models + baseUrl) */
   apiKey?: string;
-  /** Default model identifier */
+  /** Default model for both channels (overridden by models.*) */
   model?: string;
   /** Default OpenAI-compatible base URL */
   baseUrl?: string;
+  /** Per-channel model ids sharing root apiKey / baseUrl */
+  models?: LlmModelsConfig;
   /** Text / chat credentials (replaces root for text) */
   text?: LlmProviderConfig;
   /** Vision / VLM credentials (replaces root for vision) */

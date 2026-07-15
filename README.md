@@ -148,9 +148,10 @@ const result = await client.parse({
 ### Bring Your Own Key (BYOK)
 
 Pass per-request LLM credentials via `llmConfig` on parse/job create and
-retrieval queries. Flat root applies to both channels; use `text` / `vision`
-for different provider endpoints. Use camelCase in TypeScript; the HTTP client
-serializes to snake_case on the wire.
+retrieval queries. Flat root applies to both channels; use `models` for
+different model ids on the same endpoint, or `text` / `vision` for different
+provider endpoints. Use camelCase in TypeScript; the HTTP client serializes to
+snake_case on the wire.
 
 ```typescript
 // Multimodal shorthand — one model for text + vision
@@ -158,6 +159,13 @@ const llmConfig = {
   apiKey: process.env.OPENAI_API_KEY,
   model: 'gpt-4o',
   baseUrl: 'https://api.openai.com/v1',
+};
+
+// Same endpoint, different models per channel
+const modelsConfig = {
+  apiKey: process.env.OPENAI_API_KEY,
+  baseUrl: 'https://api.openai.com/v1',
+  models: { text: 'gpt-4o-mini', vision: 'gpt-4o' },
 };
 
 // Or two different endpoints
@@ -176,7 +184,7 @@ const splitLlmConfig = {
 
 const result = await client.parse({
   url: 'https://example.com/doc.pdf',
-  llmConfig,
+  llmConfig: modelsConfig,
 });
 
 const response = await client.retrieval.query({

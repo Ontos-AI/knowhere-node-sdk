@@ -49,6 +49,7 @@ export type {
   DocType,
   DocumentMetadata,
   LlmConfig,
+  LlmModelsConfig,
   LlmProviderConfig,
   WebhookConfig,
   CreateJobParams,
