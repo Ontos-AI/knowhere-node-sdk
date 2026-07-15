@@ -113,6 +113,49 @@ describe('Retrieval Resource', () => {
     });
   });
 
+  it('should send llmConfig parameter', async () => {
+    mockHttpClient.post.mockResolvedValue({
+      namespace: 'default',
+      query: 'test',
+      routerUsed: 'workflow_single_step',
+      answerText: null,
+      referencedChunks: [],
+      results: [],
+    });
+
+    await retrieval.query({
+      query: 'test',
+      useAgentic: true,
+      llmConfig: {
+        text: {
+          apiKey: 'sk-text',
+          model: 'gpt-4o-mini',
+          baseUrl: 'https://api.openai.com/v1',
+        },
+        vision: {
+          apiKey: 'sk-vision',
+          model: 'gpt-4o',
+        },
+      },
+    });
+
+    expect(mockHttpClient.post).toHaveBeenCalledWith('/v2/retrieval/query', {
+      query: 'test',
+      useAgentic: true,
+      llmConfig: {
+        text: {
+          apiKey: 'sk-text',
+          model: 'gpt-4o-mini',
+          baseUrl: 'https://api.openai.com/v1',
+        },
+        vision: {
+          apiKey: 'sk-vision',
+          model: 'gpt-4o',
+        },
+      },
+    });
+  });
+
   it('should send useAgentic parameter', async () => {
     mockHttpClient.post.mockResolvedValue({
       namespace: 'default',

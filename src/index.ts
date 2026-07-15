@@ -48,6 +48,8 @@ export type {
   ParsingModel,
   DocType,
   DocumentMetadata,
+  LlmConfig,
+  LlmProviderConfig,
   WebhookConfig,
   CreateJobParams,
   UploadParams,

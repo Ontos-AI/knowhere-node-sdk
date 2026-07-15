@@ -44,6 +44,28 @@ export interface WebhookConfig {
 }
 
 /**
+ * Per-provider BYOK credentials and routing overrides.
+ */
+export interface LlmProviderConfig {
+  /** Provider API key */
+  apiKey?: string;
+  /** Model identifier */
+  model?: string;
+  /** Provider base URL override */
+  baseUrl?: string;
+}
+
+/**
+ * Bring-your-own-key LLM configuration for text and vision providers.
+ */
+export interface LlmConfig {
+  /** Text / chat provider credentials */
+  text?: LlmProviderConfig;
+  /** Vision / multimodal provider credentials */
+  vision?: LlmProviderConfig;
+}
+
+/**
  * Client-provided display metadata copied onto the published document.
  */
 export type DocumentMetadata = Record<string, unknown>;
@@ -68,6 +90,8 @@ export interface CreateJobParams {
   documentMetadata?: DocumentMetadata;
   /** Parsing configuration */
   parsingParams?: ParsingParams;
+  /** Bring-your-own-key LLM credentials for this job */
+  llmConfig?: LlmConfig;
   /** Webhook configuration */
   webhook?: WebhookConfig;
 }
@@ -153,6 +177,8 @@ export interface ParseParams {
    * assets into application-owned storage before the result is returned.
    */
   storageAdapter?: KnowhereAssetStorageOptions;
+  /** Bring-your-own-key LLM credentials for this parse */
+  llmConfig?: LlmConfig;
   /** Webhook configuration */
   webhook?: WebhookConfig;
   /** Upload progress callback */

@@ -1,3 +1,5 @@
+import type { LlmConfig } from './params.js';
+
 /**
  * Section exclusion for follow-up retrieval queries.
  */
@@ -60,6 +62,8 @@ export interface RetrievalQueryParams {
   excludeDocumentIds?: string[];
   /** Document sections to exclude for this request only */
   excludeSections?: RetrievalSectionExclusion[];
+  /** Bring-your-own-key LLM credentials for this query */
+  llmConfig?: LlmConfig;
 }
 
 /**

@@ -193,6 +193,7 @@ export class Knowhere {
       documentId: params.documentId,
       documentMetadata: params.documentMetadata,
       parsingParams: buildParsingParams(params),
+      llmConfig: params.llmConfig,
       webhook,
     });
 
