@@ -482,7 +482,8 @@ export class Knowledge {
       query: params.query,
       namespace: params.namespace,
       topK: params.topK,
-      useAgentic: params.useAgentic ?? false,
+      // Omit when undefined so the API default (map-nav) applies; false → classic.
+      useAgentic: params.useAgentic,
     });
     const documentByServerId = new Map(
       localDocuments
