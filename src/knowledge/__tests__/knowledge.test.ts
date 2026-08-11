@@ -780,6 +780,30 @@ describe('Knowledge', () => {
     });
   });
 
+  it('should omit useAgentic when unset so API map-nav default applies', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client, retrievalQuery } = createClient(createParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+    await knowledge.parseToLocalCache({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-report',
+    });
+
+    await knowledge.search({
+      query: 'margin',
+      namespace: 'support-center',
+      localDocumentIds: ['local-report'],
+      topK: 2,
+    });
+
+    expect(retrievalQuery).toHaveBeenCalledWith({
+      query: 'margin',
+      namespace: 'support-center',
+      topK: 2,
+      useAgentic: undefined,
+    });
+  });
+
   it('should search through Knowhere API retrieval', async () => {
     const cacheDirectory = await createTempDirectory();
     const { client, retrievalQuery } = createClient(createParseResult());
