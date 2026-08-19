@@ -423,6 +423,7 @@ function appendGrepMatch(
       chunkPath: fields.chunkPath,
       filePath: fields.filePath,
       storageLocation: fields.storageLocation,
+      pageNumbers: fields.pageNumbers?.join(','),
       startOffset: readNumber(match, 'startOffset'),
       endOffset: readNumber(match, 'endOffset'),
     })}>`,

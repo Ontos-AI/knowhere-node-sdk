@@ -206,6 +206,8 @@ export interface KnowledgeGrepMatch {
   startOffset: number;
   endOffset: number;
   snippet: string;
+  /** Copied from the source chunk when the indexed chunk has page numbers. */
+  pageNumbers?: number[];
 }
 
 export interface KnowledgeGrepResponse {

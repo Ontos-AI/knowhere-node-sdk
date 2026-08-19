@@ -423,6 +423,7 @@ const grep = await client.knowledge.grepChunks({
   pattern: 'warranty',
   maxResults: 10,
 });
+// grep.matches include pageNumbers when the source chunk has them.
 
 const serverSearch = await client.knowledge.search({
   query: 'battery warranty',

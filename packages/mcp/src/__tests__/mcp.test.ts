@@ -648,6 +648,7 @@ describe('knowhere MCP wrapper', () => {
           startOffset: 5,
           endOffset: 12,
           snippet: '2026 revenue grew',
+          pageNumbers: [4],
         },
       ],
       scannedChunks: 20,
@@ -672,7 +673,7 @@ describe('knowhere MCP wrapper', () => {
     <chunkCounts total="2" text="0" image="0" table="0" page="2" />
   </document>
   <grep scannedChunks="20" truncated="true" continuationCursor="cursor-next" count="1">
-    <match position="2" chunkId="chunk-table-1" chunkType="table" sectionPath="Tables" chunkPath="chunks/table-1.md" filePath="tables/revenue.html" storageLocation="parsed-storage:doc_remote/tables/revenue.html" startOffset="5" endOffset="12">
+    <match position="2" chunkId="chunk-table-1" chunkType="table" sectionPath="Tables" chunkPath="chunks/table-1.md" filePath="tables/revenue.html" storageLocation="parsed-storage:doc_remote/tables/revenue.html" pageNumbers="4" startOffset="5" endOffset="12">
       <snippet>2026 revenue grew</snippet>
     </match>
   </grep>
