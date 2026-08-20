@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0
+
+### Minor Changes
+
+- [#123](https://github.com/Ontos-AI/knowhere-node-sdk/pull/123) [`ff5a803`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/ff5a80352b53b3286f4bd4f068a8a4a826179292) Thanks [@suguanYang](https://github.com/suguanYang)! - Add optional BYOK `llmConfig` on job create, parse, and retrieval query so callers can supply per-request text/vision provider credentials.
+
+### Patch Changes
+
+- [#125](https://github.com/Ontos-AI/knowhere-node-sdk/pull/125) [`f158e98`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/f158e98caca37bd46a54887c8a6eb22ccaa40a60) Thanks [@suguanYang](https://github.com/suguanYang)! - Copy source-chunk `pageNumbers` onto `knowledge.grepChunks` matches so clients can label citations without a follow-up `readChunks` call.
+
+- [#124](https://github.com/Ontos-AI/knowhere-node-sdk/pull/124) [`2276c77`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/2276c7744f4c9bc78674a16bd4d8ce145e7b1c7f) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Omit unset `useAgentic` in `Knowledge.search` so the API map-nav default applies instead of forcing classic retrieval.
+
+- [#122](https://github.com/Ontos-AI/knowhere-node-sdk/pull/122) [`5d9d54d`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/5d9d54d119c21fae51640df0754a51874655b648) Thanks [@suguanYang](https://github.com/suguanYang)! - Auto-attach official `created_by_client` / `client_version` document metadata on job creates so OSS telemetry can attribute client mix. Caller-provided metadata still wins.
+
 ## 2.1.3
 
 ### Patch Changes
