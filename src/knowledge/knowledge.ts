@@ -456,17 +456,7 @@ export class Knowledge {
       scannedChunks += 1;
       const chunkMatches = matcher(chunk.content);
       for (const match of chunkMatches) {
-        matches.push({
-          position: chunk.position,
-          chunkId: chunk.chunkId,
-          chunkType: chunk.chunkType,
-          sectionPath: chunk.sectionPath,
-          sourceChunkPath: chunk.sourceChunkPath,
-          filePath: chunk.filePath,
-          startOffset: match.startOffset,
-          endOffset: match.endOffset,
-          snippet: buildSnippet(chunk.content, match.startOffset, match.endOffset, contextChars),
-        });
+        matches.push(toGrepMatch(chunk, match, contextChars));
         if (matches.length >= maxResults) {
           return { document, matches, scannedChunks, truncated: true };
         }
@@ -753,11 +743,12 @@ export class Knowledge {
         ) {
           continue;
         }
-        if (!matchesGrepScope(toIndexedRemoteChunk(chunk), params)) {
+        const indexed = toIndexedRemoteChunk(chunk);
+        if (!matchesGrepScope(indexed, params)) {
           continue;
         }
         scannedChunks += 1;
-        const chunkMatches = matcher(chunk.content ?? '');
+        const chunkMatches = matcher(indexed.content);
         for (const [matchIndex, match] of chunkMatches.entries()) {
           if (
             response.pagination.page === startPage &&
@@ -767,22 +758,7 @@ export class Knowledge {
           ) {
             continue;
           }
-          matches.push({
-            position: toChunkPosition(chunk),
-            chunkId: chunk.chunkId,
-            chunkType: chunk.chunkType,
-            sectionPath: chunk.sectionPath ?? '',
-            sourceChunkPath: chunk.sourceChunkPath ?? chunk.sectionPath ?? '',
-            filePath: chunk.filePath ?? undefined,
-            startOffset: match.startOffset,
-            endOffset: match.endOffset,
-            snippet: buildSnippet(
-              chunk.content ?? '',
-              match.startOffset,
-              match.endOffset,
-              contextChars,
-            ),
-          });
+          matches.push(toGrepMatch(indexed, match, contextChars));
           if (matches.length >= maxResults) {
             const continuationCursor = createGrepContinuationCursor({
               documentId,
@@ -985,17 +961,7 @@ export class Knowledge {
     for (const chunk of scopedChunks) {
       scannedChunks += 1;
       for (const match of matcher(chunk.content)) {
-        matches.push({
-          position: chunk.position,
-          chunkId: chunk.chunkId,
-          chunkType: chunk.chunkType,
-          sectionPath: chunk.sectionPath,
-          sourceChunkPath: chunk.sourceChunkPath,
-          filePath: chunk.filePath,
-          startOffset: match.startOffset,
-          endOffset: match.endOffset,
-          snippet: buildSnippet(chunk.content, match.startOffset, match.endOffset, contextChars),
-        });
+        matches.push(toGrepMatch(chunk, match, contextChars));
         if (matches.length >= maxResults) {
           return {
             document: createStoredKnowledgeDocument({
@@ -2322,6 +2288,27 @@ function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {
     assetUrl: chunk.assetUrl,
     pageNumbers: chunk.pageNumbers,
     metadata: chunk.metadata,
+  };
+}
+
+function toGrepMatch(
+  chunk: IndexedKnowledgeChunk,
+  match: KnowledgeGrepMatchOffset,
+  contextChars: number,
+): KnowledgeGrepMatch {
+  return {
+    position: chunk.position,
+    chunkId: chunk.chunkId,
+    chunkType: chunk.chunkType,
+    sectionPath: chunk.sectionPath,
+    sourceChunkPath: chunk.sourceChunkPath,
+    filePath: chunk.filePath,
+    startOffset: match.startOffset,
+    endOffset: match.endOffset,
+    snippet: buildSnippet(chunk.content, match.startOffset, match.endOffset, contextChars),
+    ...(chunk.pageNumbers && chunk.pageNumbers.length > 0
+      ? { pageNumbers: [...chunk.pageNumbers] }
+      : {}),
   };
 }
 

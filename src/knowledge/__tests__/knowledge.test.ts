@@ -780,6 +780,68 @@ describe('Knowledge', () => {
     });
   });
 
+  it('should copy page numbers onto grep matches from the source chunk', async () => {
+    const knowledge = await createKnowledgeWithCachedResult(createPageParseResult());
+
+    const grep = await knowledge.grepChunks({
+      localDocumentId: 'local-report',
+      pattern: 'Page one',
+      maxResults: 1,
+    });
+
+    expect(grep.matches[0]).toMatchObject({
+      chunkId: 'page-1',
+      chunkType: 'page',
+      pageNumbers: [1],
+    });
+  });
+
+  it('should copy page numbers onto remote grep matches from listed chunks', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const { client } = createClient(createPageParseResult());
+    const knowledge = new Knowledge(client, { cacheDirectory });
+
+    const grep = await knowledge.grepChunks({
+      documentId: 'doc_remote',
+      pattern: 'Page one',
+      maxResults: 1,
+    });
+
+    expect(grep.matches[0]).toMatchObject({
+      chunkId: 'page-1',
+      chunkType: 'page',
+      pageNumbers: [1],
+    });
+  });
+
+  it('should copy page numbers onto grep matches from parsed storage', async () => {
+    const cacheDirectory = await createTempDirectory();
+    const parseResult = createPageParseResult();
+    const storage = createInMemoryParsedStorage();
+    storage.seedResult({
+      documentId: 'doc_remote',
+      revisionKey: 'jres_remote',
+      result: parseResult,
+    });
+    const { client, documentsListChunks } = createClient(parseResult);
+    const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({
+      storage,
+    });
+
+    const grep = await knowledge.grepChunks({
+      documentId: 'doc_remote',
+      pattern: 'Page one',
+      maxResults: 1,
+    });
+
+    expect(grep.matches[0]).toMatchObject({
+      chunkId: 'page-1',
+      chunkType: 'page',
+      pageNumbers: [1],
+    });
+    expect(documentsListChunks).toHaveBeenCalled();
+  });
+
   it('should omit useAgentic when unset so API map-nav default applies', async () => {
     const cacheDirectory = await createTempDirectory();
     const { client, retrievalQuery } = createClient(createParseResult());
