@@ -1,5 +1,20 @@
 # @ontos-ai/knowhere-mcp
 
+## 3.0.0
+
+### Major Changes
+
+- [#120](https://github.com/Ontos-AI/knowhere-node-sdk/pull/120) [`eb7d931`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/eb7d9319a35796d4dd96f71f013dea59b4208a97) Thanks [@suguanYang](https://github.com/suguanYang)! - Remove the blocking `knowhere_parse_url` and `knowhere_parse_file` tools from the MCP server. Agents should use the async parse tools and poll `knowhere_async_get_job_status` before reading parsed results.
+
+### Patch Changes
+
+- [#125](https://github.com/Ontos-AI/knowhere-node-sdk/pull/125) [`f158e98`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/f158e98caca37bd46a54887c8a6eb22ccaa40a60) Thanks [@suguanYang](https://github.com/suguanYang)! - Copy source-chunk `pageNumbers` onto `knowledge.grepChunks` matches so clients can label citations without a follow-up `readChunks` call.
+
+- [#122](https://github.com/Ontos-AI/knowhere-node-sdk/pull/122) [`5d9d54d`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/5d9d54d119c21fae51640df0754a51874655b648) Thanks [@suguanYang](https://github.com/suguanYang)! - Auto-attach official `created_by_client` / `client_version` document metadata on job creates so OSS telemetry can attribute client mix. Caller-provided metadata still wins.
+
+- Updated dependencies [[`ff5a803`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/ff5a80352b53b3286f4bd4f068a8a4a826179292), [`f158e98`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/f158e98caca37bd46a54887c8a6eb22ccaa40a60), [`2276c77`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/2276c7744f4c9bc78674a16bd4d8ce145e7b1c7f), [`5d9d54d`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/5d9d54d119c21fae51640df0754a51874655b648)]:
+  - @ontos-ai/knowhere-sdk@2.2.0
+
 ## 2.1.4
 
 ### Patch Changes
