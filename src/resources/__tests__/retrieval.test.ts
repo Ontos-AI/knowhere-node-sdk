@@ -50,6 +50,7 @@ describe('Retrieval Resource', () => {
       rerank: true,
       threshold: 0.2,
       internalRecallK: 25,
+      includeDocumentIds: ['doc-123', 'doc-old'],
       excludeDocumentIds: ['doc-old'],
       excludeSections: [
         {
@@ -72,6 +73,7 @@ describe('Retrieval Resource', () => {
       rerank: true,
       threshold: 0.2,
       internalRecallK: 25,
+      includeDocumentIds: ['doc-123', 'doc-old'],
       excludeDocumentIds: ['doc-old'],
       excludeSections: [
         {
