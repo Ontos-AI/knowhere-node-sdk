@@ -515,12 +515,17 @@ without creating SDK local-disk cache state. Use `syncParsedDocument(...)` to
 explicitly resume or retry parsed-storage sync for an existing `documentId`,
 `jobId`, or local parsed result.
 
-Follow-up queries can exclude documents or sections for one request:
+Retrieval queries can limit documents and exclude documents or sections for one request.
+`includeDocumentIds?: string[]` restricts retrieval to the supplied document IDs.
+Omitting it leaves documents unrestricted by inclusion; passing `[]` matches no
+documents. Exclusions take precedence over inclusions, including when a document
+ID appears in both `includeDocumentIds` and `excludeDocumentIds`.
 
 ```typescript
 const followUp = await client.retrieval.query({
   namespace: 'support-center',
   query: 'battery charging',
+  includeDocumentIds: ['doc_123', 'doc_old'],
   excludeDocumentIds: ['doc_old'],
   excludeSections: [{ documentId: 'doc_123', sectionPath: 'Appendix / Legal' }],
 });

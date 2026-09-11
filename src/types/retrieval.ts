@@ -58,7 +58,13 @@ export interface RetrievalQueryParams {
   threshold?: number;
   /** Override the internal per-channel recall count */
   internalRecallK?: number;
-  /** Documents to exclude for this request only */
+  /**
+   * Limit retrieval to these documents for this request only.
+   * Omitted means no document inclusion restriction; [] matches no documents.
+   * Exclusions take precedence over inclusions.
+   */
+  includeDocumentIds?: string[];
+  /** Documents to exclude for this request only, even when included in includeDocumentIds. */
   excludeDocumentIds?: string[];
   /** Document sections to exclude for this request only */
   excludeSections?: RetrievalSectionExclusion[];
