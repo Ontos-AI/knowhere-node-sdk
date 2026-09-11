@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0
+
+### Minor Changes
+
+- [#126](https://github.com/Ontos-AI/knowhere-node-sdk/pull/126) [`2a58e9e`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/2a58e9eab41671603f0ebe5788ef977dd4e91772) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Add `includeDocumentIds` to retrieval queries so callers can restrict one request to an explicit document set. Empty arrays are preserved on the wire; omitted means unrestricted; exclusions still win.
+
 ## 2.2.0
 
 ### Minor Changes
