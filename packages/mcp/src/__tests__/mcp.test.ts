@@ -47,7 +47,8 @@ describe('knowhere MCP wrapper', () => {
     expect(readTool?.description).toContain('configured parsed storage first');
     expect(readTool?.description).toContain('returns asset URLs');
     expect(readTool?.description).toContain('<pageAssets>');
-    expect(searchTool?.description).toContain('hasPageAssets="true"');
+    expect(searchTool?.description).toContain('assembled evidence');
+    expect(searchTool?.description).toContain('debug XML');
     await client.close();
     await server.close();
   });
@@ -683,11 +684,15 @@ describe('knowhere MCP wrapper', () => {
     await server.close();
   });
 
-  it('should format search evidence and page-result guidance', async () => {
+  it('should emit assembled evidence then debug search results', async () => {
     const knowhereClient = createClient();
     knowhereClient.knowledge.search.mockResolvedValueOnce({
       namespace: 'support-center',
       query: 'revenue',
+      evidence: [
+        { type: 'text', text: 'Revenue increased' },
+        { type: 'image', mediaType: 'image/png', data: 'abc' },
+      ],
       evidenceText: 'Evidence <tree>',
       references: [
         {
@@ -739,24 +744,30 @@ describe('knowhere MCP wrapper', () => {
       localDocumentIds: undefined,
       useAgentic: undefined,
     });
-    expectToolText(
-      response,
-      `<knowhere operation="search">
+    expect(response).not.toHaveProperty('structuredContent');
+    if (!('content' in response)) {
+      throw new Error('Expected MCP tool response to include content');
+    }
+    expect(response.content).toEqual([
+      { type: 'text', text: 'Revenue increased' },
+      { type: 'image', data: 'abc', mimeType: 'image/png' },
+      {
+        type: 'text',
+        text: `<knowhere operation="search">
   <search namespace="support-center" query="revenue" referenceCount="2" resultCount="1">
-    <instruction>Page results and references marked hasPageAssets="true" only include preview text here. Call knowhere_read_chunks with the documentId and chunkId to get readable page asset URLs and chunk storage locations.</instruction>
-    <evidenceText>Evidence &lt;tree&gt;</evidenceText>
     <references count="2">
-      <reference localDocumentId="local-report" documentId="doc-1" chunkId="chunk-page-1" chunkType="page" sectionPath="Page 1" score="0.9" hasPageAssets="true" />
+      <reference localDocumentId="local-report" documentId="doc-1" chunkId="chunk-page-1" chunkType="page" sectionPath="Page 1" score="0.9" />
       <reference documentId="doc-1" chunkId="chunk-text-1" chunkType="text" sectionPath="Overview" />
     </references>
     <results count="1">
-      <result localDocumentId="local-report" documentId="doc-1" chunkId="chunk-page-1" chunkType="page" sectionPath="Page 1" sourceFileName="report.md" score="0.91" hasPageAssets="true">
+      <result localDocumentId="local-report" documentId="doc-1" chunkId="chunk-page-1" chunkType="page" sectionPath="Page 1" sourceFileName="report.md" score="0.91">
         <previewText>Page preview</previewText>
       </result>
     </results>
   </search>
 </knowhere>`,
-    );
+      },
+    ]);
     await client.close();
     await server.close();
   });

@@ -484,6 +484,7 @@ export class Knowledge {
     return {
       namespace: rawResponse.namespace,
       query: rawResponse.query,
+      evidence: rawResponse.evidence ?? [],
       evidenceText: rawResponse.evidenceText,
       references: [
         ...rawResponse.referencedChunks.map(

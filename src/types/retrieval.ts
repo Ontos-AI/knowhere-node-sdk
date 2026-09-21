@@ -85,12 +85,26 @@ export interface RetrievalSource {
 }
 
 /**
+ * One composed evidence part. Tables stay in text as HTML; images are inline bytes.
+ */
+export type RetrievalEvidencePart =
+  | {
+      type: 'text';
+      text: string;
+    }
+  | {
+      type: 'image';
+      mediaType: string;
+      data: string;
+    };
+
+/**
  * Canonical chunk result returned by retrieval query.
  */
 export interface RetrievalResult {
   /** Parser-provided chunk identifier when included by the API */
   chunkId?: string;
-  /** Knowledge content to use directly in the caller's answer */
+  /** Raw chunk body for debug. Placeholders stay intact. */
   content: string;
   /** Chunk type, for example text, image, table, or page */
   chunkType: string;
@@ -139,8 +153,10 @@ export interface RetrievalReferencedChunk {
 /**
  * Response from POST /v2/retrieval/query.
  *
- * Three PRIMARY output fields for downstream agent consumption:
- * - `evidenceText`: hierarchical evidence tree for LLM context
+ * Downstream agents consume:
+ * - `evidence`: composed parts (text/HTML and inline images)
+ * - `evidenceText`: text projection of those parts
+ * - `results`: raw path chunks for debug
  * - `decisionTrace`: per-step navigation decisions (includes stop/failure)
  * - `referencedChunks`: structured chunk citations for follow-up queries
  */
@@ -151,11 +167,13 @@ export interface RetrievalQueryResponse {
   query: string;
   /** Retrieval router path used by the API for this query */
   routerUsed: string;
+  /** Composed evidence parts in result order */
+  evidence?: RetrievalEvidencePart[];
   /** LLM-generated natural-language answer, or null when no answer was produced */
   answerText: string | null;
   /** Cited evidence chunks with asset URLs when available */
   referencedChunks: RetrievalReferencedChunk[];
-  /** Tree-structured evidence text rendered by the agentic navigator */
+  /** Text projection of evidence. Tables stay as HTML; images are data URLs. */
   evidenceText?: string | null;
   /** Reason why the agentic run stopped (e.g. answer_done, not_found) */
   stopReason?: string | null;

@@ -22,6 +22,10 @@ describe('Retrieval Resource', () => {
       query: 'refund policy',
       routerUsed: 'discovery+agent',
       answerText: null,
+      evidence: [
+        { type: 'text', text: 'Annual plans may be refunded within 30 days.' },
+        { type: 'image', mediaType: 'image/png', data: 'abc' },
+      ],
       referencedChunks: [],
       results: [
         {
@@ -83,6 +87,10 @@ describe('Retrieval Resource', () => {
       ],
     });
     expect(response.routerUsed).toBe('discovery+agent');
+    expect(response.evidence).toEqual([
+      { type: 'text', text: 'Annual plans may be refunded within 30 days.' },
+      { type: 'image', mediaType: 'image/png', data: 'abc' },
+    ]);
     expect(response.results[0]).toEqual({
       content: 'Annual plans may be refunded within 30 days.',
       chunkType: 'text',

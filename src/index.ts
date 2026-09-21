@@ -40,6 +40,7 @@ export type {
   RetrievalSectionExclusion,
   RetrievalQueryParams,
   RetrievalSource,
+  RetrievalEvidencePart,
   RetrievalResult,
   RetrievalReferencedChunk,
   RetrievalQueryResponse,

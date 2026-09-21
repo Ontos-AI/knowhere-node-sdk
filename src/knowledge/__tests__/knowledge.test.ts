@@ -889,6 +889,7 @@ describe('Knowledge', () => {
       topK: 2,
       useAgentic: true,
     });
+    expect(response.evidence).toEqual([{ type: 'text', text: 'Margin guidance improved.' }]);
     expect(response.results).toHaveLength(1);
     expect(response.results[0]).toMatchObject({
       localDocumentId: 'local-report',
@@ -1199,6 +1200,7 @@ function createClient(parseResult: ParseResult): {
     query: 'margin',
     routerUsed: 'legacy',
     answerText: null,
+    evidence: [{ type: 'text', text: 'Margin guidance improved.' }],
     evidenceText: '[report.md / Revenue]\nMargin guidance improved.',
     referencedChunks: [
       {

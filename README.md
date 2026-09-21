@@ -311,12 +311,13 @@ const response = await client.retrieval.query({
 
 console.log(response.answerText); // LLM-generated answer
 console.log(response.referencedChunks); // cited evidence chunks
-console.log(response.evidenceText); // rendered evidence context, when returned
+console.log(response.evidence); // composed parts to consume (text/HTML and inline images)
+console.log(response.evidenceText); // text projection of those parts
 console.log(response.stopReason); // agentic termination reason, when returned
 console.log(response.failureReason); // no-answer reason, when returned
 
 for (const result of response.results) {
-  console.log(result.content);
+  console.log(result.content); // raw path chunk for debug
   console.log(result.contentSource);
   console.log(result.score);
   console.log(result.metadata?.pageNums);

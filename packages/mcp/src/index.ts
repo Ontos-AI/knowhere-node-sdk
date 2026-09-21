@@ -234,7 +234,7 @@ export async function createKnowhereMcpServer(
     'knowhere_search',
     {
       description:
-        'Search published Knowhere documents with the Knowhere API retrieval query. localDocumentIds only map returned server document IDs back to local cache IDs when available. Page results are marked with hasPageAssets="true"; use follow-up read calls to get tagged <pageAssets> entries.',
+        'Search published Knowhere documents. Compose already happened in Knowhere. The tool returns assembled evidence as MCP text/image content, then a debug XML item with the raw results list. localDocumentIds only map returned server document IDs back to local cache IDs when available.',
       inputSchema: {
         query: z.string(),
         namespace: z.string().optional(),
