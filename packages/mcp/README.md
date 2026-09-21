@@ -204,13 +204,13 @@ When logged in with Read only permission, the MCP server exposes only
   passing `localDocumentId`, published `documentId`, or completed `jobId`.
   Broad workspace search belongs to `knowhere_search`.
 - `knowhere_search`: search published documents through the Knowhere API
-  retrieval query. Page results and references are marked
-  `hasPageAssets="true"` when a follow-up `knowhere_read_chunks` call should be
-  used to inspect readable page asset URLs and chunk storage locations.
+  retrieval query. Compose already happened in Knowhere. The tool returns
+  assembled evidence as MCP text/image content, then a debug XML item with the
+  raw results list.
 
 ## Response Contract
 
-All tools return a single MCP text content item:
+Most tools return a single MCP text content item:
 
 ```json
 {
@@ -218,9 +218,22 @@ All tools return a single MCP text content item:
 }
 ```
 
+`knowhere_search` returns assembled evidence first, then the debug XML:
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "composed table or text" },
+    { "type": "image", "data": "...", "mimeType": "image/png" },
+    { "type": "text", "text": "<knowhere operation=\"search\">..." }
+  ]
+}
+```
+
 The MCP package does not expose `structuredContent` or tool `outputSchema`
-fields. Each response is tagged text rooted at
-`<knowhere operation="...">`, using SDK-native camelCase field names such as
+fields. Non-search tools return tagged text rooted at
+`<knowhere operation="...">`. Search prepends assembled evidence content, then
+the same tagged debug XML. Field names stay SDK-native camelCase such as
 `documentId`, `jobId`, `localDocumentId`, `chunkId`, `assetUrl`,
 `chunkPath`, `filePath`, and `storageRoot`.
 

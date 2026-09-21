@@ -1,3 +1,4 @@
+import type { RetrievalEvidencePart } from '../types/retrieval.js';
 import type { ParseParams } from '../types/params.js';
 import type { Job, JobResult } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
@@ -238,6 +239,7 @@ export interface KnowledgeSearchReference {
 export interface KnowledgeSearchResponse {
   namespace?: string;
   query: string;
+  evidence?: RetrievalEvidencePart[];
   evidenceText?: string | null;
   references: KnowledgeSearchReference[];
   results: KnowledgeSearchResult[];

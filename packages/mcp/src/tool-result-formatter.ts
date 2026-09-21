@@ -37,6 +37,10 @@ export function createKnowhereToolResult(params: {
   readonly operation: string;
   readonly result: unknown;
 }): CallToolResult {
+  if (params.operation === 'search') {
+    return { content: toSearchToolContent(params.result) };
+  }
+
   return {
     content: [
       {
@@ -45,6 +49,35 @@ export function createKnowhereToolResult(params: {
       },
     ],
   };
+}
+
+function toSearchToolContent(result: unknown): CallToolResult['content'] {
+  const response: UnknownRecord | undefined = toRecord(result);
+  const content: CallToolResult['content'] = [];
+
+  for (const part of readRecordArray(response, 'evidence')) {
+    const type: string | undefined = readString(part, 'type');
+    if (type === 'text') {
+      const text: string | undefined = readString(part, 'text');
+      if (text !== undefined) {
+        content.push({ type: 'text', text });
+      }
+      continue;
+    }
+    if (type === 'image') {
+      const data: string | undefined = readString(part, 'data');
+      const mediaType: string | undefined = readString(part, 'mediaType');
+      if (data !== undefined && mediaType !== undefined) {
+        content.push({ type: 'image', data, mimeType: mediaType });
+      }
+    }
+  }
+
+  content.push({
+    type: 'text',
+    text: formatOperationResult('search', result),
+  });
+  return content;
 }
 
 function formatOperationResult(operation: string, result: unknown): string {
@@ -223,7 +256,6 @@ function appendSearchResult(lines: string[], result: unknown): void {
   const response: UnknownRecord | undefined = toRecord(result);
   const references: readonly UnknownRecord[] = readRecordArray(response, 'references');
   const results: readonly UnknownRecord[] = readRecordArray(response, 'results');
-  const hasPageAssets: boolean = references.some(isPageRecord) || results.some(isPageRecord);
 
   lines.push(
     `${indent(1)}<search${formatAttributes({
@@ -233,13 +265,6 @@ function appendSearchResult(lines: string[], result: unknown): void {
       resultCount: results.length,
     })}>`,
   );
-  if (hasPageAssets) {
-    appendTextTag(lines, 2, {
-      name: 'instruction',
-      text: 'Page results and references marked hasPageAssets="true" only include preview text here. Call knowhere_read_chunks with the documentId and chunkId to get readable page asset URLs and chunk storage locations.',
-    });
-  }
-  appendOptionalTextTag(lines, 2, 'evidenceText', readString(response, 'evidenceText'));
   appendSearchReferences(lines, references, 2);
   appendSearchResults(lines, results, 2);
   lines.push(`${indent(1)}</search>`);
@@ -451,7 +476,6 @@ function appendSearchReferences(
         chunkType: readString(reference, 'chunkType'),
         sectionPath: readString(reference, 'sectionPath'),
         score: readNumber(reference, 'score'),
-        hasPageAssets: isPageRecord(reference) ? true : undefined,
       },
     });
   }
@@ -475,7 +499,6 @@ function appendSearchResults(
         sectionPath: readString(result, 'sectionPath'),
         sourceFileName: readString(result, 'sourceFileName'),
         score: readNumber(result, 'score'),
-        hasPageAssets: isPageRecord(result) ? true : undefined,
       })}>`,
     );
     appendTextTag(lines, depth + 2, {
@@ -606,10 +629,6 @@ function formatAttributes(
   }
 
   return renderedAttributes.length > 0 ? ` ${renderedAttributes.join(' ')}` : '';
-}
-
-function isPageRecord(record: UnknownRecord): boolean {
-  return readString(record, 'chunkType') === 'page';
 }
 
 function isMediaChunk(chunkType: string | undefined): boolean {
