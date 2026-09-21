@@ -1,5 +1,16 @@
 # @ontos-ai/knowhere-mcp
 
+## 3.1.0
+
+### Minor Changes
+
+- [#128](https://github.com/Ontos-AI/knowhere-node-sdk/pull/128) [`88fa97e`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/88fa97e4d3e444d2b45e32e6cf18ced6531970a2) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Expose composed retrieval `evidence` for agents and keep `results` as placeholder debug chunks. Local `knowhere_search` now returns that evidence as MCP text/image content.
+
+### Patch Changes
+
+- Updated dependencies [[`88fa97e`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/88fa97e4d3e444d2b45e32e6cf18ced6531970a2)]:
+  - @ontos-ai/knowhere-sdk@2.4.0
+
 ## 3.0.1
 
 ### Patch Changes
