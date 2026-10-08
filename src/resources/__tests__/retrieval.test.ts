@@ -200,7 +200,7 @@ describe('Retrieval Resource', () => {
       query: 'test',
       routerUsed: 'workflow_single_step',
       answerText: 'LLM-generated answer',
-      evidenceText: 'Rendered retrieval evidence',
+      evidenceText: '',
       stopReason: 'answer_done',
       failureReason: 'insufficient evidence',
       decisionTrace: [
@@ -242,7 +242,7 @@ describe('Retrieval Resource', () => {
     const referencedChunk: RetrievalReferencedChunk | undefined = response.referencedChunks[0];
 
     expect(typedResponse.answerText).toBe('LLM-generated answer');
-    expect(response.evidenceText).toBe('Rendered retrieval evidence');
+    expect(response.evidenceText).toBe('');
     expect(response.stopReason).toBe('answer_done');
     expect(response.failureReason).toBe('insufficient evidence');
     expect(response.referencedChunks).toHaveLength(1);
