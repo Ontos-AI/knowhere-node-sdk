@@ -155,7 +155,7 @@ export interface RetrievalReferencedChunk {
  *
  * Downstream agents consume:
  * - `evidence`: composed parts (text/HTML and inline images)
- * - `evidenceText`: text projection of those parts
+ * - `evidenceText`: deprecated; always empty. Use `evidence`.
  * - `results`: raw path chunks for debug
  * - `decisionTrace`: per-step navigation decisions (includes stop/failure)
  * - `referencedChunks`: structured chunk citations for follow-up queries
@@ -173,7 +173,7 @@ export interface RetrievalQueryResponse {
   answerText: string | null;
   /** Cited evidence chunks with asset URLs when available */
   referencedChunks: RetrievalReferencedChunk[];
-  /** Text projection of evidence. Tables stay as HTML; images are data URLs. */
+  /** Deprecated. Always empty. Use evidence. */
   evidenceText?: string | null;
   /** Reason why the agentic run stopped (e.g. answer_done, not_found) */
   stopReason?: string | null;

@@ -1201,7 +1201,7 @@ function createClient(parseResult: ParseResult): {
     routerUsed: 'legacy',
     answerText: null,
     evidence: [{ type: 'text', text: 'Margin guidance improved.' }],
-    evidenceText: '[report.md / Revenue]\nMargin guidance improved.',
+    evidenceText: '',
     referencedChunks: [
       {
         documentId: 'doc-1',

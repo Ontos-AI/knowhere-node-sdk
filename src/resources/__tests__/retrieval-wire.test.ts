@@ -95,7 +95,7 @@ describe('Retrieval wire response', () => {
             { type: 'text', text: 'before' },
             { type: 'image', media_type: 'image/png', data: 'abc' },
           ],
-          evidence_text: 'beforedata:image/png;base64,abc',
+          evidence_text: '',
           results: [
             {
               content: '[images/a.png]',
