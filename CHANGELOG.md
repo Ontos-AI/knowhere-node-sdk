@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.2
+
+### Patch Changes
+
+- [#132](https://github.com/Ontos-AI/knowhere-node-sdk/pull/132) [`c47e6a2`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/c47e6a2ac680be600ed73289c3a2e3f699c838eb) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Align `ConnectTo.relation` with the API schema: add `embedded_by` (and reserved relation values), `targetDocumentId`, and `position`. Drop unused `score`/`keywords` fields that the API no longer emits.
+
 ## 2.4.1
 
 ### Patch Changes
