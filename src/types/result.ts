@@ -92,12 +92,7 @@ export interface ConnectTo {
    * - `related`: same-page body chunk -> asset
    * - `cross_doc_entity` / `intra_doc_ref`: reserved, not produced yet
    */
-  relation:
-    | 'embeds'
-    | 'embedded_by'
-    | 'related'
-    | 'cross_doc_entity'
-    | 'intra_doc_ref';
+  relation: 'embeds' | 'embedded_by' | 'related' | 'cross_doc_entity' | 'intra_doc_ref';
   /** Reserved for cross-document targets; omitted for same-document edges */
   targetDocumentId?: string;
   /** Placeholder ref in content, e.g. '[images/a.png]' (embeds only) */
