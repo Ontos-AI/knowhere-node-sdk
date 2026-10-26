@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.0
+
+### Minor Changes
+
+- [#134](https://github.com/Ontos-AI/knowhere-node-sdk/pull/134) [`3ff3196`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/3ff31960868c08126e94cd41eadc3cd4bc982c48) Thanks [@suguanYang](https://github.com/suguanYang)! - Stream remote parsed-document ZIP entries into storage without loading a full ParseResult. Add optional stream sinks, resumable entry checkpoints, bounded sync batches, cancellation, revision/archive validation, and optional exact ZIP retention. Preserve result-relative object paths and commit markers. Extract existing ParseResult snapshots lazily without duplicate asset buffers. Servers without Range support use a sequential reader and temporary disk for final ZIP integrity validation.
+
 ## 2.4.2
 
 ### Patch Changes
