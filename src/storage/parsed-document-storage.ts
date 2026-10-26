@@ -36,6 +36,8 @@ export async function syncParseResultToParsedDocumentStorage(params: {
   readonly documentId?: string;
   readonly revisionKey?: string;
   readonly source?: ParsedDocumentCommitSource;
+  readonly signal?: AbortSignal;
+  readonly beforeCommit?: () => Promise<void>;
 }): Promise<{
   readonly result: ParseResult;
   readonly documentId: string;
@@ -44,9 +46,8 @@ export async function syncParseResultToParsedDocumentStorage(params: {
 }> {
   const documentId = params.documentId ?? params.result.documentId ?? params.result.jobId;
   const revisionKey = params.revisionKey ?? params.result.jobId;
-  const objects = await collectResultLayoutObjects(params.result);
-
-  for (const object of objects) {
+  for await (const object of collectResultLayoutObjects(params.result)) {
+    params.signal?.throwIfAborted();
     await params.storage.writeObject({
       documentId,
       revisionKey,
@@ -54,6 +55,8 @@ export async function syncParseResultToParsedDocumentStorage(params: {
     });
   }
 
+  await params.beforeCommit?.();
+  params.signal?.throwIfAborted();
   const commit: ParsedDocumentCommit = {
     version: 1,
     documentId,
@@ -99,105 +102,73 @@ export function readJsonObject<T>(object: ParsedDocumentObject): T {
   return JSON.parse(Buffer.from(object.body).toString('utf8')) as T;
 }
 
-async function collectResultLayoutObjects(
+async function* collectResultLayoutObjects(
   result: ParseResult,
-): Promise<ParsedDocumentWriteObjectParamsWithoutRevision[]> {
-  const objectsByPath = new Map<string, ParsedDocumentWriteObjectParamsWithoutRevision>();
-  const rawZipObjects = await collectRawZipObjects(result.rawZip);
-  for (const object of rawZipObjects) {
-    objectsByPath.set(object.path, object);
-  }
-
-  for (const object of collectGeneratedResultObjects(result)) {
-    if (!objectsByPath.has(object.path)) {
-      objectsByPath.set(object.path, object);
-    }
-  }
-
-  return [...objectsByPath.values()].filter((object) => !isSdkMetadataPath(object.path));
-}
-
-async function collectRawZipObjects(
-  rawZip: Buffer,
-): Promise<ParsedDocumentWriteObjectParamsWithoutRevision[]> {
+): AsyncGenerator<ParsedDocumentWriteObjectParamsWithoutRevision> {
+  const storedPaths: Set<string> = new Set();
+  let zip: JSZip | undefined;
   try {
-    const zip = await JSZip.loadAsync(rawZip);
-    const objects: ParsedDocumentWriteObjectParamsWithoutRevision[] = [];
-    for (const entry of Object.values(zip.files)) {
-      if (entry.dir || entry.name === 'result.zip') {
-        continue;
-      }
-      objects.push({
-        path: normalizeResultPath(entry.name),
-        body: new Uint8Array(await entry.async('nodebuffer')),
-        contentType: inferContentTypeFromPath(entry.name),
-      });
-    }
-    return objects;
+    zip = await JSZip.loadAsync(result.rawZip);
   } catch {
-    return [];
+    /* Synthetic ParseResults may have no original ZIP. */
   }
+  if (zip) {
+    for (const entry of Object.values(zip.files)) {
+      if (entry.dir || entry.name === 'result.zip') continue;
+      const path: string = normalizeResultPath(entry.name);
+      if (isSdkMetadataPath(path)) continue;
+      storedPaths.add(path);
+      yield {
+        path,
+        body: await entry.async('nodebuffer'),
+        contentType: inferContentTypeFromPath(path),
+      };
+    }
+  }
+  for (const object of generateMissingResultObjects(result, storedPaths)) yield object;
 }
 
-function collectGeneratedResultObjects(
+function* generateMissingResultObjects(
   result: ParseResult,
-): ParsedDocumentWriteObjectParamsWithoutRevision[] {
-  const objects: ParsedDocumentWriteObjectParamsWithoutRevision[] = [
-    createJsonObject('manifest.json', result.manifest),
-    createJsonObject('chunks.json', keysToSnake(serializeChunks(result.chunks))),
-  ];
-
-  if (result.docNav) {
-    objects.push(createJsonObject('doc_nav.json', result.docNav));
-  }
-  if (result.fullMarkdown) {
-    objects.push(createTextObject('full.md', result.fullMarkdown, markdownContentType));
-  }
-  if (result.chunksSlim) {
-    objects.push(createJsonObject('chunks_slim.json', { chunks: result.chunksSlim }));
-  }
-  if (result.hierarchy) {
-    objects.push(createJsonObject('hierarchy.json', result.hierarchy));
-  }
-  if (result.tocHierarchies) {
-    objects.push(createJsonObject('toc_hierarchies.json', result.tocHierarchies));
-  }
-  if (result.kbCsv) {
-    objects.push(createTextObject('kb.csv', result.kbCsv, csvContentType));
-  }
-  if (result.hierarchyViewHtml) {
-    objects.push(
-      createTextObject('hierarchy_view.html', result.hierarchyViewHtml, htmlContentType),
-    );
-  }
-
+  storedPaths: ReadonlySet<string>,
+): Generator<ParsedDocumentWriteObjectParamsWithoutRevision> {
+  if (!storedPaths.has('manifest.json')) yield createJsonObject('manifest.json', result.manifest);
+  if (!storedPaths.has('chunks.json'))
+    yield createJsonObject('chunks.json', keysToSnake(serializeChunks(result.chunks)));
+  if (!storedPaths.has('doc_nav.json') && result.docNav)
+    yield createJsonObject('doc_nav.json', result.docNav);
+  if (!storedPaths.has('full.md') && result.fullMarkdown)
+    yield createTextObject('full.md', result.fullMarkdown, markdownContentType);
+  if (!storedPaths.has('chunks_slim.json') && result.chunksSlim)
+    yield createJsonObject('chunks_slim.json', { chunks: result.chunksSlim });
+  if (!storedPaths.has('hierarchy.json') && result.hierarchy)
+    yield createJsonObject('hierarchy.json', result.hierarchy);
+  if (!storedPaths.has('toc_hierarchies.json') && result.tocHierarchies)
+    yield createJsonObject('toc_hierarchies.json', result.tocHierarchies);
+  if (!storedPaths.has('kb.csv') && result.kbCsv)
+    yield createTextObject('kb.csv', result.kbCsv, csvContentType);
+  if (!storedPaths.has('hierarchy_view.html') && result.hierarchyViewHtml)
+    yield createTextObject('hierarchy_view.html', result.hierarchyViewHtml, htmlContentType);
   for (const chunk of result.imageChunks) {
-    objects.push({
-      path: normalizeResultPath(chunk.filePath),
-      body: new Uint8Array(chunk.data),
-      contentType: inferContentTypeFromPath(chunk.filePath),
-      metadata: {
-        chunkId: chunk.chunkId,
-        chunkType: chunk.type,
-        sourcePath: chunk.filePath,
-      },
-    });
+    const path: string = normalizeResultPath(chunk.filePath);
+    if (storedPaths.has(path)) continue;
+    yield {
+      path,
+      body: chunk.data,
+      contentType: inferContentTypeFromPath(path),
+      metadata: { chunkId: chunk.chunkId, chunkType: chunk.type, sourcePath: chunk.filePath },
+    };
   }
-
   for (const chunk of result.tableChunks) {
-    objects.push({
-      path: normalizeResultPath(chunk.filePath),
+    const path: string = normalizeResultPath(chunk.filePath);
+    if (storedPaths.has(path)) continue;
+    yield {
+      path,
       body: Buffer.from(chunk.html, 'utf8'),
       contentType: htmlContentType,
-      metadata: {
-        chunkId: chunk.chunkId,
-        chunkType: chunk.type,
-        sourcePath: chunk.filePath,
-      },
-    });
+      metadata: { chunkId: chunk.chunkId, chunkType: chunk.type, sourcePath: chunk.filePath },
+    };
   }
-
-  return objects;
 }
 
 function serializeChunks(chunks: readonly Chunk[]): { readonly chunks: readonly RawChunk[] } {
@@ -261,7 +232,7 @@ function createTextObject(
   };
 }
 
-function inferContentTypeFromPath(filePath: string): string {
+export function inferContentTypeFromPath(filePath: string): string {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.json')) return jsonContentType;
   if (lower.endsWith('.md')) return markdownContentType;
@@ -275,7 +246,7 @@ function inferContentTypeFromPath(filePath: string): string {
   return binaryContentType;
 }
 
-function normalizeResultPath(value: string): string {
+export function normalizeResultPath(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/^\.\/+/, '');
   if (
     normalized.length === 0 ||

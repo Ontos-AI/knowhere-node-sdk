@@ -1,0 +1,151 @@
+import { Readable, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
+import { mkdtemp, open, rm, type FileHandle } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { crc32 } from 'zlib';
+import { ZipReader, Reader, type FileEntry } from '@zip.js/zip.js';
+import Parse from 'unzipper/lib/parse.js';
+import type { Entry as SequentialEntry } from 'unzipper';
+import { ParsedDocumentArchiveError } from '../errors/parsed-document-archive-error.js';
+import { normalizeResultPath } from './parsed-document-storage.js';
+import {
+  isSnapshotPath,
+  createDownloadIdentity,
+  type ArchiveSource,
+  type ArchiveEntry,
+  type StreamedSyncParams,
+} from './streamed-parsed-document-sync.js';
+
+export async function openSequentialArchive(
+  params: StreamedSyncParams,
+  identity: string,
+): Promise<ArchiveSource> {
+  const response: Response = await fetch(params.resultUrl, { signal: params.signal });
+  if (!response.ok || !response.body)
+    throw new Error(`Parsed result download failed (HTTP ${response.status}).`);
+  if (createDownloadIdentity(params.jobId, response) !== identity) {
+    await response.body.cancel();
+    throw new Error('Parsed result archive identity changed before sequential download.');
+  }
+  let directory: string;
+  try {
+    directory = await mkdtemp(join(tmpdir(), 'knowhere-sync-'));
+  } catch (error) {
+    await response.body.cancel();
+    throw new ParsedDocumentArchiveError(error);
+  }
+  let file: FileHandle;
+  try {
+    file = await open(join(directory, 'archive.zip'), 'w+');
+  } catch (error) {
+    await response.body.cancel();
+    await rm(directory, { recursive: true, force: true });
+    throw new ParsedDocumentArchiveError(error);
+  }
+  const input: Readable = Readable.fromWeb(response.body);
+  const parser = Parse({ forceStream: true });
+  const checksums: Map<string, { readonly checksum: number; readonly size: number }> = new Map();
+  let archiveSize: number = 0;
+  // unzipper extracts sequentially, but does not verify CRCs. Spool compressed bytes to disk
+  // for a central-directory check after extraction, including entries with data descriptors.
+  const spool: Transform = new Transform({
+    transform(chunk: Buffer, _encoding, callback): void {
+      archiveSize += chunk.length;
+      void file.writeFile(chunk).then(
+        (): void => {
+          callback(null, chunk);
+        },
+        (error: Error): void => {
+          callback(new ParsedDocumentArchiveError(error));
+        },
+      );
+    },
+  });
+  const completed: Promise<void> = pipeline(input, spool, parser, { signal: params.signal });
+  // A bounded return or storage failure destroys this pipeline in close().
+  void completed.catch((): void => undefined);
+  return {
+    identity,
+    downloadIdentity: identity,
+    canSkipEntries: false,
+    entries: (async function* (): AsyncGenerator<ArchiveEntry> {
+      for await (const value of parser) {
+        const entry: SequentialEntry = value as SequentialEntry;
+        if (entry.type === 'Directory' || !isSnapshotPath(entry.path)) {
+          await entry.autodrain().promise();
+          continue;
+        }
+        const path: string = normalizeResultPath(entry.path);
+        yield {
+          path,
+          read: (): ReadableStream<Uint8Array> => {
+            let checksum: number = 0;
+            let size: number = 0;
+            return (Readable.toWeb(entry) as ReadableStream<Uint8Array>).pipeThrough(
+              new TransformStream<Uint8Array, Uint8Array>({
+                transform(chunk, controller): void {
+                  checksum = crc32(chunk, checksum);
+                  size += chunk.length;
+                  controller.enqueue(chunk);
+                },
+                flush(): void {
+                  checksums.set(path, { checksum, size });
+                },
+              }),
+            );
+          },
+        };
+      }
+      await completed;
+      const reader = new ZipReader(new DiskArchiveReader(file, archiveSize), {
+        useWebWorkers: false,
+      });
+      try {
+        const files = (await reader.getEntries()).filter(
+          (entry): entry is FileEntry => !entry.directory && isSnapshotPath(entry.filename),
+        );
+        if (files.length !== checksums.size)
+          throw new Error('Parsed result ZIP directory does not match sequential entries.');
+        for (const entry of files) {
+          const actual = checksums.get(normalizeResultPath(entry.filename));
+          if (
+            !actual ||
+            actual.checksum !== entry.signature ||
+            actual.size !== entry.uncompressedSize
+          )
+            throw new Error(`Invalid parsed result ZIP checksum or size: ${entry.filename}`);
+        }
+      } finally {
+        await reader.close();
+      }
+    })(),
+    close: async (): Promise<void> => {
+      input.destroy();
+      spool.destroy();
+      parser.destroy();
+      await completed.catch((): void => undefined);
+      try {
+        await file.close();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+class DiskArchiveReader extends Reader<FileHandle> {
+  constructor(
+    private readonly file: FileHandle,
+    size: number,
+  ) {
+    super(file);
+    this.size = size;
+  }
+  override async readUint8Array(index: number, length: number): Promise<Uint8Array> {
+    const body: Uint8Array = new Uint8Array(length);
+    const { bytesRead } = await this.file.read(body, 0, length, index);
+    if (bytesRead !== length) throw new Error('Truncated parsed result ZIP.');
+    return body;
+  }
+}

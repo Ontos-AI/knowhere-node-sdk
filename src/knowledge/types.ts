@@ -117,7 +117,11 @@ export interface KnowledgeDocumentReference {
 
 export type KnowledgeParsedStorageOptions = ParsedDocumentStorageConfig;
 
-export type KnowledgeSyncParsedDocumentParams = KnowledgeDocumentReference;
+export interface KnowledgeSyncParsedDocumentParams extends KnowledgeDocumentReference {
+  readonly signal?: AbortSignal;
+  /** Optionally retain the exact source ZIP as result.zip after committing the snapshot. */
+  readonly retainResultArchive?: boolean;
+}
 
 export interface KnowledgeSyncParsedDocumentResponse {
   documentId: string;

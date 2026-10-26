@@ -6,3 +6,5 @@ export * from './api-errors.js';
 
 // Job errors
 export * from './job-errors.js';
+
+export { ParsedDocumentArchiveError } from './parsed-document-archive-error.js';

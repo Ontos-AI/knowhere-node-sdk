@@ -69,14 +69,17 @@
     "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test:ci && pnpm run build"
   },
   "dependencies": {
+    "@zip.js/zip.js": "^2.24.0",
     "axios": "^1.15.2",
-    "jszip": "^3.10.0"
+    "jszip": "^3.10.0",
+    "unzipper": "^0.12.5"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.30.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.2.3",
+    "@types/unzipper": "^0.10.11",
     "@typescript-eslint/eslint-plugin": "^8.55.0",
     "@typescript-eslint/parser": "^8.55.0",
     "@vitest/coverage-v8": "^4.0.18",

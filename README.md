@@ -456,6 +456,18 @@ const knowledge = client.knowledge.withParsedStorage({
 });
 ```
 
+Remote `syncParsedDocument({ documentId })` and `syncParsedDocument({ jobId })`
+stream ZIP entries without loading a full `ParseResult`. Add the optional
+`ParsedDocumentStorage.writeObjectStream` sink for memory usage independent of
+large asset sizes. Each invocation defaults to 100 entries or a 120-second budget
+checked between entries; re-enqueue while `completed` is false. Signed URLs are
+refreshed on every retry, and persisted checkpoints pin the revision and archive.
+`retainResultArchive: true` optionally streams the original ZIP to `result.zip`
+after committing the expanded snapshot. Servers without HTTP Range support need
+temporary disk space for ZIP integrity validation. See the
+[streaming snapshot guide](docs/streamed-parsed-document-sync.md) for the adapter
+contract, retry semantics, and memory validation harness.
+
 If a search result only has a published `documentId`, read-oriented helpers can
 accept that remote identifier directly. `readChunks` supports display paging;
 remote fallback requests asset URLs from the Knowhere API, and storage hits use

@@ -80,6 +80,7 @@ export type {
   ParsedDocumentSyncProgress,
   ParsedDocumentSyncScheduler,
   ParsedDocumentWriteObjectParams,
+  ParsedDocumentWriteObjectStreamParams,
   ParsedDocumentWriteObjectResult,
   PageCitationAsset,
   PageCitationAssetContentType,
@@ -134,6 +135,7 @@ export { syncParseResultToParsedDocumentStorage } from './storage/parsed-documen
 export {
   // Base errors
   KnowhereError,
+  ParsedDocumentArchiveError,
   NetworkError,
   TimeoutError,
   PollingTimeoutError,

@@ -67,6 +67,15 @@ export interface ParsedDocumentWriteObjectParams extends ParsedDocumentObjectPar
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
+/** Stream sinks must consume the body before resolving and reject partial writes. */
+export interface ParsedDocumentWriteObjectStreamParams extends Omit<
+  ParsedDocumentWriteObjectParams,
+  'body'
+> {
+  readonly body: ReadableStream<Uint8Array>;
+  readonly signal?: AbortSignal;
+}
+
 export interface ParsedDocumentWriteObjectResult extends ParsedDocumentObjectParams {
   readonly url?: string;
 }
@@ -85,6 +94,11 @@ export interface ParsedDocumentSyncProgress {
   readonly documentId: string;
   readonly revisionKey: string;
   readonly nextChunkPage?: number;
+  readonly pinnedRevisionKey?: string;
+  readonly archiveIdentity?: string;
+  readonly nextArchiveEntry?: number;
+  /** Content hashes for verifying a sequential retry without a strong HTTP validator. */
+  readonly archiveEntryHashes?: readonly string[];
   readonly status: 'running' | 'completed' | 'failed';
   readonly updatedAt: string;
   readonly error?: string;
@@ -93,6 +107,9 @@ export interface ParsedDocumentSyncProgress {
 export interface ParsedDocumentStorage {
   readObject(params: ParsedDocumentObjectParams): Promise<ParsedDocumentObject | null>;
   writeObject(params: ParsedDocumentWriteObjectParams): Promise<ParsedDocumentWriteObjectResult>;
+  writeObjectStream?(
+    params: ParsedDocumentWriteObjectStreamParams,
+  ): Promise<ParsedDocumentWriteObjectResult>;
   headObject?(params: ParsedDocumentObjectParams): Promise<ParsedDocumentObjectHead | null>;
   getObjectUrl?(params: ParsedDocumentObjectParams): Promise<string | null>;
   deletePrefix?(params: ParsedDocumentRevisionParams): Promise<void>;
@@ -107,6 +124,10 @@ export interface ParsedDocumentSyncScheduler {
 }
 
 export interface ParsedDocumentStorageLimits {
+  /** ZIP entries copied per invocation (default 100). */
+  readonly maxEntriesPerSync?: number;
+  /** ZIP copy budget checked between entries (default 120000ms). */
+  readonly archiveSyncDeadlineMs?: number;
   readonly remotePageSize?: number;
   readonly maxPagesPerSync?: number;
   readonly syncDeadlineMs?: number;

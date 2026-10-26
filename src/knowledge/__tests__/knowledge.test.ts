@@ -513,7 +513,8 @@ describe('Knowledge', () => {
         scheduledTasks.push(task);
       }),
     };
-    const { client, documentsListChunks, jobsLoad } = createClient(createParseResult());
+    const { client, documentsListChunks, jobsLoad, jobsGet } = createClient(createParseResult());
+    jobsGet.mockResolvedValue({ isDone: true, jobId: 'job_remote' });
     const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({
       storage,
       scheduler,
@@ -542,10 +543,10 @@ describe('Knowledge', () => {
       pageSize: 1,
       includeAssetUrls: true,
     });
-    expect(jobsLoad).toHaveBeenCalledWith('job_remote');
+    expect(jobsLoad).not.toHaveBeenCalled();
+    expect(jobsGet).toHaveBeenCalledWith('job_remote');
     expect(storage.readJsonObject('doc_remote', 'jres_remote', 'manifest.json')).toMatchObject({
-      jobId: 'job_remote',
-      sourceFileName: 'job_remote.md',
+      sourceFileName: 'doc_remote',
     });
     const syncedChunks = storage.readJsonObject<{ readonly chunks?: readonly unknown[] }>(
       'doc_remote',
@@ -558,7 +559,7 @@ describe('Knowledge', () => {
     ).toMatchObject({
       documentId: 'doc_remote',
       revisionKey: 'jres_remote',
-      source: 'resultZip',
+      source: 'remoteReconstruction',
     });
     expect(storage.getProgress('doc_remote', 'jres_remote')?.status).toBe('completed');
   });
@@ -572,8 +573,8 @@ describe('Knowledge', () => {
         scheduledTasks.push(task);
       }),
     };
-    const { client, documentsListChunks, jobsLoad } = createClient(createParseResult());
-    jobsLoad.mockRejectedValueOnce(new Error('job result unavailable'));
+    const { client, documentsListChunks, jobsGet } = createClient(createParseResult());
+    jobsGet.mockResolvedValue({ isDone: true, jobId: 'job_remote' });
     const knowledge = new Knowledge(client, { cacheDirectory }).withParsedStorage({
       storage,
       scheduler,
