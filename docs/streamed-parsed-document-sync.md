@@ -154,20 +154,26 @@ resolve its Job through the document API; providing `jobId` avoids that lookup.
 The upstream Job Result is validated separately and is never replaced by the
 local snapshot ID in server document/chunk calls.
 
-Before committing, the SDK streams the entire ZIP once more to validate its
-SHA-256 checksum, in addition to the entry CRC, archive identity and required
-asset checks. This adds one archive download on the completing invocation, with
-bounded memory. Completed progressive copies validate the remote checksum without
-rewriting the committed objects. Legacy/full copies retain the explicit rebuild
-behavior described above.
+Before committing, sequential extraction verifies SHA-256 of the exact compressed
+bytes in its temporary disk spool, in addition to entry CRCs, archive identity
+and required asset checks. Range extraction compares every extracted entry hash
+with a separate sequential spool whose exact ZIP bytes pass SHA-256 validation.
+This adds one archive download on a completing Range invocation, with bounded
+memory and temporary disk usage proportional to the compressed archive. It does
+not rely on HTTP validators proving that two downloads contain the same bytes.
+Completed progressive copies validate remote entry hashes and checksum without
+rewriting committed content. A later `retainResultArchive` request can repair a
+missing optional archive; retained ZIP bytes come from that verified spool.
+Legacy/full copies retain the explicit rebuild behavior described above.
 
 After a current snapshot commits, ordinary local read/grep/outline operations use
 its durable reader pointer. An incomplete or failed final copy leaves baseline
 current. A late baseline completion cannot supersede a committed final snapshot
 of the same upstream revision. Explicit `revisionKey` reads retain their selected
 content and assets; a missing pinned local snapshot cannot fall back to live
-content once a progressive reader pointer exists. Sync the retained snapshot
-before reading it. Keep the storage objects and checkpoint keys for both stages.
+content, including before the first progressive copy completes. Sync the retained
+snapshot before reading it. A later committed full-mode reparse also advances the
+ordinary reader pointer while explicit historical snapshot reads stay pinned. Keep the storage objects and checkpoint keys for both stages.
 
 Commits remain version 1 and add optional `snapshotId`, `jobResultId`, `checksum`,
 and `stage`. Checkpoints add `snapshotChecksum` and `upstreamJobResultId`; adapters

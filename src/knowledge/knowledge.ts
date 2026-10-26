@@ -203,6 +203,25 @@ export class Knowledge {
   async syncParsedDocument(
     params: KnowledgeSyncParsedDocumentParams,
   ): Promise<KnowledgeSyncParsedDocumentResponse> {
+    const response: KnowledgeSyncParsedDocumentResponse =
+      await this.performParsedDocumentSync(params);
+    if (response.completed && !response.snapshot) {
+      await this.requireParsedStorageConfig().storage.writeObject({
+        documentId: response.documentId,
+        revisionKey: 'current',
+        path: '.knowhere-sdk/current-snapshot.json',
+        body: Buffer.from(
+          JSON.stringify({ snapshotId: response.revisionKey, jobResultId: response.revisionKey }),
+        ),
+        contentType: 'application/json; charset=utf-8',
+      });
+    }
+    return response;
+  }
+
+  private async performParsedDocumentSync(
+    params: KnowledgeSyncParsedDocumentParams,
+  ): Promise<KnowledgeSyncParsedDocumentResponse> {
     params.signal?.throwIfAborted();
     const normalized = normalizeDocumentReference(params);
     const parsedStorageConfig = this.requireParsedStorageConfig();
@@ -704,6 +723,8 @@ export class Knowledge {
       includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(remotePage);
+    if (params.revisionKey && params.revisionKey !== revisionKey)
+      throw new ValidationError('Requested parsed snapshot revision is not committed locally');
     const stored = await this.tryReadChunksFromParsedStorage({
       documentId,
       revisionKey,
@@ -757,6 +778,8 @@ export class Knowledge {
       includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
+    if (params.revisionKey && params.revisionKey !== revisionKey)
+      throw new ValidationError('Requested parsed snapshot revision is not committed locally');
     const stored = await this.tryReadChunksFromParsedStorage({
       documentId,
       revisionKey,
@@ -840,6 +863,8 @@ export class Knowledge {
       includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
+    if (params.revisionKey && params.revisionKey !== revisionKey)
+      throw new ValidationError('Requested parsed snapshot revision is not committed locally');
     const stored =
       startPage === 1
         ? await this.tryGrepChunksFromParsedStorage({
@@ -968,6 +993,8 @@ export class Knowledge {
       includeAssetUrls: true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
+    if (revisionKeyOverride && revisionKeyOverride !== revisionKey)
+      throw new ValidationError('Requested parsed snapshot revision is not committed locally');
     const stored = await this.tryReadOutlineFromParsedStorage(documentId, revisionKey);
     if (stored) {
       return stored;
@@ -1225,11 +1252,7 @@ export class Knowledge {
     const scheduler = parsedStorageConfig.scheduler ?? defaultParsedStorageScheduler;
     const task = async (): Promise<void> => {
       try {
-        await this.syncRemoteDocumentToParsedStorage({
-          documentId,
-          revisionKey,
-          parsedStorageConfig,
-        });
+        await this.syncParsedDocument({ documentId, revisionKey });
       } catch (error) {
         const previous = await parsedStorageConfig.storage.readSyncProgress({
           documentId,

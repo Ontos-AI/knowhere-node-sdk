@@ -333,4 +333,165 @@ describe('progressive immutable snapshots', () => {
       fixture.knowledge.readChunks({ documentId: 'doc_test', revisionKey: 'snapshot_missing' }),
     ).rejects.toThrow(/snapshot.*committed/);
   });
+  it('rejects uncommitted progressive pins before any current reader pointer exists', async () => {
+    const fixture = await createFixture(1);
+    expect((await fixture.knowledge.syncParsedDocument({ jobId: 'job_test' })).completed).toBe(
+      false,
+    );
+    await expect(
+      fixture.knowledge.readChunks({
+        documentId: 'doc_test',
+        revisionKey: fixture.baseline.snapshotId,
+      }),
+    ).rejects.toThrow(/snapshot|revision/);
+    await expect(
+      fixture.knowledge.grepChunks({
+        documentId: 'doc_test',
+        revisionKey: fixture.baseline.snapshotId,
+        pattern: 'baseline',
+      }),
+    ).rejects.toThrow(/snapshot|revision/);
+    await expect(
+      fixture.knowledge.getDocumentOutline({
+        documentId: 'doc_test',
+        revisionKey: fixture.baseline.snapshotId,
+      }),
+    ).rejects.toThrow(/snapshot|revision/);
+  });
+
+  it('rejects extracted ZIP content when a later verification download serves different bytes under identical validators', async () => {
+    const fixture = await createFixture();
+    const original = fixture.archives.get(fixture.baseline.resultUrl);
+    if (!original) throw new Error('Missing archive fixture');
+    const zip = await JSZip.loadAsync(original);
+    const chunks = await zip.file('chunks.json')?.async('string');
+    if (!chunks) throw new Error('Missing chunks fixture');
+    zip.file('chunks.json', chunks.replace('baseline', 'forged!!'));
+    const forged = await zip.generateAsync({ type: 'uint8array' });
+    expect(forged.length).toBe(original.length);
+    let calls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((): Promise<Response> => {
+        calls += 1;
+        return Promise.resolve(
+          new Response(calls === 2 ? forged : original, {
+            headers: { etag: 'same', 'content-length': String(original.length) },
+          }),
+        );
+      }),
+    );
+    await expect(fixture.knowledge.syncParsedDocument({ jobId: 'job_test' })).rejects.toThrow(
+      /checksum|entry.*changed/,
+    );
+    expect(fixture.objects.has(`${fixture.baseline.snapshotId}/.knowhere-sdk/commit.json`)).toBe(
+      false,
+    );
+  });
+
+  it('retains an already committed progressive archive on a later explicit retention request', async () => {
+    const fixture = await createFixture();
+    await fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });
+    expect(fixture.objects.has(`${fixture.baseline.snapshotId}/result.zip`)).toBe(false);
+    await fixture.knowledge.syncParsedDocument({ jobId: 'job_test', retainResultArchive: true });
+    expect(
+      Array.from(fixture.objects.get(`${fixture.baseline.snapshotId}/result.zip`) ?? []),
+    ).toEqual(Array.from(fixture.archives.get(fixture.baseline.resultUrl) ?? []));
+  });
+
+  it('advances ordinary reads to a completed full reparse while retaining historical progressive reads', async () => {
+    const fixture = await createFixture();
+    await fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });
+    fixture.job.snapshots = undefined;
+    fixture.job.currentSnapshotId = undefined;
+    fixture.job.resultUrl = fixture.final.resultUrl;
+    vi.spyOn(fixture.client.documents, 'listChunks').mockResolvedValue({
+      documentId: 'doc_test',
+      jobId: 'job_test',
+      jobResultId: 'result_new',
+      namespace: 'default',
+      chunks: [],
+      pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
+    });
+    await fixture.knowledge.syncParsedDocument({ documentId: 'doc_test' });
+    expect(
+      (await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content,
+    ).toBe('final');
+    expect(
+      (
+        await fixture.knowledge.readChunks({
+          documentId: 'doc_test',
+          revisionKey: fixture.baseline.snapshotId,
+        })
+      ).chunks[0]?.content,
+    ).toBe('baseline');
+  });
+  it('binds Range-extracted entries to the SHA-256 verified archive despite reused HTTP validators', async () => {
+    const fixture = await createFixture();
+    const original = fixture.archives.get(fixture.baseline.resultUrl);
+    if (!original) throw new Error('Missing archive fixture');
+    const zip = await JSZip.loadAsync(original);
+    const chunks = await zip.file('chunks.json')?.async('string');
+    if (!chunks) throw new Error('Missing chunks fixture');
+    zip.file('chunks.json', chunks.replace('baseline', 'forged!!'));
+    const forged = await zip.generateAsync({ type: 'uint8array' });
+    expect(forged.length).toBe(original.length);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const range = new Headers(init?.headers).get('range');
+        if (!range)
+          return Promise.resolve(
+            new Response(original, {
+              headers: { etag: 'same', 'content-length': String(original.length) },
+            }),
+          );
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        if (!match) throw new Error('Invalid test Range');
+        const start = match[1] ? Number(match[1]) : Math.max(0, forged.length - Number(match[2]));
+        const end =
+          match[1] && match[2] ? Math.min(Number(match[2]), forged.length - 1) : forged.length - 1;
+        return Promise.resolve(
+          new Response(forged.slice(start, end + 1), {
+            status: 206,
+            headers: {
+              etag: 'same',
+              'content-range': `bytes ${start}-${end}/${forged.length}`,
+              'content-length': String(end - start + 1),
+            },
+          }),
+        );
+      }),
+    );
+    await expect(fixture.knowledge.syncParsedDocument({ jobId: 'job_test' })).rejects.toThrow(
+      /entry.*changed/,
+    );
+    expect(fixture.objects.has(`${fixture.baseline.snapshotId}/.knowhere-sdk/commit.json`)).toBe(
+      false,
+    );
+  });
+
+  it('repairs a previously failed optional archive retention without rewriting committed content', async () => {
+    const fixture = await createFixture();
+    const write = fixture.storage.writeObject.bind(fixture.storage);
+    let hasRetentionFailure = true;
+    fixture.storage.writeObject = async (params): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'result.zip' && hasRetentionFailure)
+        throw new Error('Temporary retention failure');
+      return write(params);
+    };
+    expect(
+      (await fixture.knowledge.syncParsedDocument({ jobId: 'job_test', retainResultArchive: true }))
+        .completed,
+    ).toBe(true);
+    expect(fixture.objects.has(`${fixture.baseline.snapshotId}/result.zip`)).toBe(false);
+    hasRetentionFailure = false;
+    expect(
+      (await fixture.knowledge.syncParsedDocument({ jobId: 'job_test', retainResultArchive: true }))
+        .completed,
+    ).toBe(true);
+    expect(
+      Array.from(fixture.objects.get(`${fixture.baseline.snapshotId}/result.zip`) ?? []),
+    ).toEqual(Array.from(fixture.archives.get(fixture.baseline.resultUrl) ?? []));
+  });
 });

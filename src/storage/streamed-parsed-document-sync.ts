@@ -23,6 +23,7 @@ export interface ArchiveEntry {
 }
 
 export interface ArchiveSource {
+  readonly readArchive?: () => ReadableStream<Uint8Array>;
   readonly canSkipEntries: boolean;
   readonly identity: string;
   readonly downloadIdentity: string;
@@ -76,7 +77,12 @@ export async function syncRemoteResultArchive(
     if (params.snapshot && previous?.status === 'completed') {
       const committed: ParsedDocumentCommit | null = await readParsedDocumentCommit(params);
       if (committed) {
-        await verifyArchiveChecksum(params, source.downloadIdentity);
+        await verifyArchiveChecksum(
+          params,
+          source.downloadIdentity,
+          previous.archiveEntryHashes ?? [],
+          params.retainResultArchive,
+        );
         return {
           documentId: params.documentId,
           revisionKey: params.revisionKey,
@@ -156,7 +162,8 @@ export async function syncRemoteResultArchive(
       });
     }
     await validateRequiredObjects(params, paths);
-    if (params.snapshot) await verifyArchiveChecksum(params, source.downloadIdentity);
+    if (params.snapshot && source.canSkipEntries)
+      await verifyArchiveChecksum(params, source.downloadIdentity, entryHashes);
     await params.verifyRevision?.();
     params.signal?.throwIfAborted();
     const commit: ParsedDocumentCommit = {
@@ -371,24 +378,62 @@ async function validateRequiredObjects(
     if (!paths.has(path)) throw new Error(`Required parsed result file missing: ${path}`);
 }
 
-async function verifyArchiveChecksum(params: StreamedSyncParams, identity: string): Promise<void> {
-  const response: Response = await fetch(params.resultUrl, { signal: params.signal });
-  if (!response.ok || !response.body) throw new Error('Parsed snapshot checksum download failed.');
-  if (createDownloadIdentity(params.jobId, response) !== identity) {
-    await response.body.cancel();
-    throw new Error('Parsed snapshot archive identity changed during checksum verification.');
+async function verifyArchiveChecksum(
+  params: StreamedSyncParams,
+  identity: string,
+  expectedEntryHashes: readonly string[],
+  retainResultArchive = false,
+): Promise<void> {
+  const { openSequentialArchive } = await import('./sequential-parsed-document-archive.js');
+  const source: ArchiveSource = await openSequentialArchive(params, identity);
+  let entryIndex: number = 0;
+  try {
+    for await (const entry of source.entries) {
+      const hash = createHash('sha256');
+      for await (const part of entry.read()) {
+        params.signal?.throwIfAborted();
+        hash.update(part);
+      }
+      const entryHash: string = createHash('sha256')
+        .update(entry.path)
+        .update(hash.digest())
+        .digest('hex');
+      if (expectedEntryHashes[entryIndex] !== entryHash)
+        throw new Error(
+          'Parsed snapshot archive entry changed between extraction and checksum verification.',
+        );
+      entryIndex += 1;
+    }
+    if (entryIndex !== expectedEntryHashes.length)
+      throw new Error('Parsed snapshot archive entry count changed during checksum verification.');
+    // The sequential source verifies SHA-256 of the very bytes it extracted.
+    // Retain those same verified compressed bytes; a new HTTP response is not proof.
+    if (retainResultArchive && source.readArchive) {
+      try {
+        await writeStream(params.storage, {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          path: 'result.zip',
+          body: source.readArchive(),
+          contentType: 'application/zip',
+          signal: params.signal,
+        });
+      } catch {
+        /* Optional archive retention never invalidates a committed snapshot. */
+      }
+    }
+  } finally {
+    await source.close();
   }
-  const hash = createHash('sha256');
-  const body: ReadableStream<Uint8Array> = response.body;
-  for await (const part of body) {
-    params.signal?.throwIfAborted();
-    hash.update(part);
-  }
-  if (hash.digest('hex') !== params.snapshot?.checksum)
-    throw new Error('Parsed snapshot archive checksum mismatch.');
 }
 
 async function retainArchive(params: StreamedSyncParams, expectedIdentity: string): Promise<void> {
+  if (params.snapshot) {
+    const progress: ParsedDocumentSyncProgress | null =
+      await params.storage.readSyncProgress(params);
+    await verifyArchiveChecksum(params, expectedIdentity, progress?.archiveEntryHashes ?? [], true);
+    return;
+  }
   const response: Response = await fetch(params.resultUrl, { signal: params.signal });
   if (!response.ok || !response.body)
     throw new Error(`Optional archive download failed (HTTP ${response.status}).`);
