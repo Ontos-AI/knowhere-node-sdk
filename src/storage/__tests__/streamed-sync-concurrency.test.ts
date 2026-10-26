@@ -9,6 +9,7 @@ import type {
   ParsedDocumentStorageLimits,
   ParsedDocumentSyncProgress,
   ParsedDocumentWriteObjectStreamParams,
+  ParsedDocumentWriteObjectResult,
 } from '../../types/storage.js';
 import { syncRemoteResultArchive } from '../streamed-parsed-document-sync.js';
 
@@ -209,20 +210,59 @@ describe('bounded parsed archive concurrency', () => {
 
   it('flushes a successful prefix on caller cancellation and settles active writes', async () => {
     const controller: AbortController = new AbortController();
-    const fixture: Fixture = await createFixture({
-      delays: { 'file-0.txt': 30 },
-      onStart: (path): void => {
-        if (path === 'file-0.txt')
-          setTimeout((): void => controller.abort(new Error('Caller stopped')), 5);
-      },
+    const fixture: Fixture = await createFixture({ delays: { 'chunks.json': 30 } });
+    const writeStream: ParsedDocumentStorage['writeObjectStream'] =
+      fixture.storage.writeObjectStream?.bind(fixture.storage);
+    if (!writeStream) throw new Error('Cancellation fixture requires stream storage.');
+    const successfulPaths: Set<string> = new Set();
+    let confirmPrefix: (() => void) | undefined;
+    const prefixCompleted: Promise<void> = new Promise((resolve) => {
+      confirmPrefix = resolve;
     });
-    await expect(
-      fixture.sync({ maxConcurrentFiles: 3, checkpointFileInterval: 20 }, controller.signal),
-    ).rejects.toThrow(/Caller stopped/);
+    let confirmPendingWrite: (() => void) | undefined;
+    const pendingWriteStarted: Promise<void> = new Promise((resolve) => {
+      confirmPendingWrite = resolve;
+    });
+    const cancelled: Promise<void> = new Promise((resolve) => {
+      controller.signal.addEventListener('abort', (): void => resolve(), { once: true });
+    });
+    let pendingWrites: number = 0;
+    let settledWrites: number = 0;
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'manifest.json' || params.path === 'chunks.json') {
+        const result: ParsedDocumentWriteObjectResult = await writeStream(params);
+        successfulPaths.add(params.path);
+        if (successfulPaths.size === 2) confirmPrefix?.();
+        return result;
+      }
+      pendingWrites += 1;
+      confirmPendingWrite?.();
+      try {
+        await cancelled;
+        params.signal?.throwIfAborted();
+        throw new Error('Cancellation signal was not propagated to the active write.');
+      } finally {
+        pendingWrites -= 1;
+        settledWrites += 1;
+      }
+    };
+    const sync: Promise<unknown> = fixture.sync(
+      { maxConcurrentFiles: 3, checkpointFileInterval: 20 },
+      controller.signal,
+    );
+    const rejectedSync: Promise<void> = expect(sync).rejects.toThrow(/Caller stopped/);
+    await Promise.all([prefixCompleted, pendingWriteStarted]);
+    expect(successfulPaths).toEqual(new Set(['manifest.json', 'chunks.json']));
+    expect(fixture.finished).toHaveLength(2);
+    expect(pendingWrites).toBeGreaterThan(0);
+    controller.abort(new Error('Caller stopped'));
+    await rejectedSync;
     expect(fixture.progress.at(-1)?.nextArchiveEntry).toBe(2);
-    const completedAtReturn: number = fixture.finished.length;
-    await new Promise<void>((resolve) => setTimeout(resolve, 35));
-    expect(fixture.finished).toHaveLength(completedAtReturn);
+    expect(fixture.finished).toHaveLength(2);
+    expect(pendingWrites).toBe(0);
+    expect(settledWrites).toBeGreaterThan(0);
     expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
   });
 
