@@ -57,6 +57,8 @@ async function generateArchive(archivePath, totalBytes, imageCount) {
   const block = randomFillSync(Buffer.alloc(64 * 1024));
   let remaining = totalBytes;
   for (let index = 0; index < imageCount; index += 1) {
+    // Distinct payloads make CRC checks detect cross-entry mixups during concurrency.
+    randomFillSync(block);
     let imageBytes = Math.min(remaining, Math.ceil(totalBytes / imageCount));
     remaining -= imageBytes;
     const body = new ReadableStream({
