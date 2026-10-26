@@ -20,30 +20,34 @@ import {
 export async function openSequentialArchive(
   params: StreamedSyncParams,
   identity: string,
+  validateResponse?: (response: Response) => Response,
 ): Promise<ArchiveSource> {
-  const response: Response = await fetch(params.resultUrl, { signal: params.signal });
+  let response: Response = await fetch(params.resultUrl, { signal: params.signal });
   if (!response.ok || !response.body)
     throw new Error(`Parsed result download failed (HTTP ${response.status}).`);
-  if (createDownloadIdentity(params.jobId, response) !== identity) {
+  if (validateResponse) response = validateResponse(response);
+  else if (createDownloadIdentity(params.jobId, response) !== identity) {
     await response.body.cancel();
     throw new Error('Parsed result archive identity changed before sequential download.');
   }
+  const body: ReadableStream<Uint8Array> | null = response.body;
+  if (!body) throw new Error('Parsed result download returned an empty body.');
   let directory: string;
   try {
     directory = await mkdtemp(join(tmpdir(), 'knowhere-sync-'));
   } catch (error) {
-    await response.body.cancel();
+    await body.cancel();
     throw new ParsedDocumentArchiveError(error);
   }
   let file: FileHandle;
   try {
     file = await open(join(directory, 'archive.zip'), 'w+');
   } catch (error) {
-    await response.body.cancel();
+    await body.cancel();
     await rm(directory, { recursive: true, force: true });
     throw new ParsedDocumentArchiveError(error);
   }
-  const input: Readable = Readable.fromWeb(response.body);
+  const input: Readable = Readable.fromWeb(body);
   const parser = Parse({ forceStream: true });
   const checksums: Map<string, { readonly checksum: number; readonly size: number }> = new Map();
   let archiveSize: number = 0;
@@ -79,6 +83,12 @@ export async function openSequentialArchive(
         const path: string = normalizeResultPath(entry.path);
         yield {
           path,
+          contentLength:
+            !(entry.vars.flags & 0x08) &&
+            'uncompressedSize' in entry.vars &&
+            typeof entry.vars.uncompressedSize === 'number'
+              ? entry.vars.uncompressedSize
+              : undefined,
           read: (): ReadableStream<Uint8Array> => {
             let checksum: number = 0;
             let size: number = 0;

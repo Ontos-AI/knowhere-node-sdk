@@ -1,4 +1,7 @@
 import { createHash } from 'crypto';
+import { ValidationError } from '../errors/index.js';
+import { ArchiveCacheTransportError } from './archive-cache-transport-error.js';
+import { prepareCachedArchive } from './parsed-document-archive-cache.js';
 import { HttpRangeReader, ZipReader, type FileEntry, type HttpOptions } from '@zip.js/zip.js';
 
 import type { KnowledgeSyncParsedDocumentResponse } from '../knowledge/types.js';
@@ -17,13 +20,22 @@ import {
 
 export interface ArchiveEntry {
   readonly path: string;
+  readonly contentLength?: number;
   readonly read: () => ReadableStream<Uint8Array>;
+  readonly waitForRead?: () => Promise<void>;
+}
+
+interface RangeEntryRead {
+  readonly body: ReadableStream<Uint8Array>;
+  readonly completed: Promise<void>;
 }
 
 export interface ArchiveSource {
   readonly canSkipEntries: boolean;
   readonly identity: string;
   readonly downloadIdentity: string;
+  readonly archiveCacheBypassed?: boolean;
+  readonly isCached?: boolean;
   readonly entries: AsyncIterable<ArchiveEntry> | Iterable<ArchiveEntry>;
   readonly close: () => Promise<void>;
 }
@@ -37,97 +49,158 @@ export interface StreamedSyncParams {
   readonly limits?: ParsedDocumentStorageLimits;
   readonly signal?: AbortSignal;
   readonly retainResultArchive?: boolean;
+  readonly cacheResultArchive?: boolean;
   readonly verifyRevision?: () => Promise<void>;
 }
 
-/** Copies one entry at a time; no ParseResult or whole archive is materialized. */
+/** Copies bounded streams concurrently and checkpoints only the contiguous successful prefix. */
 export async function syncRemoteResultArchive(
   params: StreamedSyncParams,
 ): Promise<KnowledgeSyncParsedDocumentResponse> {
   params.signal?.throwIfAborted();
+  validateArchiveSyncLimits(params.limits);
   const startedAt: number = Date.now();
-  const maxEntries: number = Math.max(1, params.limits?.maxEntriesPerSync ?? 100);
-  const deadlineMs: number = Math.max(1, params.limits?.archiveSyncDeadlineMs ?? 120_000);
+  const maxEntries: number = params.limits?.maxEntriesPerSync ?? 100;
+  const deadlineMs: number = params.limits?.archiveSyncDeadlineMs ?? 120_000;
+  const checkpointFileInterval: number = params.limits?.checkpointFileInterval ?? 1;
+  const checkpointIntervalMs: number = params.limits?.checkpointIntervalMs ?? 2_000;
+  const controller: AbortController = new AbortController();
+  const signal: AbortSignal = params.signal
+    ? AbortSignal.any([params.signal, controller.signal])
+    : controller.signal;
+  const transferParams: StreamedSyncParams = { ...params, signal };
   const previous: ParsedDocumentSyncProgress | null = await params.storage.readSyncProgress(params);
-  const source: ArchiveSource = await openArchive(params);
-  const entryHashes: string[] = [];
-  const paths: Set<string> = new Set();
-  let entryIndex: number = 0;
-  let copiedEntries: number = 0;
+  const openedSource: ArchiveSource = await openArchive(transferParams, previous);
+  // A validated cache can support Range even when its unchanged origin cannot.
+  // Keep the directory identity while the sequential reader verifies every saved hash.
+  const source: ArchiveSource =
+    !openedSource.canSkipEntries &&
+    previous?.archiveIdentity &&
+    previous.archiveDownloadIdentity === openedSource.downloadIdentity
+      ? { ...openedSource, identity: previous.archiveIdentity }
+      : openedSource;
+  const archiveDownloadIdentity: string | undefined = source.isCached
+    ? source.downloadIdentity
+    : previous?.archiveDownloadIdentity;
+  const concurrency: number = source.canSkipEntries ? (params.limits?.maxConcurrentFiles ?? 1) : 1;
   const nextEntry: number =
     previous?.status === 'completed' ? 0 : (previous?.nextArchiveEntry ?? 0);
-  try {
-    if (previous?.archiveIdentity && previous.archiveIdentity !== source.identity) {
-      throw new Error('Parsed result archive identity changed; start a new revision.');
+  const entryHashes: string[] = [];
+  const successfulHashes: Map<number, string> = new Map();
+  const running: Set<Promise<void>> = new Set();
+  const paths: Set<string> = new Set();
+  let entryIndex: number = 0;
+  let startedEntries: number = 0;
+  let successfulEntries: number = 0;
+  let checkpointEntry: number = nextEntry;
+  let checkpointAt: number = Date.now();
+  let failure: Error | undefined;
+  let archiveCacheBypassed: boolean | undefined = source.archiveCacheBypassed;
+
+  async function flushProgress(
+    isSegmentBoundary: boolean,
+    isRecovering: boolean = false,
+  ): Promise<void> {
+    let contiguousEntry: number = checkpointEntry;
+    while (successfulHashes.has(contiguousEntry)) {
+      entryHashes[contiguousEntry] = successfulHashes.get(contiguousEntry)!;
+      contiguousEntry += 1;
     }
-    if (previous?.pinnedRevisionKey && previous.pinnedRevisionKey !== params.revisionKey) {
-      throw new Error('Parsed result revision changed while resuming archive sync.');
-    }
-    for await (const entry of source.entries) {
-      params.signal?.throwIfAborted();
-      if (paths.has(entry.path)) throw new Error(`Duplicate parsed result path: ${entry.path}`);
-      paths.add(entry.path);
-      if (
-        entryIndex >= nextEntry &&
-        copiedEntries > 0 &&
-        (copiedEntries >= maxEntries || Date.now() - startedAt >= deadlineMs)
-      ) {
-        return { documentId: params.documentId, revisionKey: params.revisionKey, completed: false };
-      }
-      if (entryIndex < nextEntry && source.canSkipEntries) {
-        const previousHash: string | undefined = previous?.archiveEntryHashes?.[entryIndex];
-        if (!previousHash) throw new Error('Parsed archive checkpoint is missing an entry hash.');
-        entryHashes.push(previousHash);
-        entryIndex += 1;
-        continue;
-      }
-      const hash = createHash('sha256');
-      const body: ReadableStream<Uint8Array> = entry.read().pipeThrough(
-        new TransformStream<Uint8Array, Uint8Array>({
-          transform(chunk, controller): void {
-            params.signal?.throwIfAborted();
-            hash.update(chunk);
-            controller.enqueue(chunk);
-          },
-        }),
-      );
-      if (entryIndex < nextEntry) {
-        await body.pipeTo(new WritableStream<Uint8Array>(), { signal: params.signal });
-      } else {
-        await writeStream(params.storage, {
-          documentId: params.documentId,
-          revisionKey: params.revisionKey,
-          path: entry.path,
-          body,
-          contentType: inferContentTypeFromPath(entry.path),
-          signal: params.signal,
-        });
-      }
-      const entryHash: string = createHash('sha256')
-        .update(entry.path)
-        .update(hash.digest())
-        .digest('hex');
-      if (entryIndex < nextEntry && previous?.archiveEntryHashes?.[entryIndex] !== entryHash) {
-        throw new Error('Parsed result archive entry changed while resuming.');
-      }
-      entryHashes.push(entryHash);
-      entryIndex += 1;
-      if (entryIndex <= nextEntry) continue;
-      copiedEntries += 1;
-      await params.storage.writeSyncProgress({
+    if (contiguousEntry === checkpointEntry) return;
+    await params.storage.writeSyncProgress(
+      {
         documentId: params.documentId,
         revisionKey: params.revisionKey,
         pinnedRevisionKey: params.revisionKey,
         archiveIdentity: source.identity,
-        archiveEntryHashes: [...entryHashes],
-        nextArchiveEntry: entryIndex,
+        archiveDownloadIdentity,
+        archiveCacheBypassed,
+        archiveEntryHashes: entryHashes.slice(0, contiguousEntry),
+        nextArchiveEntry: contiguousEntry,
         status: 'running',
         updatedAt: new Date().toISOString(),
+      },
+      { signal: isRecovering ? undefined : signal, isSegmentBoundary },
+    );
+    for (let index: number = checkpointEntry; index < contiguousEntry; index += 1)
+      successfulHashes.delete(index);
+    checkpointEntry = contiguousEntry;
+    successfulEntries = successfulHashes.size;
+    checkpointAt = Date.now();
+  }
+
+  function startEntry(entry: ArchiveEntry, index: number): void {
+    const task: Promise<void> = copyEntry(transferParams, entry)
+      .then(
+        (hash: string): void => {
+          successfulHashes.set(index, hash);
+          successfulEntries += 1;
+        },
+        (error: unknown): void => {
+          if (failure === undefined)
+            failure = error instanceof Error ? error : new Error(String(error));
+          controller.abort(error);
+        },
+      )
+      .finally((): void => {
+        running.delete(task);
       });
+    running.add(task);
+  }
+
+  async function drainEntries(): Promise<void> {
+    await Promise.all(running);
+    if (failure !== undefined) throw failure;
+    signal.throwIfAborted();
+  }
+
+  try {
+    if (previous?.archiveIdentity && previous.archiveIdentity !== source.identity)
+      throw new Error('Parsed result archive identity changed; start a new revision.');
+    if (previous?.pinnedRevisionKey && previous.pinnedRevisionKey !== params.revisionKey)
+      throw new Error('Parsed result revision changed while resuming archive sync.');
+    for await (const entry of source.entries) {
+      if (failure !== undefined) throw failure;
+      signal.throwIfAborted();
+      if (paths.has(entry.path)) throw new Error(`Duplicate parsed result path: ${entry.path}`);
+      paths.add(entry.path);
+      if (entryIndex < nextEntry) {
+        const previousHash: string | undefined = previous?.archiveEntryHashes?.[entryIndex];
+        if (!previousHash) throw new Error('Parsed archive checkpoint is missing an entry hash.');
+        if (
+          !source.canSkipEntries &&
+          (await copyEntry(transferParams, entry, true)) !== previousHash
+        )
+          throw new Error('Parsed result archive entry changed while resuming.');
+        entryHashes.push(previousHash);
+        entryIndex += 1;
+        continue;
+      }
+      if (
+        startedEntries > 0 &&
+        (startedEntries >= maxEntries || Date.now() - startedAt >= deadlineMs)
+      ) {
+        await drainEntries();
+        await flushProgress(true);
+        return { documentId: params.documentId, revisionKey: params.revisionKey, completed: false };
+      }
+      if (
+        successfulEntries >= checkpointFileInterval ||
+        Date.now() - checkpointAt >= checkpointIntervalMs
+      ) {
+        await drainEntries();
+        await flushProgress(false);
+      }
+      startEntry(entry, entryIndex);
+      entryIndex += 1;
+      startedEntries += 1;
+      if (running.size >= concurrency) await Promise.race(running);
     }
+    await drainEntries();
+    await flushProgress(true);
     await validateRequiredObjects(params, paths);
     await params.verifyRevision?.();
-    params.signal?.throwIfAborted();
+    signal.throwIfAborted();
     const commit: ParsedDocumentCommit = {
       version: 1,
       documentId: params.documentId,
@@ -142,19 +215,24 @@ export async function syncRemoteResultArchive(
       body: Buffer.from(JSON.stringify(commit, null, 2)),
       contentType: 'application/json; charset=utf-8',
     });
-    await params.storage.writeSyncProgress({
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      pinnedRevisionKey: params.revisionKey,
-      archiveIdentity: source.identity,
-      archiveEntryHashes: entryHashes,
-      nextArchiveEntry: entryIndex,
-      status: 'completed',
-      updatedAt: new Date().toISOString(),
-    });
-    if (params.retainResultArchive) {
+    await params.storage.writeSyncProgress(
+      {
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        pinnedRevisionKey: params.revisionKey,
+        archiveIdentity: source.identity,
+        archiveDownloadIdentity,
+        archiveCacheBypassed,
+        archiveEntryHashes: entryHashes,
+        nextArchiveEntry: entryIndex,
+        status: 'completed',
+        updatedAt: new Date().toISOString(),
+      },
+      { signal, isSegmentBoundary: true },
+    );
+    if (params.retainResultArchive && !source.isCached) {
       try {
-        await retainArchive(params, source.downloadIdentity);
+        await retainArchive(transferParams, source.downloadIdentity);
       } catch {
         /* Optional archive retention never invalidates a committed snapshot. */
       }
@@ -165,14 +243,147 @@ export async function syncRemoteResultArchive(
       completed: true,
       commit,
     };
+  } catch (error) {
+    controller.abort(error);
+    await Promise.all(running);
+    const hasCacheTransportFailure: boolean =
+      isArchiveCacheTransportFailure(error) || isArchiveCacheTransportFailure(failure);
+    if (hasCacheTransportFailure) archiveCacheBypassed = true;
+    await flushProgress(true, true).catch((): void => undefined);
+    if (hasCacheTransportFailure) {
+      await persistArchiveCacheBypass(
+        { ...params, signal: undefined },
+        {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          pinnedRevisionKey: params.revisionKey,
+          archiveIdentity: source.identity,
+          archiveDownloadIdentity,
+          archiveEntryHashes: entryHashes.slice(0, checkpointEntry),
+          nextArchiveEntry: checkpointEntry,
+          status: 'running',
+          updatedAt: new Date().toISOString(),
+        },
+      ).catch((): void => undefined);
+    }
+    throw failure ?? error;
   } finally {
+    controller.abort();
+    await Promise.all(running);
     await source.close();
   }
 }
 
-async function openArchive(params: StreamedSyncParams): Promise<ArchiveSource> {
+function isArchiveCacheTransportFailure(error: unknown): boolean {
+  const causes: Set<Error> = new Set();
+  let current: unknown = error;
+  while (current instanceof Error && !causes.has(current)) {
+    if (current instanceof ArchiveCacheTransportError) return true;
+    causes.add(current);
+    current = current.cause;
+  }
+  return false;
+}
+
+/** Validate configuration before job lookup, download, or storage writes. */
+export function validateArchiveSyncLimits(limits: ParsedDocumentStorageLimits | undefined): void {
+  const names: readonly (keyof ParsedDocumentStorageLimits)[] = [
+    'maxEntriesPerSync',
+    'archiveSyncDeadlineMs',
+    'maxConcurrentFiles',
+    'checkpointFileInterval',
+    'checkpointIntervalMs',
+  ];
+  for (const name of names) {
+    const value: number | undefined = limits?.[name];
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0))
+      throw new ValidationError(`${name} must be a positive safe integer.`);
+  }
+}
+
+async function copyEntry(
+  params: StreamedSyncParams,
+  entry: ArchiveEntry,
+  isVerification: boolean = false,
+): Promise<string> {
+  const hash = createHash('sha256');
+  const body: ReadableStream<Uint8Array> = entry.read().pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller): void {
+        params.signal?.throwIfAborted();
+        hash.update(chunk);
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  if (isVerification)
+    await body.pipeTo(new WritableStream<Uint8Array>(), { signal: params.signal });
+  else
+    await writeStream(params.storage, {
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: entry.path,
+      body,
+      contentType: inferContentTypeFromPath(entry.path),
+      contentLength: entry.contentLength,
+      signal: params.signal,
+    });
+  await entry.waitForRead?.();
+  return createHash('sha256').update(entry.path).update(hash.digest()).digest('hex');
+}
+
+async function openArchive(
+  params: StreamedSyncParams,
+  previous: ParsedDocumentSyncProgress | null,
+): Promise<ArchiveSource> {
+  const prepared: Awaited<ReturnType<typeof prepareCachedArchive>> | undefined =
+    params.cacheResultArchive
+      ? await prepareCachedArchive({
+          ...params,
+          archiveCacheBypassed: previous?.archiveCacheBypassed,
+          onBypass: async (): Promise<void> => {
+            await persistArchiveCacheBypass(params, previous);
+          },
+        })
+      : undefined;
+  try {
+    return await openArchiveTransport(params, previous, prepared);
+  } catch (error) {
+    if (!prepared?.isCached) throw error;
+    params.signal?.throwIfAborted();
+    const bypass: ParsedDocumentSyncProgress = await persistArchiveCacheBypass(params, previous);
+    return openArchive({ ...params, cacheResultArchive: false }, bypass);
+  }
+}
+
+async function persistArchiveCacheBypass(
+  params: StreamedSyncParams,
+  previous: ParsedDocumentSyncProgress | null,
+): Promise<ParsedDocumentSyncProgress> {
+  const progress: ParsedDocumentSyncProgress = {
+    ...(previous?.status === 'completed' ? {} : previous),
+    documentId: params.documentId,
+    revisionKey: params.revisionKey,
+    pinnedRevisionKey: params.revisionKey,
+    archiveDownloadIdentity: previous?.archiveDownloadIdentity,
+    archiveCacheBypassed: true,
+    status: 'running',
+    updatedAt: new Date().toISOString(),
+  };
+  await params.storage.writeSyncProgress(progress, { signal: params.signal });
+  return progress;
+}
+
+async function openArchiveTransport(
+  params: StreamedSyncParams,
+  previous: ParsedDocumentSyncProgress | null,
+  prepared: Awaited<ReturnType<typeof prepareCachedArchive>> | undefined,
+): Promise<ArchiveSource> {
+  const resultUrl: string = prepared?.resultUrl ?? params.resultUrl;
+  const archiveCacheBypassed: boolean | undefined =
+    prepared?.archiveCacheBypassed ?? previous?.archiveCacheBypassed;
   // Probe with GET, then cancel ignored Range responses before a reader can buffer them.
-  const probe: Response = await fetch(params.resultUrl, {
+  let probe: Response = await fetch(resultUrl, {
     headers: { Range: 'bytes=0-0' },
     signal: params.signal,
   });
@@ -180,30 +391,50 @@ async function openArchive(params: StreamedSyncParams): Promise<ArchiveSource> {
     await probe.body?.cancel();
     throw new Error(`Parsed result download failed (HTTP ${probe.status}).`);
   }
-  const identity: string = createDownloadIdentity(params.jobId, probe);
+  if (prepared) probe = prepared.validateResponse(probe);
+  const identity: string =
+    prepared?.downloadIdentity ?? createDownloadIdentity(params.jobId, probe);
   const supportsRange: boolean = probe.status === 206 && probe.headers.has('content-range');
   await probe.body?.cancel();
   if (!supportsRange) {
     const { openSequentialArchive } = await import('./sequential-parsed-document-archive.js');
-    return openSequentialArchive(params, identity);
+    const source: ArchiveSource = await openSequentialArchive(
+      { ...params, resultUrl },
+      identity,
+      prepared?.isCached ? prepared.validateResponse : undefined,
+    );
+    return { ...source, archiveCacheBypassed };
   }
   const options: HttpOptions = {
     forceRangeRequests: true,
     preventHeadRequest: true,
-    checkResourceChanges: true,
+    // Cached reads already pin a strong ETag and exact lengths; CDN timestamps can drift.
+    checkResourceChanges: !prepared?.isCached,
     fetch: async (input, init): Promise<Response> => {
-      const response: Response = await fetch(input, { ...init, signal: params.signal });
+      let response: Response;
+      try {
+        response = await fetch(input, { ...init, signal: params.signal });
+      } catch (error) {
+        params.signal?.throwIfAborted();
+        if (prepared?.isCached)
+          throw new ArchiveCacheTransportError(
+            'Parsed result archive cache transport unavailable.',
+          );
+        throw error;
+      }
+      if (prepared?.isCached) return prepared.validateResponse(response);
       if (response.status !== 206) {
         await response.body?.cancel();
         throw new Error(`Parsed result Range request failed (HTTP ${response.status}).`);
       }
-      return response;
+      return prepared ? prepared.validateResponse(response) : response;
     },
   };
-  const reader = new ZipReader(new HttpRangeReader(params.resultUrl, options), {
+  const reader = new ZipReader(new HttpRangeReader(resultUrl, options), {
     useWebWorkers: false,
     checkCrc32: true,
   });
+  const producers: Set<Promise<void>> = new Set();
   try {
     const entries = await reader.getEntries();
     const files: FileEntry[] = entries.filter(
@@ -218,17 +449,28 @@ async function openArchive(params: StreamedSyncParams): Promise<ArchiveSource> {
       )
       .digest('hex');
     return {
-      identity: archiveIdentity,
+      identity: previous?.archiveIdentity === identity ? identity : archiveIdentity,
       downloadIdentity: identity,
-      canSkipEntries: true,
+      archiveCacheBypassed,
+      isCached: prepared?.isCached,
+      canSkipEntries: previous?.archiveIdentity !== identity,
       entries: (function* (): Generator<ArchiveEntry> {
-        for (const entry of files)
+        for (const entry of files) {
+          let entryRead: RangeEntryRead | undefined;
           yield {
             path: normalizeResultPath(entry.filename),
-            read: (): ReadableStream<Uint8Array> => readRangeEntry(entry, params.signal),
+            contentLength: entry.uncompressedSize,
+            read: (): ReadableStream<Uint8Array> => {
+              entryRead = readRangeEntry(entry, params.signal, producers);
+              return entryRead.body;
+            },
+            waitForRead: (): Promise<void> => entryRead?.completed ?? Promise.resolve(),
           };
+        }
       })(),
       close: async (): Promise<void> => {
+        // zip.js closes stream output before getData finishes its own cleanup.
+        await Promise.all(producers);
         await reader.close();
       },
     };
@@ -241,19 +483,28 @@ async function openArchive(params: StreamedSyncParams): Promise<ArchiveSource> {
 function readRangeEntry(
   entry: FileEntry,
   signal: AbortSignal | undefined,
-): ReadableStream<Uint8Array> {
-  const stream = new TransformStream<Uint8Array, Uint8Array>();
+  producers: Set<Promise<void>>,
+): RangeEntryRead {
+  let streamController: TransformStreamDefaultController<Uint8Array> | undefined;
+  const stream = new TransformStream<Uint8Array, Uint8Array>({
+    start(controller): void {
+      streamController = controller;
+    },
+  });
   // The producer and sink run together. The TransformStream applies sink backpressure.
-  void entry
+  const completed: Promise<void> = entry
     .getData(stream.writable, { signal, checkCrc32: true, useWebWorkers: false })
-    .catch(async (error: unknown): Promise<void> => {
-      try {
-        await stream.writable.abort(error);
-      } catch {
-        /* Producer already aborted the stream. */
-      }
+    .then((): void => undefined);
+  const producer: Promise<void> = completed
+    .catch((error: unknown): void => {
+      // Controller errors reach the sink even while zip.js owns the writable lock.
+      streamController?.error(error);
+    })
+    .finally((): void => {
+      producers.delete(producer);
     });
-  return stream.readable;
+  producers.add(producer);
+  return { body: stream.readable, completed };
 }
 
 async function writeStream(

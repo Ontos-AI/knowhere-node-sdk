@@ -2,8 +2,9 @@
 
 `knowledge.syncParsedDocument({ documentId })` resolves the published revision and
 refreshes its signed job-result URL on every invocation. It reads the ZIP central
-directory over HTTP Range GETs and copies each result file to storage before
-extracting another file. The default remote path does not call `jobs.load()` or
+directory over HTTP Range GETs and streams each result file to storage. Range
+archives support explicitly bounded concurrent entry writes; the default remains
+one active entry. The default remote path does not call `jobs.load()` or
 construct a `ParseResult`. Signed GET URLs do not require HEAD authorization.
 
 The snapshot preserves the exact uncompressed bytes and result-relative paths
@@ -16,8 +17,8 @@ replace the result with a reconstruction.
 
 ## Storage adapter
 
-Existing `ParsedDocumentStorage` adapters remain supported. They receive one
-entry at a time through `writeObject`. An adapter can add:
+Existing `ParsedDocumentStorage` adapters remain supported. They receive entry bytes through `writeObject`; the default still copies one
+entry at a time. An adapter can add:
 
 ```typescript
 writeObjectStream?(params: ParsedDocumentWriteObjectStreamParams):
@@ -25,11 +26,17 @@ writeObjectStream?(params: ParsedDocumentWriteObjectStreamParams):
 ```
 
 The parameters match `writeObject` except `body` is a Web
-`ReadableStream<Uint8Array>`, with optional `signal: AbortSignal`. Consume the
+`ReadableStream<Uint8Array>`, with optional `signal: AbortSignal` and
+`contentLength` for the expected uncompressed entry size. Consume the
 entire body with backpressure before resolving. Reject an interrupted or partial
 write; expose the completed object only when the write succeeds. The SDK advances
-the checkpoint after that successful write. The byte-only fallback buffers one
-entry at a time, so its peak memory depends on the largest individual entry.
+the checkpoint only after successful writes form a contiguous prefix in archive
+order. `ParsedDocumentObjectHead` and `ParsedDocumentWriteObjectResult` may expose
+an `entityTag` for immutable object version checks. The byte-only fallback buffers one
+active entry, so its peak memory depends on the largest entries and configured
+concurrency. Adapters may accept a second optional `writeSyncProgress` argument
+with `{ signal, isSegmentBoundary }`. It marks invocation boundaries and terminal
+checkpoints; older adapters that accept only the progress object remain valid.
 
 ## Batches and retries
 
@@ -39,6 +46,9 @@ const knowledge = client.knowledge.withParsedStorage({
   limits: {
     maxEntriesPerSync: 100,
     archiveSyncDeadlineMs: 120_000,
+    maxConcurrentFiles: 4, // Default 1; sequential archives always use 1.
+    checkpointFileInterval: 10, // Default 1.
+    checkpointIntervalMs: 2_000,
   },
 });
 
@@ -47,14 +57,21 @@ const result = await knowledge.syncParsedDocument({
   revisionKey,
   signal: abortController.signal,
   retainResultArchive: true,
+  cacheResultArchive: true, // Optional; default false.
 });
 if (!result.completed) {
   // Persist or re-enqueue this same document/revision for another invocation.
 }
 ```
 
-Each invocation copies at most 100 new entries by default and checks its 120-second
-budget between entries. `completed: false` leaves the last successful entry
+Each invocation starts at most 100 new entries by default and checks its
+120-second budget before scheduling another entry. All five archive limits must
+be positive safe integers; invalid settings fail before API or download requests.
+At a checkpoint count or time threshold, scheduling pauses, active writes settle,
+and the contiguous successful prefix is persisted before more entries start.
+At most `checkpointFileInterval + maxConcurrentFiles - 1` successful entries can
+await a checkpoint. Out-of-order successes never advance the cursor past a failed
+or unfinished entry. Segment boundaries also drain and checkpoint active writes. `completed: false` leaves the last successful entry
 checkpoint available for the next invocation. `nextArchiveEntry` is a zero-based
 index of the next snapshot entry, excluding directories, nested `result.zip`,
 and reserved SDK metadata. `pinnedRevisionKey`, `archiveIdentity`, and
@@ -65,7 +82,10 @@ mismatches fail before writing; publication is checked again before committing.
 With HTTP Range support, retries skip completed entries after validating archive
 identity and central-directory metadata. Without Range support, retries read the
 source sequentially again and verify completed entry hashes before continuing.
-Caller cancellation rejects and preserves the last successful checkpoint.
+Caller cancellation rejects, cancels active extraction, and waits for active
+storage writes before returning. Cancellation and other handled failures attempt
+a final checkpoint of the contiguous successful prefix; a failed checkpoint may
+require copying those entries again.
 An explicit sync after a completed checkpoint starts a fresh bounded transfer,
 so callers can rebuild a snapshot whose persisted objects are missing or corrupt.
 Re-enqueued running or failed transfers continue from their successful checkpoint.
@@ -79,6 +99,37 @@ a valid snapshot is committed. Retention is optional; its failure cannot
 invalidate the committed snapshot. Use a stream-capable adapter to retain a
 large archive without buffering it. A byte-only adapter must buffer that optional
 ZIP object. The default does not retain `result.zip`.
+
+## Optional source archive cache
+
+`cacheResultArchive: true` streams the source ZIP to `result.zip` before extraction,
+then reads entry ranges from that storage object. It is independent of final
+snapshot publication: `result.zip` and its SDK cache marker do not constitute a
+commit. The option requires a stream sink, `headObject`, `getObjectUrl`, a strong
+upstream ETag, and a storage ETag and content length. A marker records the origin
+identity, SHA-256, byte count, and immutable storage version after a complete upload.
+
+Each invocation refreshes the signed origin URL and checks its canonical identity.
+A cached ZIP must match its marker, HEAD metadata, and Range transport ETag/total
+length; each response also validates its actual byte count. Cached reads use these
+strong version and length checks instead of zip.js Last-Modified comparisons,
+because CDN timestamps can vary between responses. Origin reads retain zip.js
+resource-change checks. Checkpoint identity
+continues to use the origin identity and central directory, so switching between
+origin and cached Range transport preserves existing checkpoints. New cached
+checkpoints also retain `archiveDownloadIdentity`, the validated strong canonical
+origin identity. If a later cache bypass uses an origin without Range support,
+that proof preserves the directory identity while the sequential reader verifies
+every completed entry hash before continuing. A changed origin or saved-prefix
+mismatch fails; older Range checkpoints without that proof keep their existing
+strict identity checks. Corrupt content and changed origin identities fail rather
+than committing a snapshot.
+
+Optional caching has a thirty-second budget. Missing capabilities, interrupted
+uploads, cache metadata failures, or unavailable Range transport persist
+`archiveCacheBypassed: true` before falling back to the original streaming path.
+Later segments retain that decision. `retainResultArchive` continues to control
+optional post-commit retention independently.
 
 ## Servers without Range support
 
@@ -123,9 +174,3 @@ whole-archive GET. The two concurrent jobs share one process and stream a combin
 allocations, and garbage-collection/native-allocation variance; they do not
 establish a safe concurrency limit for a deployed application. Storage adapters
 must preserve stream backpressure for the same memory behavior.
-
-The complete `pnpm test:ci` run passes 380 tests and all configured coverage
-thresholds (75.45% branches, 85.95% statements, 88.88% functions, 86.60% lines).
-The streaming and lazy ParseResult storage modules each have 100% line coverage.
-`pnpm lint`, `pnpm typecheck`, `pnpm format:check`, and `pnpm build` also pass;
-lint reports three pre-existing warnings in unrelated tests.
