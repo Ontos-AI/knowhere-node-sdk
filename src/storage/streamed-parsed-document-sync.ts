@@ -400,6 +400,7 @@ async function openArchiveTransport(
     useWebWorkers: false,
     checkCrc32: true,
   });
+  const producers: Set<Promise<void>> = new Set();
   try {
     const entries = await reader.getEntries();
     const files: FileEntry[] = entries.filter(
@@ -424,10 +425,12 @@ async function openArchiveTransport(
           yield {
             path: normalizeResultPath(entry.filename),
             contentLength: entry.uncompressedSize,
-            read: (): ReadableStream<Uint8Array> => readRangeEntry(entry, params.signal),
+            read: (): ReadableStream<Uint8Array> => readRangeEntry(entry, params.signal, producers),
           };
       })(),
       close: async (): Promise<void> => {
+        // zip.js closes stream output before getData finishes its own cleanup.
+        await Promise.all(producers);
         await reader.close();
       },
     };
@@ -440,18 +443,26 @@ async function openArchiveTransport(
 function readRangeEntry(
   entry: FileEntry,
   signal: AbortSignal | undefined,
+  producers: Set<Promise<void>>,
 ): ReadableStream<Uint8Array> {
   const stream = new TransformStream<Uint8Array, Uint8Array>();
   // The producer and sink run together. The TransformStream applies sink backpressure.
-  void entry
+  const producer: Promise<void> = entry
     .getData(stream.writable, { signal, checkCrc32: true, useWebWorkers: false })
-    .catch(async (error: unknown): Promise<void> => {
-      try {
-        await stream.writable.abort(error);
-      } catch {
-        /* Producer already aborted the stream. */
-      }
+    .then(
+      (): void => undefined,
+      async (error: unknown): Promise<void> => {
+        try {
+          await stream.writable.abort(error);
+        } catch {
+          /* Producer already aborted the stream. */
+        }
+      },
+    )
+    .finally((): void => {
+      producers.delete(producer);
     });
+  producers.add(producer);
   return stream.readable;
 }
 

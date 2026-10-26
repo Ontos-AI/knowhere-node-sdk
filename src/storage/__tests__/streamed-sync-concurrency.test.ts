@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { ZipReader, type FileEntry } from '@zip.js/zip.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Knowledge } from '../../knowledge/knowledge.js';
 import type { Knowhere } from '../../client.js';
@@ -264,6 +265,65 @@ describe('bounded parsed archive concurrency', () => {
     expect(pendingWrites).toBe(0);
     expect(settledWrites).toBeGreaterThan(0);
     expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+  });
+
+  it('waits for Range producer cleanup before returning an incomplete segment', async () => {
+    const fixture: Fixture = await createFixture();
+    let startCleanup: (() => void) | undefined;
+    const cleanupStarted: Promise<void> = new Promise((resolve) => {
+      startCleanup = resolve;
+    });
+    let releaseCleanup: (() => void) | undefined;
+    const cleanupGate: Promise<void> = new Promise((resolve) => {
+      releaseCleanup = resolve;
+    });
+    let finishCheckpoint: (() => void) | undefined;
+    const checkpointWritten: Promise<void> = new Promise((resolve) => {
+      finishCheckpoint = resolve;
+    });
+    let hasCleanedProducer: boolean = false;
+    const entry: FileEntry = {
+      filename: 'manifest.json',
+      directory: false,
+      uncompressedSize: 16,
+      signature: 0,
+      async getData(writable: WritableStream<Uint8Array>): Promise<void> {
+        const writer: WritableStreamDefaultWriter<Uint8Array> = writable.getWriter();
+        try {
+          await writer.write(Buffer.from('{"job_id":"job"}'));
+          await writer.close();
+        } finally {
+          writer.releaseLock();
+          startCleanup?.();
+          await cleanupGate;
+          hasCleanedProducer = true;
+        }
+      },
+    } as FileEntry;
+    vi.spyOn(ZipReader.prototype, 'getEntries').mockResolvedValue([
+      entry,
+      { ...entry, filename: 'chunks.json' },
+    ]);
+    fixture.storage.writeSyncProgress = (value): Promise<void> => {
+      fixture.progress.push(value);
+      finishCheckpoint?.();
+      return Promise.resolve();
+    };
+    const sync: Promise<unknown> = fixture.sync({ maxEntriesPerSync: 1 });
+    try {
+      await Promise.all([cleanupStarted, checkpointWritten]);
+      const state: string = await Promise.race([
+        sync.then((): string => 'returned'),
+        new Promise<string>((resolve) => setImmediate((): void => resolve('waiting'))),
+      ]);
+      expect(state).toBe('waiting');
+      expect(hasCleanedProducer).toBe(false);
+    } finally {
+      releaseCleanup?.();
+      await sync;
+    }
+    expect(hasCleanedProducer).toBe(true);
+    expect(await sync).toMatchObject({ completed: false });
   });
 
   it('counts started entries against the segment limit and marks its checkpoint boundary', async () => {
