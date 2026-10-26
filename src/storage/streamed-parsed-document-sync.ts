@@ -22,6 +22,12 @@ export interface ArchiveEntry {
   readonly path: string;
   readonly contentLength?: number;
   readonly read: () => ReadableStream<Uint8Array>;
+  readonly waitForRead?: () => Promise<void>;
+}
+
+interface RangeEntryRead {
+  readonly body: ReadableStream<Uint8Array>;
+  readonly completed: Promise<void>;
 }
 
 export interface ArchiveSource {
@@ -228,7 +234,7 @@ export async function syncRemoteResultArchive(
     controller.abort(error);
     await Promise.all(running);
     const hasCacheTransportFailure: boolean =
-      error instanceof ArchiveCacheTransportError || failure instanceof ArchiveCacheTransportError;
+      isArchiveCacheTransportFailure(error) || isArchiveCacheTransportFailure(failure);
     if (hasCacheTransportFailure) archiveCacheBypassed = true;
     await flushProgress(true, true).catch((): void => undefined);
     if (hasCacheTransportFailure) {
@@ -252,6 +258,17 @@ export async function syncRemoteResultArchive(
     await Promise.all(running);
     await source.close();
   }
+}
+
+function isArchiveCacheTransportFailure(error: unknown): boolean {
+  const causes: Set<Error> = new Set();
+  let current: unknown = error;
+  while (current instanceof Error && !causes.has(current)) {
+    if (current instanceof ArchiveCacheTransportError) return true;
+    causes.add(current);
+    current = current.cause;
+  }
+  return false;
 }
 
 /** Validate configuration before job lookup, download, or storage writes. */
@@ -297,6 +314,7 @@ async function copyEntry(
       contentLength: entry.contentLength,
       signal: params.signal,
     });
+  await entry.waitForRead?.();
   return createHash('sha256').update(entry.path).update(hash.digest()).digest('hex');
 }
 
@@ -375,7 +393,8 @@ async function openArchiveTransport(
   const options: HttpOptions = {
     forceRangeRequests: true,
     preventHeadRequest: true,
-    checkResourceChanges: true,
+    // Cached reads already pin a strong ETag and exact lengths; CDN timestamps can drift.
+    checkResourceChanges: !prepared?.isCached,
     fetch: async (input, init): Promise<Response> => {
       let response: Response;
       try {
@@ -421,12 +440,18 @@ async function openArchiveTransport(
       isCached: prepared?.isCached,
       canSkipEntries: previous?.archiveIdentity !== identity,
       entries: (function* (): Generator<ArchiveEntry> {
-        for (const entry of files)
+        for (const entry of files) {
+          let entryRead: RangeEntryRead | undefined;
           yield {
             path: normalizeResultPath(entry.filename),
             contentLength: entry.uncompressedSize,
-            read: (): ReadableStream<Uint8Array> => readRangeEntry(entry, params.signal, producers),
+            read: (): ReadableStream<Uint8Array> => {
+              entryRead = readRangeEntry(entry, params.signal, producers);
+              return entryRead.body;
+            },
+            waitForRead: (): Promise<void> => entryRead?.completed ?? Promise.resolve(),
           };
+        }
       })(),
       close: async (): Promise<void> => {
         // zip.js closes stream output before getData finishes its own cleanup.
@@ -444,26 +469,27 @@ function readRangeEntry(
   entry: FileEntry,
   signal: AbortSignal | undefined,
   producers: Set<Promise<void>>,
-): ReadableStream<Uint8Array> {
-  const stream = new TransformStream<Uint8Array, Uint8Array>();
+): RangeEntryRead {
+  let streamController: TransformStreamDefaultController<Uint8Array> | undefined;
+  const stream = new TransformStream<Uint8Array, Uint8Array>({
+    start(controller): void {
+      streamController = controller;
+    },
+  });
   // The producer and sink run together. The TransformStream applies sink backpressure.
-  const producer: Promise<void> = entry
+  const completed: Promise<void> = entry
     .getData(stream.writable, { signal, checkCrc32: true, useWebWorkers: false })
-    .then(
-      (): void => undefined,
-      async (error: unknown): Promise<void> => {
-        try {
-          await stream.writable.abort(error);
-        } catch {
-          /* Producer already aborted the stream. */
-        }
-      },
-    )
+    .then((): void => undefined);
+  const producer: Promise<void> = completed
+    .catch((error: unknown): void => {
+      // Controller errors reach the sink even while zip.js owns the writable lock.
+      streamController?.error(error);
+    })
     .finally((): void => {
       producers.delete(producer);
     });
   producers.add(producer);
-  return stream.readable;
+  return { body: stream.readable, completed };
 }
 
 async function writeStream(

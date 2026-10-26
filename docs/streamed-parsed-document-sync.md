@@ -111,7 +111,10 @@ identity, SHA-256, byte count, and immutable storage version after a complete up
 
 Each invocation refreshes the signed origin URL and checks its canonical identity.
 A cached ZIP must match its marker, HEAD metadata, and Range transport ETag/total
-length; each response also validates its actual byte count. Checkpoint identity
+length; each response also validates its actual byte count. Cached reads use these
+strong version and length checks instead of zip.js Last-Modified comparisons,
+because CDN timestamps can vary between responses. Origin reads retain zip.js
+resource-change checks. Checkpoint identity
 continues to use the origin identity and central directory, so switching between
 origin and cached transport preserves existing checkpoints. Corrupt content and
 changed origin identities fail rather than committing a snapshot.

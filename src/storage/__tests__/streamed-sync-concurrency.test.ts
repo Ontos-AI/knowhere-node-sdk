@@ -31,6 +31,7 @@ async function createFixture(
     readonly sequential?: boolean;
     readonly cache?: boolean;
     readonly failPath?: string;
+    readonly wrapErrors?: boolean;
     readonly onStart?: (path: string) => void;
     readonly delays?: Readonly<Record<string, number>>;
   } = {},
@@ -103,6 +104,9 @@ async function createFixture(
         objects.set(params.path, Buffer.concat(parts));
         finished.push(params.path);
         return { ...params, entityTag: '"archive"' };
+      } catch (error) {
+        if (options.wrapErrors) throw new Error('Storage adapter write failed', { cause: error });
+        throw error;
       } finally {
         active -= 1;
       }
@@ -267,6 +271,77 @@ describe('bounded parsed archive concurrency', () => {
     expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
   });
 
+  it('rejects a producer failure while its writable is locked without hanging the sink', async () => {
+    const fixture: Fixture = await createFixture();
+    let rejectProducer: (() => void) | undefined;
+    const producerRejected: Promise<void> = new Promise((resolve) => {
+      rejectProducer = resolve;
+    });
+    let heldWriter: WritableStreamDefaultWriter<Uint8Array> | undefined;
+    const entry: FileEntry = {
+      filename: 'manifest.json',
+      directory: false,
+      uncompressedSize: 16,
+      signature: 0,
+      getData(writable: WritableStream<Uint8Array>): Promise<void> {
+        heldWriter = writable.getWriter();
+        void heldWriter.closed.catch((): void => undefined);
+        rejectProducer?.();
+        return Promise.reject(new Error('Locked producer failed'));
+      },
+    } as FileEntry;
+    vi.spyOn(ZipReader.prototype, 'getEntries').mockResolvedValue([entry]);
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      await params.body.pipeTo(new WritableStream<Uint8Array>());
+      return params;
+    };
+    const result: Promise<string> = fixture.sync().then(
+      (): string => 'completed',
+      (error: unknown): string => (error instanceof Error ? error.message : 'unknown failure'),
+    );
+    try {
+      await producerRejected;
+      const state: string = await Promise.race([
+        result,
+        new Promise<string>((resolve) => setImmediate((): void => resolve('pending'))),
+      ]);
+      expect(state).toBe('Locked producer failed');
+    } finally {
+      await heldWriter?.abort(new Error('Release held producer fixture'));
+      heldWriter?.releaseLock();
+      await result;
+    }
+  });
+
+  it('rejects a late producer error after body EOF before checkpointing successful bytes', async () => {
+    const fixture: Fixture = await createFixture();
+    const entry: FileEntry = {
+      filename: 'manifest.json',
+      directory: false,
+      uncompressedSize: 16,
+      signature: 0,
+      async getData(writable: WritableStream<Uint8Array>): Promise<void> {
+        const writer: WritableStreamDefaultWriter<Uint8Array> = writable.getWriter();
+        try {
+          await writer.write(Buffer.from('{"job_id":"job"}'));
+          await writer.close();
+        } finally {
+          writer.releaseLock();
+        }
+        throw new Error('Late producer failed');
+      },
+    } as FileEntry;
+    vi.spyOn(ZipReader.prototype, 'getEntries').mockResolvedValue([
+      entry,
+      { ...entry, filename: 'chunks.json' },
+    ]);
+    await expect(fixture.sync({ maxEntriesPerSync: 1 })).rejects.toThrow('Late producer failed');
+    expect(fixture.progress).toHaveLength(0);
+    expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+  });
+
   it('waits for Range producer cleanup before returning an incomplete segment', async () => {
     const fixture: Fixture = await createFixture();
     let startCleanup: (() => void) | undefined;
@@ -276,10 +351,6 @@ describe('bounded parsed archive concurrency', () => {
     let releaseCleanup: (() => void) | undefined;
     const cleanupGate: Promise<void> = new Promise((resolve) => {
       releaseCleanup = resolve;
-    });
-    let finishCheckpoint: (() => void) | undefined;
-    const checkpointWritten: Promise<void> = new Promise((resolve) => {
-      finishCheckpoint = resolve;
     });
     let hasCleanedProducer: boolean = false;
     const entry: FileEntry = {
@@ -304,25 +375,22 @@ describe('bounded parsed archive concurrency', () => {
       entry,
       { ...entry, filename: 'chunks.json' },
     ]);
-    fixture.storage.writeSyncProgress = (value): Promise<void> => {
-      fixture.progress.push(value);
-      finishCheckpoint?.();
-      return Promise.resolve();
-    };
     const sync: Promise<unknown> = fixture.sync({ maxEntriesPerSync: 1 });
     try {
-      await Promise.all([cleanupStarted, checkpointWritten]);
+      await cleanupStarted;
       const state: string = await Promise.race([
         sync.then((): string => 'returned'),
         new Promise<string>((resolve) => setImmediate((): void => resolve('waiting'))),
       ]);
       expect(state).toBe('waiting');
       expect(hasCleanedProducer).toBe(false);
+      expect(fixture.progress).toHaveLength(0);
     } finally {
       releaseCleanup?.();
       await sync;
     }
     expect(hasCleanedProducer).toBe(true);
+    expect(fixture.progress.at(-1)?.nextArchiveEntry).toBe(1);
     expect(await sync).toMatchObject({ completed: false });
   });
 
@@ -421,6 +489,68 @@ describe('bounded parsed archive concurrency', () => {
     expect(fixture.started.filter((path) => path === 'chunks.json')).toHaveLength(1);
   });
 
+  it('accepts cached Range responses with stable entity tags and changing Last-Modified metadata', async () => {
+    let hasStartedSnapshot: boolean = false;
+    const fixture: Fixture = await createFixture({
+      cache: true,
+      onStart: (path): void => {
+        if (path !== 'result.zip') hasStartedSnapshot = true;
+      },
+    });
+    const originalFetch: typeof fetch = fetch;
+    vi.stubGlobal(
+      'fetch',
+      async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const response: Response = await originalFetch(input, init);
+        const url: string =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.startsWith('https://cache.example/')) return response;
+        const headers: Headers = new Headers(response.headers);
+        headers.set(
+          'last-modified',
+          hasStartedSnapshot ? 'Tue, 01 Oct 2024 00:00:01 GMT' : 'Tue, 01 Oct 2024 00:00:00 GMT',
+        );
+        return new Response(response.body, { status: response.status, headers });
+      },
+    );
+    expect(
+      await syncRemoteResultArchive({
+        documentId: 'document',
+        revisionKey: 'revision',
+        jobId: 'job',
+        resultUrl: 'https://archive.example/result.zip',
+        storage: fixture.storage,
+        cacheResultArchive: true,
+        limits: { maxConcurrentFiles: 3, checkpointFileInterval: 4 },
+      }),
+    ).toMatchObject({ completed: true });
+    expect(fixture.progress.at(-1)?.archiveCacheBypassed).toBe(false);
+  });
+
+  it('preserves origin Range checks when Last-Modified changes during extraction', async () => {
+    let hasStartedSnapshot: boolean = false;
+    const fixture: Fixture = await createFixture({
+      onStart: (): void => {
+        hasStartedSnapshot = true;
+      },
+    });
+    const originalFetch: typeof fetch = fetch;
+    vi.stubGlobal(
+      'fetch',
+      async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const response: Response = await originalFetch(input, init);
+        const headers: Headers = new Headers(response.headers);
+        headers.set(
+          'last-modified',
+          hasStartedSnapshot ? 'Tue, 01 Oct 2024 00:00:01 GMT' : 'Tue, 01 Oct 2024 00:00:00 GMT',
+        );
+        return new Response(response.body, { status: response.status, headers });
+      },
+    );
+    await expect(fixture.sync({ maxConcurrentFiles: 3 })).rejects.toThrow('HTTP resource changed');
+    expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+  });
+
   it('falls back to the origin if cached transport changes during archive setup', async () => {
     const fixture: Fixture = await createFixture({ cache: true });
     const originalFetch: typeof fetch = fetch;
@@ -460,12 +590,20 @@ describe('bounded parsed archive concurrency', () => {
     expect(fixture.progress.at(-1)?.archiveCacheBypassed).toBe(true);
   });
 
-  it.each(['etag', 'http', 'network'] as const)(
-    'persists cache bypass after an entry transport %s failure and retries from the origin',
-    async (mode) => {
+  it.each([
+    ['etag', false],
+    ['etag', true],
+    ['http', false],
+    ['http', true],
+    ['network', false],
+    ['network', true],
+  ] as const)(
+    'persists cache bypass after transport %s failure with adapter wrapping %s',
+    async (mode, wrapErrors) => {
       let isInvalid: boolean = false;
       const fixture: Fixture = await createFixture({
         cache: true,
+        wrapErrors,
         onStart: (path): void => {
           if (path === 'file-0.txt') isInvalid = true;
         },
@@ -507,6 +645,16 @@ describe('bounded parsed archive concurrency', () => {
       expect(await sync()).toMatchObject({ completed: true });
     },
   );
+
+  it('preserves a storage failure with a cyclic cause without hanging recovery', async () => {
+    const fixture: Fixture = await createFixture();
+    const error: Error = new Error('Cyclic storage failure');
+    error.cause = error;
+    fixture.storage.writeObjectStream = (): Promise<ParsedDocumentWriteObjectResult> =>
+      Promise.reject(error);
+    await expect(fixture.sync()).rejects.toBe(error);
+    expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+  });
 
   it('rejects a changed sequential origin after cache bypass without an initial identity', async () => {
     const fixture: Fixture = await createFixture({ sequential: true });
