@@ -29,6 +29,7 @@ interface Fixture {
 async function createFixture(
   options: {
     readonly sequential?: boolean;
+    readonly originSequential?: boolean;
     readonly cache?: boolean;
     readonly failPath?: string;
     readonly wrapErrors?: boolean;
@@ -45,10 +46,16 @@ async function createFixture(
     compression: 'DEFLATE',
   });
   const fetchMock: ReturnType<typeof vi.fn> = vi.fn(
-    (_input: unknown, init?: RequestInit): Promise<Response> => {
+    (input: unknown, init?: RequestInit): Promise<Response> => {
       const range: string | null = new Headers(init?.headers).get('range');
+      const isSequentialOrigin: boolean =
+        options.originSequential === true &&
+        typeof input === 'string' &&
+        input.startsWith('https://archive.example/');
       const match: RegExpExecArray | null =
-        range && !options.sequential ? /^bytes=(\d*)-(\d*)$/.exec(range) : null;
+        range && !options.sequential && !isSequentialOrigin
+          ? /^bytes=(\d*)-(\d*)$/.exec(range)
+          : null;
       const start: number = match?.[1] ? Number(match[1]) : 0;
       const end: number = match?.[2]
         ? Math.min(Number(match[2]), archive.length - 1)
@@ -487,6 +494,128 @@ describe('bounded parsed archive concurrency', () => {
     });
     expect(fixture.started.filter((path) => path === 'manifest.json')).toHaveLength(1);
     expect(fixture.started.filter((path) => path === 'chunks.json')).toHaveLength(1);
+  });
+
+  it('resumes cached Range checkpoints through sequential origin after persistent cache bypass', async () => {
+    const fixture: Fixture = await createFixture({ cache: true, originSequential: true });
+    const sync = (maxEntriesPerSync: number): Promise<unknown> =>
+      syncRemoteResultArchive({
+        documentId: 'document',
+        revisionKey: 'revision',
+        jobId: 'job',
+        resultUrl: 'https://archive.example/result.zip',
+        storage: fixture.storage,
+        cacheResultArchive: true,
+        limits: { maxEntriesPerSync },
+      });
+    expect(await sync(1)).toMatchObject({ completed: false });
+    const checkpoint: ParsedDocumentSyncProgress | undefined = fixture.progress.at(-1);
+    fixture.storage.getObjectUrl = (): Promise<null> => Promise.resolve(null);
+    expect(await sync(1)).toMatchObject({ completed: false });
+    expect(await sync(100)).toMatchObject({ completed: true });
+    expect(typeof checkpoint?.archiveDownloadIdentity).toBe('string');
+    for (const progress of fixture.progress) {
+      expect(progress.archiveIdentity).toBe(checkpoint?.archiveIdentity);
+      expect(progress.archiveDownloadIdentity).toBe(checkpoint?.archiveDownloadIdentity);
+    }
+    expect(fixture.progress.at(-1)?.archiveCacheBypassed).toBe(true);
+    expect(fixture.started.filter((path) => path === 'manifest.json')).toHaveLength(1);
+    expect(fixture.started.filter((path) => path === 'chunks.json')).toHaveLength(1);
+    expect(await sync(1)).toMatchObject({ completed: false });
+    expect(fixture.progress.at(-1)).toMatchObject({
+      archiveIdentity: checkpoint?.archiveIdentity,
+      archiveDownloadIdentity: checkpoint?.archiveDownloadIdentity,
+      nextArchiveEntry: 1,
+    });
+  });
+
+  it.each(['changed origin', 'missing origin proof', 'changed saved prefix'] as const)(
+    'rejects sequential fallback from cached Range with %s',
+    async (mode) => {
+      const fixture: Fixture = await createFixture({ cache: true, originSequential: true });
+      const sync = (): Promise<unknown> =>
+        syncRemoteResultArchive({
+          documentId: 'document',
+          revisionKey: 'revision',
+          jobId: 'job',
+          resultUrl: 'https://archive.example/result.zip',
+          storage: fixture.storage,
+          cacheResultArchive: true,
+          limits: { maxEntriesPerSync: 1 },
+        });
+      await sync();
+      fixture.storage.getObjectUrl = (): Promise<null> => Promise.resolve(null);
+      const checkpoint: ParsedDocumentSyncProgress = fixture.progress.at(-1)!;
+      if (mode === 'changed origin') {
+        const originalFetch: typeof fetch = fetch;
+        vi.stubGlobal(
+          'fetch',
+          async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+            const response: Response = await originalFetch(input, init);
+            const headers: Headers = new Headers(response.headers);
+            headers.set('etag', '"changed-origin"');
+            return new Response(response.body, { status: response.status, headers });
+          },
+        );
+      } else {
+        fixture.progress.push({
+          ...checkpoint,
+          ...(mode === 'missing origin proof'
+            ? { archiveDownloadIdentity: undefined }
+            : { archiveEntryHashes: ['different saved entry hash'] }),
+        });
+      }
+      await expect(sync()).rejects.toThrow(
+        mode === 'changed saved prefix' ? /entry changed while resuming/ : /identity changed/,
+      );
+      expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+      expect(fixture.started.filter((path) => path !== 'result.zip')).toHaveLength(1);
+    },
+  );
+
+  it('retains cached origin proof when extraction failure persists bypass before sequential resume', async () => {
+    let isInvalid: boolean = false;
+    const fixture: Fixture = await createFixture({
+      cache: true,
+      originSequential: true,
+      wrapErrors: true,
+      onStart: (path): void => {
+        if (path === 'file-0.txt') isInvalid = true;
+      },
+    });
+    const originalFetch: typeof fetch = fetch;
+    vi.stubGlobal(
+      'fetch',
+      async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const response: Response = await originalFetch(input, init);
+        if (typeof input !== 'string' || !input.startsWith('https://cache.example/') || !isInvalid)
+          return response;
+        const headers: Headers = new Headers(response.headers);
+        headers.set('etag', '"changed-cache"');
+        return new Response(response.body, { status: response.status, headers });
+      },
+    );
+    const sync = (): Promise<unknown> =>
+      syncRemoteResultArchive({
+        documentId: 'document',
+        revisionKey: 'revision',
+        jobId: 'job',
+        resultUrl: 'https://archive.example/result.zip',
+        storage: fixture.storage,
+        cacheResultArchive: true,
+      });
+    await expect(sync()).rejects.toThrow();
+    const checkpoint: ParsedDocumentSyncProgress | undefined = fixture.progress.at(-1);
+    expect(checkpoint).toMatchObject({
+      archiveCacheBypassed: true,
+      nextArchiveEntry: 2,
+    });
+    expect(typeof checkpoint?.archiveDownloadIdentity).toBe('string');
+    expect(await sync()).toMatchObject({ completed: true });
+    expect(fixture.progress.at(-1)).toMatchObject({
+      archiveIdentity: checkpoint?.archiveIdentity,
+      archiveDownloadIdentity: checkpoint?.archiveDownloadIdentity,
+    });
   });
 
   it('accepts cached Range responses with stable entity tags and changing Last-Modified metadata', async () => {

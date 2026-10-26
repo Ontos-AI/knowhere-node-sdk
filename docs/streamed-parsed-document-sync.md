@@ -116,8 +116,14 @@ strong version and length checks instead of zip.js Last-Modified comparisons,
 because CDN timestamps can vary between responses. Origin reads retain zip.js
 resource-change checks. Checkpoint identity
 continues to use the origin identity and central directory, so switching between
-origin and cached transport preserves existing checkpoints. Corrupt content and
-changed origin identities fail rather than committing a snapshot.
+origin and cached Range transport preserves existing checkpoints. New cached
+checkpoints also retain `archiveDownloadIdentity`, the validated strong canonical
+origin identity. If a later cache bypass uses an origin without Range support,
+that proof preserves the directory identity while the sequential reader verifies
+every completed entry hash before continuing. A changed origin or saved-prefix
+mismatch fails; older Range checkpoints without that proof keep their existing
+strict identity checks. Corrupt content and changed origin identities fail rather
+than committing a snapshot.
 
 Optional caching has a thirty-second budget. Missing capabilities, interrupted
 uploads, cache metadata failures, or unavailable Range transport persist

@@ -70,7 +70,18 @@ export async function syncRemoteResultArchive(
     : controller.signal;
   const transferParams: StreamedSyncParams = { ...params, signal };
   const previous: ParsedDocumentSyncProgress | null = await params.storage.readSyncProgress(params);
-  const source: ArchiveSource = await openArchive(transferParams, previous);
+  const openedSource: ArchiveSource = await openArchive(transferParams, previous);
+  // A validated cache can support Range even when its unchanged origin cannot.
+  // Keep the directory identity while the sequential reader verifies every saved hash.
+  const source: ArchiveSource =
+    !openedSource.canSkipEntries &&
+    previous?.archiveIdentity &&
+    previous.archiveDownloadIdentity === openedSource.downloadIdentity
+      ? { ...openedSource, identity: previous.archiveIdentity }
+      : openedSource;
+  const archiveDownloadIdentity: string | undefined = source.isCached
+    ? source.downloadIdentity
+    : previous?.archiveDownloadIdentity;
   const concurrency: number = source.canSkipEntries ? (params.limits?.maxConcurrentFiles ?? 1) : 1;
   const nextEntry: number =
     previous?.status === 'completed' ? 0 : (previous?.nextArchiveEntry ?? 0);
@@ -102,6 +113,7 @@ export async function syncRemoteResultArchive(
         revisionKey: params.revisionKey,
         pinnedRevisionKey: params.revisionKey,
         archiveIdentity: source.identity,
+        archiveDownloadIdentity,
         archiveCacheBypassed,
         archiveEntryHashes: entryHashes.slice(0, contiguousEntry),
         nextArchiveEntry: contiguousEntry,
@@ -209,6 +221,7 @@ export async function syncRemoteResultArchive(
         revisionKey: params.revisionKey,
         pinnedRevisionKey: params.revisionKey,
         archiveIdentity: source.identity,
+        archiveDownloadIdentity,
         archiveCacheBypassed,
         archiveEntryHashes: entryHashes,
         nextArchiveEntry: entryIndex,
@@ -245,6 +258,7 @@ export async function syncRemoteResultArchive(
           revisionKey: params.revisionKey,
           pinnedRevisionKey: params.revisionKey,
           archiveIdentity: source.identity,
+          archiveDownloadIdentity,
           archiveEntryHashes: entryHashes.slice(0, checkpointEntry),
           nextArchiveEntry: checkpointEntry,
           status: 'running',
@@ -351,6 +365,7 @@ async function persistArchiveCacheBypass(
     documentId: params.documentId,
     revisionKey: params.revisionKey,
     pinnedRevisionKey: params.revisionKey,
+    archiveDownloadIdentity: previous?.archiveDownloadIdentity,
     archiveCacheBypassed: true,
     status: 'running',
     updatedAt: new Date().toISOString(),

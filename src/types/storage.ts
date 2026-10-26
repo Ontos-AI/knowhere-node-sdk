@@ -100,6 +100,8 @@ export interface ParsedDocumentSyncProgress {
   readonly nextChunkPage?: number;
   readonly pinnedRevisionKey?: string;
   readonly archiveIdentity?: string;
+  /** Strong canonical origin identity retained when a cached archive resumes sequentially. */
+  readonly archiveDownloadIdentity?: string;
   /** Once true, later segments use the origin rather than retrying optional archive caching. */
   readonly archiveCacheBypassed?: boolean;
   readonly nextArchiveEntry?: number;
