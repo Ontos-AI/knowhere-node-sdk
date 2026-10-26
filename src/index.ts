@@ -78,6 +78,7 @@ export type {
   ParsedDocumentStorageLimits,
   ParsedDocumentRevisionParams,
   ParsedDocumentSyncProgress,
+  ParsedDocumentSyncProgressOptions,
   ParsedDocumentSyncScheduler,
   ParsedDocumentWriteObjectParams,
   ParsedDocumentWriteObjectStreamParams,
