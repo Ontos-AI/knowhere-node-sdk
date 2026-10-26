@@ -1,6 +1,6 @@
 import type { RetrievalEvidencePart } from '../types/retrieval.js';
 import type { ParseParams } from '../types/params.js';
-import type { Job, JobResult } from '../types/job.js';
+import type { Job, JobResult, JobSnapshot } from '../types/job.js';
 import type { Chunk, DocumentChunkType, ParseResult } from '../types/index.js';
 import type {
   KnowhereAssetStorageOptions,
@@ -111,7 +111,7 @@ export interface KnowledgeDocumentReference {
   documentId?: string;
   /** Server parse job identifier whose completed result should be cached before reading. */
   jobId?: string;
-  /** Current parsed revision key when the caller already has it. */
+  /** Opaque snapshot ID for progressive archives; upstream Job Result ID for legacy results. */
   revisionKey?: string;
 }
 
@@ -124,6 +124,8 @@ export interface KnowledgeSyncParsedDocumentParams extends KnowledgeDocumentRefe
 }
 
 export interface KnowledgeSyncParsedDocumentResponse {
+  /** Selected immutable descriptor; reuse revisionKey for each segmented continuation. */
+  readonly snapshot?: JobSnapshot;
   documentId: string;
   revisionKey: string;
   completed: boolean;

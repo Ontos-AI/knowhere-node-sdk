@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 
+import type { JobResult, JobSnapshot } from '../types/job.js';
 import type { Knowhere } from '../client.js';
 import type {
   Chunk,
@@ -206,7 +207,7 @@ export class Knowledge {
     const normalized = normalizeDocumentReference(params);
     const parsedStorageConfig = this.requireParsedStorageConfig();
 
-    if (normalized.documentId) {
+    if (normalized.documentId && !normalized.jobId) {
       return this.syncRemoteDocumentToParsedStorage({
         documentId: normalized.documentId,
         revisionKey: params.revisionKey,
@@ -218,6 +219,29 @@ export class Knowledge {
 
     if (normalized.jobId) {
       const job = await this.client.jobs.get(normalized.jobId);
+      if (job.snapshots?.length) {
+        return this.syncJobSnapshot({
+          job,
+          documentId:
+            normalized.documentId ??
+            job.documentId ??
+            normalized.localDocumentId ??
+            normalized.jobId,
+          revisionKey: params.revisionKey,
+          parsedStorageConfig,
+          signal: params.signal,
+          retainResultArchive: params.retainResultArchive,
+        });
+      }
+      if (normalized.documentId) {
+        return this.syncRemoteDocumentToParsedStorage({
+          documentId: normalized.documentId,
+          revisionKey: params.revisionKey,
+          parsedStorageConfig,
+          signal: params.signal,
+          retainResultArchive: params.retainResultArchive,
+        });
+      }
       if (!job.isDone || !job.resultUrl)
         throw new ValidationError('Completed job result archive is unavailable');
       return syncRemoteResultArchive({
@@ -249,6 +273,94 @@ export class Knowledge {
       completed: true,
       commit: synced.commit,
     };
+  }
+
+  private async syncJobSnapshot(params: {
+    readonly job: JobResult;
+    readonly documentId: string;
+    readonly revisionKey?: string;
+    readonly parsedStorageConfig: ParsedDocumentStorageConfig;
+    readonly signal?: AbortSignal;
+    readonly retainResultArchive?: boolean;
+  }): Promise<KnowledgeSyncParsedDocumentResponse> {
+    const snapshotId: string | undefined = params.revisionKey ?? params.job.currentSnapshotId;
+    const snapshot: JobSnapshot | undefined = params.job.snapshots?.find(
+      (candidate: JobSnapshot): boolean => candidate.snapshotId === snapshotId,
+    );
+    if (!params.job.isDone || !snapshot)
+      throw new ValidationError('Requested immutable parsed snapshot is unavailable');
+    if (snapshot.jobId !== params.job.jobId || snapshot.documentId !== params.documentId)
+      throw new ValidationError(
+        'Parsed snapshot document or job identity differs from the request',
+      );
+    const response: KnowledgeSyncParsedDocumentResponse = await syncRemoteResultArchive({
+      documentId: params.documentId,
+      revisionKey: snapshot.snapshotId,
+      jobId: snapshot.jobId,
+      snapshot,
+      resultUrl: snapshot.resultUrl,
+      storage: params.parsedStorageConfig.storage,
+      limits: params.parsedStorageConfig.limits,
+      signal: params.signal,
+      retainResultArchive: params.retainResultArchive,
+    });
+    if (response.completed && snapshot.snapshotId === params.job.currentSnapshotId) {
+      const pointer: Uint8Array = Buffer.from(
+        JSON.stringify({
+          snapshotId: snapshot.snapshotId,
+          jobResultId: snapshot.jobResultId,
+        }),
+      );
+      if (snapshot.stage === 'final') {
+        await params.parsedStorageConfig.storage.writeObject({
+          documentId: params.documentId,
+          revisionKey: 'current',
+          path: '.knowhere-sdk/final-snapshot.json',
+          body: pointer,
+          contentType: 'application/json; charset=utf-8',
+        });
+      }
+      await params.parsedStorageConfig.storage.writeObject({
+        documentId: params.documentId,
+        revisionKey: 'current',
+        path: '.knowhere-sdk/current-snapshot.json',
+        body: pointer,
+        contentType: 'application/json; charset=utf-8',
+      });
+    }
+    return response;
+  }
+
+  private async resolveStoredSnapshotKey(documentId: string): Promise<string | undefined> {
+    const object = await this.parsedStorageConfig?.storage.readObject({
+      documentId,
+      revisionKey: 'current',
+      path: '.knowhere-sdk/current-snapshot.json',
+    });
+    if (!object) return undefined;
+    const payload: unknown = JSON.parse(Buffer.from(object.body).toString('utf8'));
+    if (typeof payload !== 'object' || payload === null || !('snapshotId' in payload))
+      throw new ValidationError('Invalid current parsed snapshot pointer');
+    if (typeof payload.snapshotId !== 'string')
+      throw new ValidationError('Invalid current parsed snapshot identity');
+    const finalObject = await this.parsedStorageConfig?.storage.readObject({
+      documentId,
+      revisionKey: 'current',
+      path: '.knowhere-sdk/final-snapshot.json',
+    });
+    if (finalObject && 'jobResultId' in payload) {
+      const finalPayload: unknown = JSON.parse(Buffer.from(finalObject.body).toString('utf8'));
+      if (
+        typeof finalPayload === 'object' &&
+        finalPayload !== null &&
+        'snapshotId' in finalPayload &&
+        typeof finalPayload.snapshotId === 'string' &&
+        'jobResultId' in finalPayload &&
+        finalPayload.jobResultId === payload.jobResultId
+      )
+        return finalPayload.snapshotId;
+    }
+    return payload.snapshotId;
   }
 
   private async syncParseResultToConfiguredStorage(result: ParseResult): Promise<{
@@ -565,7 +677,8 @@ export class Knowledge {
     documentId: string,
     params: KnowledgeReadParams,
   ): Promise<KnowledgeReadResponse> {
-    const explicitRevisionKey = params.revisionKey ?? params.jobId;
+    const explicitRevisionKey =
+      params.revisionKey ?? params.jobId ?? (await this.resolveStoredSnapshotKey(documentId));
     if (explicitRevisionKey) {
       const stored = await this.tryReadChunksFromParsedStorage({
         documentId,
@@ -575,6 +688,8 @@ export class Knowledge {
       if (stored) {
         return stored;
       }
+      if (params.revisionKey && (await this.resolveStoredSnapshotKey(documentId)))
+        throw new ValidationError('Requested parsed snapshot is not committed locally');
     }
 
     if (hasScanReadFilters(params)) {
@@ -618,7 +733,8 @@ export class Knowledge {
     documentId: string,
     params: KnowledgeReadParams,
   ): Promise<KnowledgeReadResponse> {
-    const explicitRevisionKey = params.revisionKey ?? params.jobId;
+    const explicitRevisionKey =
+      params.revisionKey ?? params.jobId ?? (await this.resolveStoredSnapshotKey(documentId));
     if (explicitRevisionKey) {
       const stored = await this.tryReadChunksFromParsedStorage({
         documentId,
@@ -628,6 +744,8 @@ export class Knowledge {
       if (stored) {
         return stored;
       }
+      if (params.revisionKey && (await this.resolveStoredSnapshotKey(documentId)))
+        throw new ValidationError('Requested parsed snapshot is not committed locally');
     }
 
     const limit = clampLimit(params.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT);
@@ -694,7 +812,8 @@ export class Knowledge {
     documentId: string,
     params: KnowledgeGrepParams,
   ): Promise<KnowledgeGrepResponse> {
-    const explicitRevisionKey = params.revisionKey ?? params.jobId;
+    const explicitRevisionKey =
+      params.revisionKey ?? params.jobId ?? (await this.resolveStoredSnapshotKey(documentId));
     if (explicitRevisionKey && !params.continuationCursor) {
       const stored = await this.tryGrepChunksFromParsedStorage({
         documentId,
@@ -704,6 +823,8 @@ export class Knowledge {
       if (stored) {
         return stored;
       }
+      if (params.revisionKey && (await this.resolveStoredSnapshotKey(documentId)))
+        throw new ValidationError('Requested parsed snapshot is not committed locally');
     }
 
     const maxResults = clampLimit(params.maxResults, DEFAULT_GREP_LIMIT, MAX_GREP_LIMIT);
@@ -829,11 +950,15 @@ export class Knowledge {
     documentId: string,
     revisionKeyOverride?: string,
   ): Promise<KnowledgeOutline> {
-    if (revisionKeyOverride) {
-      const stored = await this.tryReadOutlineFromParsedStorage(documentId, revisionKeyOverride);
+    const storedRevisionKey: string | undefined =
+      revisionKeyOverride ?? (await this.resolveStoredSnapshotKey(documentId));
+    if (storedRevisionKey) {
+      const stored = await this.tryReadOutlineFromParsedStorage(documentId, storedRevisionKey);
       if (stored) {
         return stored;
       }
+      if (revisionKeyOverride && (await this.resolveStoredSnapshotKey(documentId)))
+        throw new ValidationError('Requested parsed snapshot is not committed locally');
     }
 
     const limits = getParsedStorageLimits(this.parsedStorageConfig?.limits);
@@ -1138,14 +1263,26 @@ export class Knowledge {
       includeAssetUrls: true,
     });
     const revisionKey = params.revisionKey ?? getRemoteRevisionKey(firstPage);
-    if (params.revisionKey && getRemoteRevisionKey(firstPage) !== params.revisionKey) {
-      throw new ValidationError('Published document revision changed before parsed snapshot sync');
-    }
     if (firstPage.jobId) {
       const job = await this.client.jobs.get(firstPage.jobId).catch((error: unknown) => {
         if (error instanceof NotFoundError) return null;
         throw error;
       });
+      if (job?.snapshots?.length) {
+        const snapshot: JobSnapshot | undefined = job.snapshots.find(
+          (candidate: JobSnapshot): boolean =>
+            candidate.snapshotId === (params.revisionKey ?? job.currentSnapshotId),
+        );
+        if (snapshot && snapshot.jobResultId !== getRemoteRevisionKey(firstPage))
+          throw new ValidationError(
+            'Parsed snapshot upstream revision differs from the published document',
+          );
+        return this.syncJobSnapshot({ ...params, job });
+      }
+      if (params.revisionKey && getRemoteRevisionKey(firstPage) !== params.revisionKey)
+        throw new ValidationError(
+          'Published document revision changed before parsed snapshot sync',
+        );
       if (job?.isDone && job.resultUrl) {
         if (job.documentId && job.documentId !== params.documentId)
           throw new ValidationError('Parsed job document identity differs from requested document');

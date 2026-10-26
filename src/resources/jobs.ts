@@ -1,5 +1,5 @@
 import { BaseResource } from './base.js';
-import type { Job, JobResult } from '../types/job.js';
+import type { Job, JobResult, JobEnhancementRetryResult } from '../types/job.js';
 import type { CreateJobParams, UploadParams, WaitOptions, LoadOptions } from '../types/params.js';
 import type { ParseResult } from '../types/result.js';
 import {
@@ -46,6 +46,13 @@ export class Jobs extends BaseResource {
     const jobResult = await this.httpClient.get<JobResult>(this.endpoint(`/jobs/${jobId}`));
     enrichJobResult(jobResult);
     return jobResult;
+  }
+
+  /** Renew unfinished enhancement without creating another ingestion. */
+  async retryEnhancement(jobId: string): Promise<JobEnhancementRetryResult> {
+    return this.httpClient.post<JobEnhancementRetryResult>(
+      this.endpoint(`/jobs/${jobId}/enrichment/retry`),
+    );
   }
 
   /**

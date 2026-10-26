@@ -129,3 +129,48 @@ thresholds (75.45% branches, 85.95% statements, 88.88% functions, 86.60% lines).
 The streaming and lazy ParseResult storage modules each have 100% line coverage.
 `pnpm lint`, `pnpm typecheck`, `pnpm format:check`, and `pnpm build` also pass;
 lint reports three pre-existing warnings in unrelated tests.
+
+## Progressive ingestion snapshots
+
+Progressive Jobs add `enhancement`, `snapshots`, and `currentSnapshotId`. Each
+`JobSnapshot` contains an opaque `snapshotId`, `stage`, real upstream
+`jobResultId`, document/job identity, SHA-256 `checksum`, `resultUrl`, and
+`resultUrlExpiresAt`. Baseline and final may share one upstream Job Result.
+`jobs.retryEnhancement(jobId)` calls the authenticated bodyless enrichment retry
+command and returns `{ jobId, enhancement }`; it does not create an ingestion.
+
+```typescript
+const copied = await knowledge.syncParsedDocument({ jobId, documentId });
+if (!copied.completed) {
+  // Persist the returned revisionKey and pass it to every continuation.
+  await knowledge.syncParsedDocument({ jobId, documentId, revisionKey: copied.revisionKey });
+}
+```
+
+The returned `revisionKey` is the selected immutable `snapshotId`. Every partial
+and completed response includes its `snapshot` descriptor. Each continuation
+refreshes that exact retained descriptor's signed URL. `documentId` alone can
+resolve its Job through the document API; providing `jobId` avoids that lookup.
+The upstream Job Result is validated separately and is never replaced by the
+local snapshot ID in server document/chunk calls.
+
+Before committing, the SDK streams the entire ZIP once more to validate its
+SHA-256 checksum, in addition to the entry CRC, archive identity and required
+asset checks. This adds one archive download on the completing invocation, with
+bounded memory. Completed progressive copies validate the remote checksum without
+rewriting the committed objects. Legacy/full copies retain the explicit rebuild
+behavior described above.
+
+After a current snapshot commits, ordinary local read/grep/outline operations use
+its durable reader pointer. An incomplete or failed final copy leaves baseline
+current. A late baseline completion cannot supersede a committed final snapshot
+of the same upstream revision. Explicit `revisionKey` reads retain their selected
+content and assets; a missing pinned local snapshot cannot fall back to live
+content once a progressive reader pointer exists. Sync the retained snapshot
+before reading it. Keep the storage objects and checkpoint keys for both stages.
+
+Commits remain version 1 and add optional `snapshotId`, `jobResultId`, `checksum`,
+and `stage`. Checkpoints add `snapshotChecksum` and `upstreamJobResultId`; adapters
+must persist these fields along with existing archive identity and entry hashes.
+SDK reader pointers use reserved `.knowhere-sdk/` objects in the `current`
+revision; adapters should treat all revision/path keys as SDK-owned opaque keys.

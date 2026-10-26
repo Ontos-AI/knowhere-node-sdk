@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import type { JobSnapshot } from '../types/job.js';
 import { HttpRangeReader, ZipReader, type FileEntry, type HttpOptions } from '@zip.js/zip.js';
 
 import type { KnowledgeSyncParsedDocumentResponse } from '../knowledge/types.js';
@@ -13,6 +14,7 @@ import {
   inferContentTypeFromPath,
   normalizeResultPath,
   parsedDocumentCommitPath,
+  readParsedDocumentCommit,
 } from './parsed-document-storage.js';
 
 export interface ArchiveEntry {
@@ -29,6 +31,7 @@ export interface ArchiveSource {
 }
 
 export interface StreamedSyncParams {
+  readonly snapshot?: JobSnapshot;
   readonly documentId: string;
   readonly revisionKey: string;
   readonly jobId: string;
@@ -57,11 +60,31 @@ export async function syncRemoteResultArchive(
   const nextEntry: number =
     previous?.status === 'completed' ? 0 : (previous?.nextArchiveEntry ?? 0);
   try {
+    if (previous?.snapshotChecksum && previous.snapshotChecksum !== params.snapshot?.checksum)
+      throw new Error('Parsed snapshot checksum changed within one generation.');
+    if (
+      previous?.upstreamJobResultId &&
+      previous.upstreamJobResultId !== params.snapshot?.jobResultId
+    )
+      throw new Error('Parsed snapshot upstream revision changed within one generation.');
     if (previous?.archiveIdentity && previous.archiveIdentity !== source.identity) {
       throw new Error('Parsed result archive identity changed; start a new revision.');
     }
     if (previous?.pinnedRevisionKey && previous.pinnedRevisionKey !== params.revisionKey) {
       throw new Error('Parsed result revision changed while resuming archive sync.');
+    }
+    if (params.snapshot && previous?.status === 'completed') {
+      const committed: ParsedDocumentCommit | null = await readParsedDocumentCommit(params);
+      if (committed) {
+        await verifyArchiveChecksum(params, source.downloadIdentity);
+        return {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          snapshot: params.snapshot,
+          completed: true,
+          commit: committed,
+        };
+      }
     }
     for await (const entry of source.entries) {
       params.signal?.throwIfAborted();
@@ -72,7 +95,12 @@ export async function syncRemoteResultArchive(
         copiedEntries > 0 &&
         (copiedEntries >= maxEntries || Date.now() - startedAt >= deadlineMs)
       ) {
-        return { documentId: params.documentId, revisionKey: params.revisionKey, completed: false };
+        return {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          snapshot: params.snapshot,
+          completed: false,
+        };
       }
       if (entryIndex < nextEntry && source.canSkipEntries) {
         const previousHash: string | undefined = previous?.archiveEntryHashes?.[entryIndex];
@@ -118,6 +146,8 @@ export async function syncRemoteResultArchive(
         documentId: params.documentId,
         revisionKey: params.revisionKey,
         pinnedRevisionKey: params.revisionKey,
+        snapshotChecksum: params.snapshot?.checksum,
+        upstreamJobResultId: params.snapshot?.jobResultId,
         archiveIdentity: source.identity,
         archiveEntryHashes: [...entryHashes],
         nextArchiveEntry: entryIndex,
@@ -126,9 +156,14 @@ export async function syncRemoteResultArchive(
       });
     }
     await validateRequiredObjects(params, paths);
+    if (params.snapshot) await verifyArchiveChecksum(params, source.downloadIdentity);
     await params.verifyRevision?.();
     params.signal?.throwIfAborted();
     const commit: ParsedDocumentCommit = {
+      snapshotId: params.snapshot?.snapshotId,
+      jobResultId: params.snapshot?.jobResultId,
+      checksum: params.snapshot?.checksum,
+      stage: params.snapshot?.stage,
       version: 1,
       documentId: params.documentId,
       revisionKey: params.revisionKey,
@@ -146,6 +181,8 @@ export async function syncRemoteResultArchive(
       documentId: params.documentId,
       revisionKey: params.revisionKey,
       pinnedRevisionKey: params.revisionKey,
+      snapshotChecksum: params.snapshot?.checksum,
+      upstreamJobResultId: params.snapshot?.jobResultId,
       archiveIdentity: source.identity,
       archiveEntryHashes: entryHashes,
       nextArchiveEntry: entryIndex,
@@ -163,6 +200,7 @@ export async function syncRemoteResultArchive(
       documentId: params.documentId,
       revisionKey: params.revisionKey,
       completed: true,
+      snapshot: params.snapshot,
       commit,
     };
   } finally {
@@ -294,6 +332,13 @@ async function validateRequiredObjects(
   const manifestJobId: unknown = manifest.job_id ?? manifest.jobId;
   if (manifestJobId !== params.jobId)
     throw new Error('Parsed result manifest job identity differs from the pinned job.');
+  const manifestRevision: unknown = manifest.job_result_id ?? manifest.jobResultId;
+  if (
+    params.snapshot &&
+    manifestRevision !== undefined &&
+    manifestRevision !== params.snapshot.jobResultId
+  )
+    throw new Error('Parsed result manifest revision differs from the snapshot upstream revision.');
   const chunks: unknown = Array.isArray(payload)
     ? payload
     : isRecord(payload)
@@ -324,6 +369,23 @@ async function validateRequiredObjects(
   }
   for (const path of required)
     if (!paths.has(path)) throw new Error(`Required parsed result file missing: ${path}`);
+}
+
+async function verifyArchiveChecksum(params: StreamedSyncParams, identity: string): Promise<void> {
+  const response: Response = await fetch(params.resultUrl, { signal: params.signal });
+  if (!response.ok || !response.body) throw new Error('Parsed snapshot checksum download failed.');
+  if (createDownloadIdentity(params.jobId, response) !== identity) {
+    await response.body.cancel();
+    throw new Error('Parsed snapshot archive identity changed during checksum verification.');
+  }
+  const hash = createHash('sha256');
+  const body: ReadableStream<Uint8Array> = response.body;
+  for await (const part of body) {
+    params.signal?.throwIfAborted();
+    hash.update(part);
+  }
+  if (hash.digest('hex') !== params.snapshot?.checksum)
+    throw new Error('Parsed snapshot archive checksum mismatch.');
 }
 
 async function retainArchive(params: StreamedSyncParams, expectedIdentity: string): Promise<void> {

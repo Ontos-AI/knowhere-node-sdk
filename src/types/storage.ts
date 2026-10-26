@@ -83,6 +83,10 @@ export interface ParsedDocumentWriteObjectResult extends ParsedDocumentObjectPar
 export type ParsedDocumentCommitSource = 'resultZip' | 'remoteReconstruction';
 
 export interface ParsedDocumentCommit {
+  readonly snapshotId?: string;
+  readonly jobResultId?: string;
+  readonly checksum?: string;
+  readonly stage?: 'baseline' | 'final';
   readonly version: 1;
   readonly documentId: string;
   readonly revisionKey: string;
@@ -93,6 +97,8 @@ export interface ParsedDocumentCommit {
 export interface ParsedDocumentSyncProgress {
   readonly documentId: string;
   readonly revisionKey: string;
+  readonly snapshotChecksum?: string;
+  readonly upstreamJobResultId?: string;
   readonly nextChunkPage?: number;
   readonly pinnedRevisionKey?: string;
   readonly archiveIdentity?: string;
