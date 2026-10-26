@@ -10,7 +10,7 @@ import type {
   ParseResult,
   RetrievalResult,
 } from '../types/index.js';
-import { ValidationError } from '../errors/index.js';
+import { NotFoundError, ValidationError } from '../errors/index.js';
 import { storeParseResultAssets } from '../storage/asset-storage.js';
 import {
   readJsonObject,
@@ -18,6 +18,7 @@ import {
   syncParseResultToParsedDocumentStorage,
 } from '../storage/parsed-document-storage.js';
 import { keysToCamel } from '../lib/utils.js';
+import { syncRemoteResultArchive } from '../storage/streamed-parsed-document-sync.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
   IndexedKnowledgeChunk,
@@ -201,6 +202,7 @@ export class Knowledge {
   async syncParsedDocument(
     params: KnowledgeSyncParsedDocumentParams,
   ): Promise<KnowledgeSyncParsedDocumentResponse> {
+    params.signal?.throwIfAborted();
     const normalized = normalizeDocumentReference(params);
     const parsedStorageConfig = this.requireParsedStorageConfig();
 
@@ -209,23 +211,25 @@ export class Knowledge {
         documentId: normalized.documentId,
         revisionKey: params.revisionKey,
         parsedStorageConfig,
+        signal: params.signal,
+        retainResultArchive: params.retainResultArchive,
       });
     }
 
     if (normalized.jobId) {
-      const loadedResult = await this.client.jobs.load(normalized.jobId);
-      const synced = await syncParseResultToParsedDocumentStorage({
-        result: loadedResult,
-        storage: parsedStorageConfig.storage,
-        documentId: loadedResult.documentId ?? normalized.localDocumentId ?? normalized.jobId,
+      const job = await this.client.jobs.get(normalized.jobId);
+      if (!job.isDone || !job.resultUrl)
+        throw new ValidationError('Completed job result archive is unavailable');
+      return syncRemoteResultArchive({
+        documentId: job.documentId ?? normalized.localDocumentId ?? normalized.jobId,
         revisionKey: params.revisionKey ?? normalized.jobId,
+        jobId: normalized.jobId,
+        resultUrl: job.resultUrl,
+        storage: parsedStorageConfig.storage,
+        limits: parsedStorageConfig.limits,
+        signal: params.signal,
+        retainResultArchive: params.retainResultArchive,
       });
-      return {
-        documentId: synced.documentId,
-        revisionKey: synced.revisionKey,
-        completed: true,
-        commit: synced.commit,
-      };
     }
 
     if (!normalized.localDocumentId) {
@@ -1102,10 +1106,14 @@ export class Knowledge {
           parsedStorageConfig,
         });
       } catch (error) {
-        await parsedStorageConfig.storage.writeSyncProgress({
+        const previous = await parsedStorageConfig.storage.readSyncProgress({
           documentId,
           revisionKey,
-          nextChunkPage: 1,
+        });
+        await parsedStorageConfig.storage.writeSyncProgress({
+          ...previous,
+          documentId,
+          revisionKey,
           status: 'failed',
           updatedAt: new Date().toISOString(),
           error: error instanceof Error ? error.message : String(error),
@@ -1120,7 +1128,10 @@ export class Knowledge {
     documentId: string;
     revisionKey?: string;
     parsedStorageConfig: ParsedDocumentStorageConfig;
+    signal?: AbortSignal;
+    retainResultArchive?: boolean;
   }): Promise<KnowledgeSyncParsedDocumentResponse> {
+    params.signal?.throwIfAborted();
     const firstPage = await this.client.documents.listChunks(params.documentId, {
       page: 1,
       pageSize: 1,
@@ -1128,44 +1139,45 @@ export class Knowledge {
     });
     const revisionKey = params.revisionKey ?? getRemoteRevisionKey(firstPage);
     if (params.revisionKey && getRemoteRevisionKey(firstPage) !== params.revisionKey) {
-      return this.syncRemoteDocumentToParsedStorage({
-        documentId: params.documentId,
-        parsedStorageConfig: params.parsedStorageConfig,
-      });
+      throw new ValidationError('Published document revision changed before parsed snapshot sync');
     }
-
     if (firstPage.jobId) {
-      try {
-        const loadedResult = await this.client.jobs.load(firstPage.jobId);
-        const synced = await syncParseResultToParsedDocumentStorage({
-          result: loadedResult,
+      const job = await this.client.jobs.get(firstPage.jobId).catch((error: unknown) => {
+        if (error instanceof NotFoundError) return null;
+        throw error;
+      });
+      if (job?.isDone && job.resultUrl) {
+        if (job.documentId && job.documentId !== params.documentId)
+          throw new ValidationError('Parsed job document identity differs from requested document');
+        return syncRemoteResultArchive({
+          documentId: params.documentId,
+          revisionKey,
+          jobId: firstPage.jobId,
+          resultUrl: job.resultUrl,
           storage: params.parsedStorageConfig.storage,
-          documentId: params.documentId,
-          revisionKey,
-          source: 'resultZip',
+          limits: params.parsedStorageConfig.limits,
+          signal: params.signal,
+          retainResultArchive: params.retainResultArchive,
+          verifyRevision: async (): Promise<void> => {
+            const current = await this.client.documents.listChunks(params.documentId, {
+              page: 1,
+              pageSize: 1,
+              includeAssetUrls: true,
+            });
+            if (getRemoteRevisionKey(current) !== revisionKey || current.jobId !== firstPage.jobId)
+              throw new ValidationError(
+                'Published document revision changed during parsed snapshot sync',
+              );
+          },
         });
-        await params.parsedStorageConfig.storage.writeSyncProgress({
-          documentId: params.documentId,
-          revisionKey,
-          status: 'completed',
-          updatedAt: new Date().toISOString(),
-        });
-        return {
-          documentId: synced.documentId,
-          revisionKey: synced.revisionKey,
-          completed: true,
-          commit: synced.commit,
-        };
-      } catch {
-        // Fall back to reconstructing a minimal result from listChunks below.
       }
     }
-
     return this.syncRemoteDocumentChunksToParsedStorage({
       documentId: params.documentId,
       revisionKey,
       firstPage,
       parsedStorageConfig: params.parsedStorageConfig,
+      signal: params.signal,
     });
   }
 
@@ -1174,14 +1186,18 @@ export class Knowledge {
     revisionKey: string;
     firstPage: DocumentChunkListResponse;
     parsedStorageConfig: ParsedDocumentStorageConfig;
+    signal?: AbortSignal;
   }): Promise<KnowledgeSyncParsedDocumentResponse> {
+    params.signal?.throwIfAborted();
     const limits = getParsedStorageLimits(params.parsedStorageConfig.limits);
     const existingProgress = await params.parsedStorageConfig.storage.readSyncProgress({
       documentId: params.documentId,
       revisionKey: params.revisionKey,
     });
     let nextPage =
-      existingProgress?.status === 'running' ? (existingProgress.nextChunkPage ?? 1) : 1;
+      existingProgress?.status === 'running' || existingProgress?.status === 'failed'
+        ? (existingProgress.nextChunkPage ?? 1)
+        : 1;
     let response =
       nextPage === 1 && params.firstPage.pagination.pageSize === limits.remotePageSize
         ? params.firstPage
@@ -1190,6 +1206,13 @@ export class Knowledge {
             pageSize: limits.remotePageSize,
             includeAssetUrls: true,
           });
+    validateRemoteReconstructionRevision(
+      params.documentId,
+      params.revisionKey,
+      params.firstPage.jobId,
+      response,
+    );
+    params.signal?.throwIfAborted();
     const totalPages = response.pagination.totalPages;
     let syncedPages = 0;
     const startedAt = Date.now();
@@ -1203,6 +1226,13 @@ export class Knowledge {
         });
       }
 
+      params.signal?.throwIfAborted();
+      validateRemoteReconstructionRevision(
+        params.documentId,
+        params.revisionKey,
+        params.firstPage.jobId,
+        response,
+      );
       await params.parsedStorageConfig.storage.writeObject({
         documentId: params.documentId,
         revisionKey: params.revisionKey,
@@ -1257,6 +1287,22 @@ export class Knowledge {
       documentId: params.documentId,
       revisionKey: params.revisionKey,
       source: 'remoteReconstruction',
+      signal: params.signal,
+      beforeCommit: async (): Promise<void> => {
+        params.signal?.throwIfAborted();
+        const current = await this.client.documents.listChunks(params.documentId, {
+          page: 1,
+          pageSize: 1,
+          includeAssetUrls: true,
+        });
+        params.signal?.throwIfAborted();
+        validateRemoteReconstructionRevision(
+          params.documentId,
+          params.revisionKey,
+          params.firstPage.jobId,
+          current,
+        );
+      },
     });
     await params.parsedStorageConfig.storage.writeSyncProgress({
       documentId: params.documentId,
@@ -2402,4 +2448,19 @@ function toRemoteSearchResult(
     sectionPath: result.source.sectionPath ?? undefined,
     sourceFileName: result.source.sourceFileName ?? undefined,
   };
+}
+
+function validateRemoteReconstructionRevision(
+  documentId: string,
+  revisionKey: string,
+  jobId: string | null | undefined,
+  response: DocumentChunkListResponse,
+): void {
+  if (
+    response.documentId !== documentId ||
+    getRemoteRevisionKey(response) !== revisionKey ||
+    (response.jobId ?? undefined) !== (jobId ?? undefined)
+  ) {
+    throw new ValidationError('Published document revision changed during remote reconstruction');
+  }
 }
