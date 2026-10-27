@@ -495,3 +495,225 @@ describe('progressive immutable snapshots', () => {
     ).toEqual(Array.from(fixture.archives.get(fixture.baseline.resultUrl) ?? []));
   });
 });
+
+it('delayed prior ingestion cannot replace a newer committed original-file revision', async () => {
+  const fixture = await createFixture();
+  let releaseOld: () => void = () => {};
+  let signalOld: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    releaseOld = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    signalOld = resolve;
+  });
+  const write = fixture.storage.writeObject.bind(fixture.storage);
+  fixture.storage.writeObject = async (params): Promise<ParsedDocumentWriteObjectResult> => {
+    if (params.revisionKey === fixture.baseline.snapshotId && params.path === 'chunks.json') {
+      signalOld();
+      await gate;
+    }
+    return write(params);
+  };
+  const oldSync = fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });
+  await started;
+  const zip = new JSZip();
+  zip.file(
+    'manifest.json',
+    JSON.stringify({
+      job_id: 'job_new',
+      source_file_name: 'replacement.pdf',
+      statistics: { total_chunks: 1 },
+    }),
+  );
+  zip.file(
+    'chunks.json',
+    JSON.stringify({
+      chunks: [
+        {
+          chunk_id: 'new',
+          type: 'text',
+          content: 'new-baseline',
+          path: 'replacement.pdf/Page 1',
+          metadata: {},
+        },
+      ],
+    }),
+  );
+  const archive = await zip.generateAsync({ type: 'uint8array' });
+  const snapshot: JobSnapshot = {
+    ...fixture.baseline,
+    snapshotId: 'snapshot_new',
+    jobId: 'job_new',
+    jobResultId: 'result_new',
+    resultUrl: 'https://archive.example/new.zip',
+    checksum: createHash('sha256').update(archive).digest('hex'),
+  };
+  fixture.archives.set(snapshot.resultUrl, archive);
+  const job: JobResult = {
+    ...fixture.job,
+    jobId: 'job_new',
+    snapshots: [snapshot],
+    currentSnapshotId: snapshot.snapshotId,
+    resultUrl: snapshot.resultUrl,
+  };
+  vi.spyOn(fixture.client.jobs, 'get').mockImplementation((jobId) =>
+    Promise.resolve(jobId === 'job_new' ? job : fixture.job),
+  );
+  vi.spyOn(fixture.client.documents, 'listChunks').mockResolvedValue({
+    documentId: 'doc_test',
+    jobId: 'job_new',
+    jobResultId: 'result_new',
+    namespace: 'default',
+    chunks: [],
+    pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
+  });
+  await fixture.knowledge.syncParsedDocument({ jobId: 'job_new' });
+  expect((await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content).toBe(
+    'new-baseline',
+  );
+  releaseOld();
+  await oldSync;
+  expect((await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content).toBe(
+    'new-baseline',
+  );
+  await fixture.knowledge.syncParsedDocument({
+    jobId: 'job_test',
+    revisionKey: fixture.baseline.snapshotId,
+  });
+  expect((await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content).toBe(
+    'new-baseline',
+  );
+  expect(
+    (
+      await fixture.knowledge.readChunks({
+        documentId: 'doc_test',
+        revisionKey: fixture.baseline.snapshotId,
+      })
+    ).chunks[0]?.content,
+  ).toBe('baseline');
+});
+
+it('first baseline remains readable if upstream final appears during transfer', async () => {
+  const fixture = await createFixture();
+  let release: () => void = () => {};
+  let signal: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    signal = resolve;
+  });
+  const write = fixture.storage.writeObject.bind(fixture.storage);
+  fixture.storage.writeObject = async (params): Promise<ParsedDocumentWriteObjectResult> => {
+    if (params.revisionKey === fixture.baseline.snapshotId && params.path === 'chunks.json') {
+      signal();
+      await gate;
+    }
+    return write(params);
+  };
+  const baseline = fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });
+  await started;
+  fixture.job.snapshots = [fixture.baseline, fixture.final];
+  fixture.job.currentSnapshotId = fixture.final.snapshotId;
+  release();
+  expect((await baseline).completed).toBe(true);
+  expect(
+    (
+      await fixture.knowledge.readChunks({
+        documentId: 'doc_test',
+        revisionKey: fixture.baseline.snapshotId,
+      })
+    ).chunks[0]?.content,
+  ).toBe('baseline');
+  expect((await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content).toBe(
+    'baseline',
+  );
+});
+
+it('historical full job cannot replace the current progressive reader', async () => {
+  const fixture = await createFixture();
+  await fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });
+  const zip = new JSZip();
+  zip.file(
+    'manifest.json',
+    JSON.stringify({
+      job_id: 'job_old_full',
+      source_file_name: 'old.pdf',
+      statistics: { total_chunks: 1 },
+    }),
+  );
+  zip.file(
+    'chunks.json',
+    JSON.stringify({
+      chunks: [
+        {
+          chunk_id: 'old',
+          type: 'text',
+          content: 'old-full',
+          path: 'old.pdf/Page 1',
+          metadata: {},
+        },
+      ],
+    }),
+  );
+  const archive = await zip.generateAsync({ type: 'uint8array' });
+  const url = 'https://archive.example/old-full.zip';
+  fixture.archives.set(url, archive);
+  const oldJob: JobResult = {
+    ...fixture.job,
+    jobId: 'job_old_full',
+    snapshots: undefined,
+    currentSnapshotId: undefined,
+    resultUrl: url,
+  };
+  vi.spyOn(fixture.client.jobs, 'get').mockImplementation((jobId) =>
+    Promise.resolve(jobId === 'job_old_full' ? oldJob : fixture.job),
+  );
+  await fixture.knowledge.syncParsedDocument({ jobId: 'job_old_full' });
+  expect(
+    (await fixture.knowledge.readChunks({ documentId: 'doc_test', revisionKey: 'job_old_full' }))
+      .chunks[0]?.content,
+  ).toBe('old-full');
+  expect((await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content).toBe(
+    'baseline',
+  );
+});
+
+it('retains current progressive reads when an older full Job is explicitly synchronized', async () => {
+  const fixture = await createFixture();
+  const archiveBytes = fixture.archives.get(fixture.final.resultUrl);
+  if (!archiveBytes) throw new Error('Missing historical archive fixture');
+  const archive = await JSZip.loadAsync(archiveBytes);
+  archive.file(
+    'manifest.json',
+    JSON.stringify({
+      job_id: 'job_old',
+      source_file_name: 'old.pdf',
+      statistics: { total_chunks: 1 },
+    }),
+  );
+  fixture.archives.set(
+    'https://archive.example/old-full.zip',
+    await archive.generateAsync({ type: 'uint8array' }),
+  );
+  await fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });
+  const historical: JobResult = {
+    ...fixture.job,
+    jobId: 'job_old',
+    snapshots: undefined,
+    currentSnapshotId: undefined,
+    resultUrl: 'https://archive.example/old-full.zip',
+  };
+  vi.spyOn(fixture.client.jobs, 'get').mockImplementation(
+    (jobId: string): Promise<JobResult> =>
+      Promise.resolve(jobId === 'job_old' ? historical : fixture.job),
+  );
+  expect((await fixture.knowledge.syncParsedDocument({ jobId: 'job_old' })).completed).toBe(true);
+  expect((await fixture.knowledge.readChunks({ documentId: 'doc_test' })).chunks[0]?.content).toBe(
+    'baseline',
+  );
+  expect(
+    (await fixture.knowledge.readChunks({ documentId: 'doc_test', revisionKey: 'job_old' }))
+      .chunks[0]?.content,
+  ).toBe('final');
+});

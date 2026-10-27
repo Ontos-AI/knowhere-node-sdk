@@ -207,10 +207,25 @@ describe('bounded parsed archive concurrency', () => {
   });
 
   it('flushes only the contiguous successful prefix and settles all writes after a failure', async () => {
-    const fixture: Fixture = await createFixture({
-      failPath: 'file-0.txt',
-      delays: { 'manifest.json': 1, 'chunks.json': 1, 'file-0.txt': 30 },
+    const fixture: Fixture = await createFixture({ failPath: 'file-0.txt' });
+    const writeStream: ParsedDocumentStorage['writeObjectStream'] =
+      fixture.storage.writeObjectStream?.bind(fixture.storage);
+    if (!writeStream) throw new Error('Failure fixture requires stream storage.');
+    let confirmPrefix: (() => void) | undefined;
+    const prefixCompleted: Promise<void> = new Promise((resolve) => {
+      confirmPrefix = resolve;
     });
+    const successfulPaths: Set<string> = new Set();
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'file-0.txt') await prefixCompleted;
+      const result: ParsedDocumentWriteObjectResult = await writeStream(params);
+      successfulPaths.add(params.path);
+      if (successfulPaths.has('manifest.json') && successfulPaths.has('chunks.json'))
+        confirmPrefix?.();
+      return result;
+    };
     await expect(
       fixture.sync({ maxConcurrentFiles: 3, checkpointFileInterval: 20 }),
     ).rejects.toThrow(/write failed/);

@@ -24,6 +24,7 @@ import {
   validateArchiveSyncLimits,
 } from '../storage/streamed-parsed-document-sync.js';
 import { LocalKnowledgeStore } from './local-store.js';
+import { serializeSnapshotPublication } from './serialize-snapshot-publication.js';
 import type {
   IndexedKnowledgeChunk,
   KnowledgeAsyncCacheResult,
@@ -209,14 +210,25 @@ export class Knowledge {
     const response: KnowledgeSyncParsedDocumentResponse =
       await this.performParsedDocumentSync(params);
     if (response.completed && !response.snapshot) {
-      await this.requireParsedStorageConfig().storage.writeObject({
-        documentId: response.documentId,
-        revisionKey: 'current',
-        path: '.knowhere-sdk/current-snapshot.json',
-        body: Buffer.from(
-          JSON.stringify({ snapshotId: response.revisionKey, jobResultId: response.revisionKey }),
-        ),
-        contentType: 'application/json; charset=utf-8',
+      const storage = this.requireParsedStorageConfig().storage;
+      await serializeSnapshotPublication(storage, response.documentId, async (): Promise<void> => {
+        if (params.documentId || params.jobId) {
+          const current: DocumentChunkListResponse = await this.client.documents.listChunks(
+            response.documentId,
+            { page: 1, pageSize: 1 },
+          );
+          if (params.jobId && current.jobId !== params.jobId) return;
+          if (!params.jobId && current.jobResultId !== response.revisionKey) return;
+        }
+        await storage.writeObject({
+          documentId: response.documentId,
+          revisionKey: 'current',
+          path: '.knowhere-sdk/current-snapshot.json',
+          body: Buffer.from(
+            JSON.stringify({ snapshotId: response.revisionKey, jobResultId: response.revisionKey }),
+          ),
+          contentType: 'application/json; charset=utf-8',
+        });
       });
     }
     return response;
@@ -330,28 +342,39 @@ export class Knowledge {
       retainResultArchive: params.retainResultArchive,
     });
     if (response.completed && snapshot.snapshotId === params.job.currentSnapshotId) {
-      const pointer: Uint8Array = Buffer.from(
-        JSON.stringify({
-          snapshotId: snapshot.snapshotId,
-          jobResultId: snapshot.jobResultId,
-        }),
+      await serializeSnapshotPublication(
+        params.parsedStorageConfig.storage,
+        params.documentId,
+        async (): Promise<void> => {
+          const current: DocumentChunkListResponse = await this.client.documents.listChunks(
+            params.documentId,
+            { page: 1, pageSize: 1 },
+          );
+          if (current.jobResultId !== snapshot.jobResultId) return;
+          const pointer: Uint8Array = Buffer.from(
+            JSON.stringify({
+              snapshotId: snapshot.snapshotId,
+              jobResultId: snapshot.jobResultId,
+            }),
+          );
+          if (snapshot.stage === 'final') {
+            await params.parsedStorageConfig.storage.writeObject({
+              documentId: params.documentId,
+              revisionKey: 'current',
+              path: '.knowhere-sdk/final-snapshot.json',
+              body: pointer,
+              contentType: 'application/json; charset=utf-8',
+            });
+          }
+          await params.parsedStorageConfig.storage.writeObject({
+            documentId: params.documentId,
+            revisionKey: 'current',
+            path: '.knowhere-sdk/current-snapshot.json',
+            body: pointer,
+            contentType: 'application/json; charset=utf-8',
+          });
+        },
       );
-      if (snapshot.stage === 'final') {
-        await params.parsedStorageConfig.storage.writeObject({
-          documentId: params.documentId,
-          revisionKey: 'current',
-          path: '.knowhere-sdk/final-snapshot.json',
-          body: pointer,
-          contentType: 'application/json; charset=utf-8',
-        });
-      }
-      await params.parsedStorageConfig.storage.writeObject({
-        documentId: params.documentId,
-        revisionKey: 'current',
-        path: '.knowhere-sdk/current-snapshot.json',
-        body: pointer,
-        contentType: 'application/json; charset=utf-8',
-      });
     }
     return response;
   }

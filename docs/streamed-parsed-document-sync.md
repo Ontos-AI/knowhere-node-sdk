@@ -225,3 +225,18 @@ and `stage`. Checkpoints add `snapshotChecksum` and `upstreamJobResultId`; adapt
 must persist these fields along with existing archive identity and entry hashes.
 SDK reader pointers use reserved `.knowhere-sdk/` objects in the `current`
 revision; adapters should treat all revision/path keys as SDK-owned opaque keys.
+
+
+## Current snapshot publication
+
+Historical Job synchronization retains an immutable, explicitly pinned snapshot and
+only advances ordinary reads when that Job still owns the published document.
+A completed baseline remains locally readable while final synchronization is pending,
+even if the upstream final archive is already available. Reads with a revision key
+remain pinned and do not change the ordinary reader selection.
+
+Current-pointer writes are serialized per document across Knowledge clients sharing
+the same storage adapter instance. The generic adapter exposes unconditional object
+writes rather than compare-and-swap. Applications synchronizing the same document
+from multiple processes or distinct adapter instances must serialize current-pointer
+publication externally; immutable revision-key reads do not require that coordination.

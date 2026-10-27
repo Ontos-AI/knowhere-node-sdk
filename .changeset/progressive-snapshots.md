@@ -7,3 +7,5 @@ Expose progressive job enhancement state, immutable baseline/final snapshot desc
 Bind copied entries and retained archives to SHA-256-verified compressed bytes, reject uncommitted pins, recover optional archive retention, and advance ordinary reads after a later full-mode reparse.
 
 Declare physical source-page coordinates and original ingestion revision identity on retrieval results and references so citations can follow enrichment independently of changing chunk identifiers.
+
+Keep ordinary reads on the current original ingestion when a superseded progressive or full Job finishes synchronizing late, while preserving explicitly pinned historical reads. Serialize current-pointer publication across clients sharing a storage adapter.
