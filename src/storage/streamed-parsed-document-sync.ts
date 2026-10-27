@@ -1,5 +1,6 @@
 import type { ReadableStreamReadResult } from 'node:stream/web';
 import { createHash } from 'crypto';
+import type { JobSnapshot } from '../types/job.js';
 import { ValidationError } from '../errors/index.js';
 import { ArchiveCacheTransportError } from './archive-cache-transport-error.js';
 import { prepareCachedArchive } from './parsed-document-archive-cache.js';
@@ -23,6 +24,7 @@ import {
   inferContentTypeFromPath,
   normalizeResultPath,
   parsedDocumentCommitPath,
+  readParsedDocumentCommit,
 } from './parsed-document-storage.js';
 
 export interface ArchiveEntry {
@@ -39,16 +41,19 @@ interface RangeEntryRead {
 
 export interface ArchiveSource {
   readonly signal?: AbortSignal;
+  readonly readArchive?: () => ReadableStream<Uint8Array>;
   readonly canSkipEntries: boolean;
   readonly identity: string;
   readonly downloadIdentity: string;
   readonly archiveCacheBypassed?: boolean;
   readonly isCached?: boolean;
+  readonly verifyArchiveChecksum?: (entryHashes: readonly string[]) => Promise<void>;
   readonly entries: AsyncIterable<ArchiveEntry> | Iterable<ArchiveEntry>;
   readonly close: () => Promise<void>;
 }
 
 export interface StreamedSyncParams {
+  readonly snapshot?: JobSnapshot;
   readonly documentId: string;
   readonly revisionKey: string;
   readonly jobId: string;
@@ -126,6 +131,8 @@ export async function syncRemoteResultArchive(
         documentId: params.documentId,
         revisionKey: params.revisionKey,
         pinnedRevisionKey: params.revisionKey,
+        snapshotChecksum: params.snapshot?.checksum,
+        upstreamJobResultId: params.snapshot?.jobResultId,
         archiveIdentity: source.identity,
         archiveDownloadIdentity,
         archiveCacheBypassed,
@@ -169,10 +176,41 @@ export async function syncRemoteResultArchive(
   }
 
   try {
-    if (previous?.archiveIdentity && previous.archiveIdentity !== source.identity)
+    if (previous?.snapshotChecksum && previous.snapshotChecksum !== params.snapshot?.checksum)
+      throw new Error('Parsed snapshot checksum changed within one generation.');
+    if (
+      previous?.upstreamJobResultId &&
+      previous.upstreamJobResultId !== params.snapshot?.jobResultId
+    )
+      throw new Error('Parsed snapshot upstream revision changed within one generation.');
+    if (previous?.archiveIdentity && previous.archiveIdentity !== source.identity) {
       throw new Error('Parsed result archive identity changed; start a new revision.');
-    if (previous?.pinnedRevisionKey && previous.pinnedRevisionKey !== params.revisionKey)
+    }
+    if (previous?.pinnedRevisionKey && previous.pinnedRevisionKey !== params.revisionKey) {
       throw new Error('Parsed result revision changed while resuming archive sync.');
+    }
+    if (params.snapshot && previous?.status === 'completed') {
+      const committed: ParsedDocumentCommit | null = await readParsedDocumentCommit(params);
+      if (committed) {
+        if (source.verifyArchiveChecksum) {
+          await source.verifyArchiveChecksum(previous.archiveEntryHashes ?? []);
+        } else {
+          await verifyArchiveChecksum(
+            params,
+            source.downloadIdentity,
+            previous.archiveEntryHashes ?? [],
+            params.retainResultArchive,
+          );
+        }
+        return {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          snapshot: params.snapshot,
+          completed: true,
+          commit: committed,
+        };
+      }
+    }
     for await (const entry of source.entries) {
       if (failure !== undefined) throw failure;
       signal.throwIfAborted();
@@ -196,7 +234,12 @@ export async function syncRemoteResultArchive(
       ) {
         await drainEntries();
         await flushProgress(true);
-        return { documentId: params.documentId, revisionKey: params.revisionKey, completed: false };
+        return {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          snapshot: params.snapshot,
+          completed: false,
+        };
       }
       if (
         successfulEntries >= checkpointFileInterval ||
@@ -213,9 +256,16 @@ export async function syncRemoteResultArchive(
     await drainEntries();
     await flushProgress(true);
     await validateRequiredObjects(params, paths);
+    if (params.snapshot && source.canSkipEntries)
+      if (source.verifyArchiveChecksum) await source.verifyArchiveChecksum(entryHashes);
+      else await verifyArchiveChecksum(params, source.downloadIdentity, entryHashes);
     await params.verifyRevision?.();
     signal.throwIfAborted();
     const commit: ParsedDocumentCommit = {
+      snapshotId: params.snapshot?.snapshotId,
+      jobResultId: params.snapshot?.jobResultId,
+      checksum: params.snapshot?.checksum,
+      stage: params.snapshot?.stage,
       version: 1,
       documentId: params.documentId,
       revisionKey: params.revisionKey,
@@ -234,6 +284,8 @@ export async function syncRemoteResultArchive(
         documentId: params.documentId,
         revisionKey: params.revisionKey,
         pinnedRevisionKey: params.revisionKey,
+        snapshotChecksum: params.snapshot?.checksum,
+        upstreamJobResultId: params.snapshot?.jobResultId,
         archiveIdentity: source.identity,
         archiveDownloadIdentity,
         archiveCacheBypassed,
@@ -255,6 +307,7 @@ export async function syncRemoteResultArchive(
       documentId: params.documentId,
       revisionKey: params.revisionKey,
       completed: true,
+      snapshot: params.snapshot,
       commit,
     };
   } catch (error) {
@@ -271,6 +324,8 @@ export async function syncRemoteResultArchive(
           documentId: params.documentId,
           revisionKey: params.revisionKey,
           pinnedRevisionKey: params.revisionKey,
+          snapshotChecksum: params.snapshot?.checksum,
+          upstreamJobResultId: params.snapshot?.jobResultId,
           archiveIdentity: source.identity,
           archiveDownloadIdentity,
           archiveEntryHashes: entryHashes.slice(0, checkpointEntry),
@@ -379,6 +434,8 @@ async function persistArchiveCacheBypass(
     documentId: params.documentId,
     revisionKey: params.revisionKey,
     pinnedRevisionKey: params.revisionKey,
+    snapshotChecksum: params.snapshot?.checksum,
+    upstreamJobResultId: params.snapshot?.jobResultId,
     archiveDownloadIdentity: previous?.archiveDownloadIdentity,
     archiveCacheBypassed: true,
     status: 'running',
@@ -536,6 +593,16 @@ async function openArchiveTransport(
       downloadIdentity: identity,
       archiveCacheBypassed,
       isCached: prepared?.isCached,
+      verifyArchiveChecksum: prepared?.isCached
+        ? (entryHashes: readonly string[]): Promise<void> =>
+            verifyArchiveChecksum(
+              { ...params, resultUrl },
+              identity,
+              entryHashes,
+              false,
+              prepared.validateResponse,
+            )
+        : undefined,
       canSkipEntries: previous?.archiveIdentity !== identity,
       entries: (function* (): Generator<ArchiveEntry> {
         for (const entry of files) {
@@ -636,6 +703,13 @@ async function validateRequiredObjects(
   const manifestJobId: unknown = manifest.job_id ?? manifest.jobId;
   if (manifestJobId !== params.jobId)
     throw new Error('Parsed result manifest job identity differs from the pinned job.');
+  const manifestRevision: unknown = manifest.job_result_id ?? manifest.jobResultId;
+  if (
+    params.snapshot &&
+    manifestRevision !== undefined &&
+    manifestRevision !== params.snapshot.jobResultId
+  )
+    throw new Error('Parsed result manifest revision differs from the snapshot upstream revision.');
   const chunks: unknown = Array.isArray(payload)
     ? payload
     : isRecord(payload)
@@ -668,7 +742,63 @@ async function validateRequiredObjects(
     if (!paths.has(path)) throw new Error(`Required parsed result file missing: ${path}`);
 }
 
+async function verifyArchiveChecksum(
+  params: StreamedSyncParams,
+  identity: string,
+  expectedEntryHashes: readonly string[],
+  retainResultArchive = false,
+  validateResponse?: (response: Response) => Response,
+): Promise<void> {
+  const { openSequentialArchive } = await import('./sequential-parsed-document-archive.js');
+  const source: ArchiveSource = await openSequentialArchive(params, identity, validateResponse);
+  let entryIndex: number = 0;
+  try {
+    for await (const entry of source.entries) {
+      const hash = createHash('sha256');
+      for await (const part of entry.read()) {
+        params.signal?.throwIfAborted();
+        hash.update(part);
+      }
+      const entryHash: string = createHash('sha256')
+        .update(entry.path)
+        .update(hash.digest())
+        .digest('hex');
+      if (expectedEntryHashes[entryIndex] !== entryHash)
+        throw new Error(
+          'Parsed snapshot archive entry changed between extraction and checksum verification.',
+        );
+      entryIndex += 1;
+    }
+    if (entryIndex !== expectedEntryHashes.length)
+      throw new Error('Parsed snapshot archive entry count changed during checksum verification.');
+    // The sequential source verifies SHA-256 of the very bytes it extracted.
+    // Retain those same verified compressed bytes; a new HTTP response is not proof.
+    if (retainResultArchive && source.readArchive) {
+      try {
+        await writeStream(params.storage, {
+          documentId: params.documentId,
+          revisionKey: params.revisionKey,
+          path: 'result.zip',
+          body: source.readArchive(),
+          contentType: 'application/zip',
+          signal: params.signal,
+        });
+      } catch {
+        /* Optional archive retention never invalidates a committed snapshot. */
+      }
+    }
+  } finally {
+    await source.close();
+  }
+}
+
 async function retainArchive(params: StreamedSyncParams, expectedIdentity: string): Promise<void> {
+  if (params.snapshot) {
+    const progress: ParsedDocumentSyncProgress | null =
+      await params.storage.readSyncProgress(params);
+    await verifyArchiveChecksum(params, expectedIdentity, progress?.archiveEntryHashes ?? [], true);
+    return;
+  }
   const response: Response = await fetch(params.resultUrl, { signal: params.signal });
   if (!response.ok || !response.body)
     throw new Error(`Optional archive download failed (HTTP ${response.status}).`);

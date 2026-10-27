@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import { mkdtemp, open, rm, type FileHandle } from 'fs/promises';
@@ -22,7 +23,11 @@ export async function openSequentialArchive(
   identity: string,
   validateResponse?: (response: Response) => Response,
 ): Promise<ArchiveSource> {
-  let response: Response = await fetch(params.resultUrl, { signal: params.signal });
+  // Cached verification streams the entire pinned object through its Range validator.
+  let response: Response = await fetch(params.resultUrl, {
+    signal: params.signal,
+    headers: validateResponse ? { Range: 'bytes=0-' } : undefined,
+  });
   if (!response.ok || !response.body)
     throw new Error(`Parsed result download failed (HTTP ${response.status}).`);
   if (validateResponse) response = validateResponse(response);
@@ -51,11 +56,13 @@ export async function openSequentialArchive(
   const parser = Parse({ forceStream: true });
   const checksums: Map<string, { readonly checksum: number; readonly size: number }> = new Map();
   let archiveSize: number = 0;
+  const archiveHash = createHash('sha256');
   // unzipper extracts sequentially, but does not verify CRCs. Spool compressed bytes to disk
   // for a central-directory check after extraction, including entries with data descriptors.
   const spool: Transform = new Transform({
     transform(chunk: Buffer, _encoding, callback): void {
       archiveSize += chunk.length;
+      archiveHash.update(chunk);
       void file.writeFile(chunk).then(
         (): void => {
           callback(null, chunk);
@@ -73,6 +80,23 @@ export async function openSequentialArchive(
     identity,
     downloadIdentity: identity,
     canSkipEntries: false,
+    readArchive: (): ReadableStream<Uint8Array> => {
+      let position: number = 0;
+      return new ReadableStream<Uint8Array>({
+        async pull(controller): Promise<void> {
+          params.signal?.throwIfAborted();
+          if (position >= archiveSize) {
+            controller.close();
+            return;
+          }
+          const body: Uint8Array = new Uint8Array(Math.min(65_536, archiveSize - position));
+          const { bytesRead } = await file.read(body, 0, body.length, position);
+          if (bytesRead !== body.length) throw new Error('Truncated verified archive spool.');
+          position += bytesRead;
+          controller.enqueue(body);
+        },
+      });
+    },
     entries: (async function* (): AsyncGenerator<ArchiveEntry> {
       for await (const value of parser) {
         const entry: SequentialEntry = value as SequentialEntry;
@@ -108,6 +132,8 @@ export async function openSequentialArchive(
         };
       }
       await completed;
+      if (params.snapshot && archiveHash.digest('hex') !== params.snapshot.checksum)
+        throw new Error('Parsed snapshot archive checksum mismatch for extracted bytes.');
       const reader = new ZipReader(new DiskArchiveReader(file, archiveSize), {
         useWebWorkers: false,
       });

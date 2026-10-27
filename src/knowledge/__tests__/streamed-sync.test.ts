@@ -244,6 +244,15 @@ afterEach(() => {
 });
 
 describe('streamed remote parsed document sync', () => {
+  it('keeps the published upstream revision for full-mode combined document and job references', async () => {
+    const fixture = await createFixture();
+    const result = await fixture.knowledge.syncParsedDocument({
+      documentId: 'doc_test',
+      jobId: 'job_test',
+    });
+    expect(result.revisionKey).toBe('revision_test');
+  });
+
   it('streams exact entry bytes to the optional stream sink without loading ParseResult or issuing HEAD', async () => {
     const fixture = await createFixture();
     const result = await fixture.knowledge.syncParsedDocument({ documentId: 'doc_test' });

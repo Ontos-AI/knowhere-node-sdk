@@ -1,4 +1,5 @@
 import type { ReadableStreamReadResult } from 'node:stream/web';
+import { createHash } from 'crypto';
 import JSZip from 'jszip';
 import { randomBytes } from 'node:crypto';
 import { ZipReader, configure, type FileEntry } from '@zip.js/zip.js';
@@ -221,10 +222,25 @@ describe('bounded parsed archive concurrency', () => {
   });
 
   it('flushes only the contiguous successful prefix and settles all writes after a failure', async () => {
-    const fixture: Fixture = await createFixture({
-      failPath: 'file-0.txt',
-      delays: { 'manifest.json': 1, 'chunks.json': 1, 'file-0.txt': 30 },
+    const fixture: Fixture = await createFixture({ failPath: 'file-0.txt' });
+    const writeStream: ParsedDocumentStorage['writeObjectStream'] =
+      fixture.storage.writeObjectStream?.bind(fixture.storage);
+    if (!writeStream) throw new Error('Failure fixture requires stream storage.');
+    let confirmPrefix: (() => void) | undefined;
+    const prefixCompleted: Promise<void> = new Promise((resolve) => {
+      confirmPrefix = resolve;
     });
+    const successfulPaths: Set<string> = new Set();
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'file-0.txt') await prefixCompleted;
+      const result: ParsedDocumentWriteObjectResult = await writeStream(params);
+      successfulPaths.add(params.path);
+      if (successfulPaths.has('manifest.json') && successfulPaths.has('chunks.json'))
+        confirmPrefix?.();
+      return result;
+    };
     await expect(
       fixture.sync({ maxConcurrentFiles: 3, checkpointFileInterval: 20 }),
     ).rejects.toThrow(/write failed/);
@@ -838,6 +854,39 @@ describe('bounded parsed archive concurrency', () => {
       return !new Headers(init?.headers).has('range');
     }).length;
     expect(fullFetches).toBe(1);
+  });
+
+  it('verifies progressive cached bytes without downloading the full origin twice', async () => {
+    const fixture: Fixture = await createFixture({ cache: true });
+    const response: Response = await fetch('https://archive.example/result.zip');
+    const archive: Uint8Array = new Uint8Array(await response.arrayBuffer());
+    fixture.fetch.mockClear();
+    await syncRemoteResultArchive({
+      documentId: 'document',
+      revisionKey: 'snapshot',
+      jobId: 'job',
+      resultUrl: 'https://archive.example/result.zip',
+      storage: fixture.storage,
+      cacheResultArchive: true,
+      retainResultArchive: true,
+      snapshot: {
+        snapshotId: 'snapshot',
+        stage: 'baseline',
+        documentId: 'document',
+        jobId: 'job',
+        jobResultId: 'result',
+        checksum: createHash('sha256').update(archive).digest('hex'),
+        resultUrl: 'https://archive.example/result.zip',
+        resultUrlExpiresAt: new Date('2030-01-01'),
+      },
+    });
+    const originDownloads: number = fixture.fetch.mock.calls.filter(
+      (call: readonly unknown[]) =>
+        String(call[0]).includes('archive.example') &&
+        !new Headers((call[1] as RequestInit | undefined)?.headers).has('range'),
+    ).length;
+    expect(originDownloads).toBe(1);
+    expect(Array.from(fixture.objects.get('result.zip') ?? [])).toEqual(Array.from(archive));
   });
 
   it('verifies a legacy sequential checkpoint when resuming through cached Range transport', async () => {
