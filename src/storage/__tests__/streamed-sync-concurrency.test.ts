@@ -1,6 +1,7 @@
 import type { ReadableStreamReadResult } from 'node:stream/web';
 import JSZip from 'jszip';
-import { ZipReader, type FileEntry } from '@zip.js/zip.js';
+import { randomBytes } from 'node:crypto';
+import { ZipReader, configure, type FileEntry } from '@zip.js/zip.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Knowledge } from '../../knowledge/knowledge.js';
 import type { Knowhere } from '../../client.js';
@@ -30,6 +31,7 @@ interface Fixture {
 
 async function createFixture(
   options: {
+    readonly entropyBytes?: number;
     readonly fileCount?: number;
     readonly largeEntries?: boolean;
     readonly sequential?: boolean;
@@ -47,7 +49,11 @@ async function createFixture(
   for (let index: number = 0; index < (options.fileCount ?? 8); index += 1)
     zip.file(
       `file-${index}.txt`,
-      options.largeEntries ? `body-${index}`.repeat(262144) : `body-${index}`,
+      options.entropyBytes
+        ? randomBytes(options.entropyBytes)
+        : options.largeEntries
+          ? `body-${index}`.repeat(262144)
+          : `body-${index}`,
     );
   const archive: Uint8Array = await zip.generateAsync({
     type: 'uint8array',
@@ -428,6 +434,142 @@ describe('bounded parsed archive concurrency', () => {
       expect(fixture.finished).toHaveLength(writesAtReturn);
       isInvalid = false;
       expect(await sync()).toMatchObject({ completed: true });
+    },
+  );
+
+  it.each(['http', 'etag', 'network', 'origin-http'] as const)(
+    'cancels queued upload consumers after unread cached %s failure',
+    async (failure): Promise<void> => {
+      const originalWorkerCount: number =
+        typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency;
+      configure({ maxWorkers: 1 });
+      const fixture: Fixture = await createFixture({
+        cache: true,
+        entropyBytes: 1_200_000,
+        fileCount: 2,
+      });
+      const synchronize = (signal?: AbortSignal, maxEntriesPerSync?: number): Promise<unknown> =>
+        syncRemoteResultArchive({
+          documentId: 'document',
+          revisionKey: 'revision',
+          jobId: 'job',
+          resultUrl: 'https://archive.example/result.zip',
+          storage: fixture.storage,
+          cacheResultArchive: failure !== 'origin-http',
+          limits: { maxConcurrentFiles: 2, maxEntriesPerSync },
+          signal,
+        });
+      await synchronize(undefined, 2);
+      const archive: Buffer = Buffer.from(fixture.archive);
+      const badOffset: number =
+        archive.indexOf(Buffer.from('file-1.txt')) + Buffer.byteLength('file-1.txt');
+      let markFailure: (() => void) | undefined;
+      const failedResponse: Promise<void> = new Promise((resolve) => {
+        markFailure = resolve;
+      });
+      const originalFetch: typeof fetch = fetch;
+      let isInvalid: boolean = true;
+      vi.stubGlobal(
+        'fetch',
+        async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+          const url: string =
+            typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          const offset: number = Number(
+            /^bytes=(\d+)-/.exec(new Headers(init?.headers).get('range') ?? '')?.[1] ?? -1,
+          );
+          const response: Response = await originalFetch(input, init);
+          if (
+            isInvalid &&
+            url.startsWith(
+              failure === 'origin-http' ? 'https://archive.example/' : 'https://cache.example/',
+            ) &&
+            offset === badOffset
+          ) {
+            markFailure?.();
+            if (failure === 'etag') {
+              const headers: Headers = new Headers(response.headers);
+              headers.set('etag', '"invalid-cache"');
+              return new Response(response.body, { status: response.status, headers });
+            }
+            await response.body?.cancel();
+            if (failure === 'network') throw new TypeError('Cached transport unavailable');
+            const body: ReadableStream<Uint8Array> | string =
+              failure === 'origin-http'
+                ? new ReadableStream<Uint8Array>({
+                    cancel: () =>
+                      new Promise<void>((resolve) => {
+                        if (init?.signal?.aborted) resolve();
+                        else
+                          init?.signal?.addEventListener('abort', () => resolve(), { once: true });
+                      }),
+                  })
+                : 'Cached response unavailable';
+            return new Response(body, { status: 500 });
+          }
+          return response;
+        },
+      );
+      let release: (() => void) | undefined;
+      const permit: Promise<void> = new Promise((resolve) => {
+        release = resolve;
+      });
+      const write = fixture.storage.writeObjectStream!.bind(fixture.storage);
+      fixture.storage.writeObjectStream = async (
+        params: ParsedDocumentWriteObjectStreamParams,
+      ): Promise<ParsedDocumentWriteObjectResult> => {
+        // Models a backpressured adapter waiting for another document's capacity.
+        if (params.path.startsWith('file-')) {
+          await Promise.race([
+            permit,
+            new Promise<never>((_resolve, reject) => {
+              if (params.signal?.aborted)
+                reject(
+                  new Error('Storage capacity wait cancelled', { cause: params.signal.reason }),
+                );
+              else
+                params.signal?.addEventListener(
+                  'abort',
+                  () =>
+                    reject(
+                      new Error('Storage capacity wait cancelled', {
+                        cause: params.signal?.reason,
+                      }),
+                    ),
+                  { once: true },
+                );
+            }),
+          ]);
+        }
+        return write(params);
+      };
+      const controller: AbortController = new AbortController();
+      const outcome: Promise<string> = synchronize(controller.signal).then(
+        (): string => 'completed',
+        (): string => 'rejected',
+      );
+      try {
+        await failedResponse;
+        expect(
+          await Promise.race([
+            outcome,
+            new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 250)),
+          ]),
+        ).toBe('rejected');
+        expect(fixture.progress.at(-1)?.archiveCacheBypassed === true).toBe(
+          failure !== 'origin-http',
+        );
+        expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+      } finally {
+        release?.();
+        controller.abort(new Error('Release the backpressured fixture'));
+        await outcome;
+        configure({ maxWorkers: originalWorkerCount });
+      }
+      const writesAtReturn: number = fixture.finished.length;
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      expect(fixture.finished).toHaveLength(writesAtReturn);
+      isInvalid = false;
+      expect(await synchronize()).toMatchObject({ completed: true });
     },
   );
 

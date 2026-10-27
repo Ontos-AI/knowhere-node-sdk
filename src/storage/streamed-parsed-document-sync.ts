@@ -38,6 +38,7 @@ interface RangeEntryRead {
 }
 
 export interface ArchiveSource {
+  readonly signal?: AbortSignal;
   readonly canSkipEntries: boolean;
   readonly identity: string;
   readonly downloadIdentity: string;
@@ -75,9 +76,9 @@ export async function syncRemoteResultArchive(
   const signal: AbortSignal = params.signal
     ? AbortSignal.any([params.signal, controller.signal])
     : controller.signal;
-  const transferParams: StreamedSyncParams = { ...params, signal };
+  const openingParams: StreamedSyncParams = { ...params, signal };
   const previous: ParsedDocumentSyncProgress | null = await params.storage.readSyncProgress(params);
-  const openedSource: ArchiveSource = await openArchive(transferParams, previous);
+  const openedSource: ArchiveSource = await openArchive(openingParams, previous);
   // A validated cache can support Range even when its unchanged origin cannot.
   // Keep the directory identity while the sequential reader verifies every saved hash.
   const source: ArchiveSource =
@@ -86,6 +87,12 @@ export async function syncRemoteResultArchive(
     previous.archiveDownloadIdentity === openedSource.downloadIdentity
       ? { ...openedSource, identity: previous.archiveIdentity }
       : openedSource;
+  // A transport error must also interrupt sinks that are waiting for capacity,
+  // before they consume the entry stream and can observe its failure.
+  const transferParams: StreamedSyncParams = {
+    ...openingParams,
+    signal: source.signal ?? signal,
+  };
   const archiveDownloadIdentity: string | undefined = source.isCached
     ? source.downloadIdentity
     : previous?.archiveDownloadIdentity;
@@ -475,23 +482,34 @@ async function openArchiveTransport(
     // Cached reads already pin a strong ETag and exact lengths; CDN timestamps can drift.
     checkResourceChanges: !prepared?.isCached,
     fetch: async (input, init): Promise<Response> => {
-      let response: Response;
       try {
-        response = await fetch(input, { ...init, signal: rangeSignal });
-      } catch (error) {
-        rangeSignal.throwIfAborted();
-        if (prepared?.isCached)
-          throw new ArchiveCacheTransportError(
-            'Parsed result archive cache transport unavailable.',
+        let response: Response;
+        try {
+          response = await fetch(input, { ...init, signal: rangeSignal });
+        } catch (error) {
+          rangeSignal.throwIfAborted();
+          if (prepared?.isCached)
+            throw new ArchiveCacheTransportError(
+              'Parsed result archive cache transport unavailable.',
+            );
+          throw error;
+        }
+        if (prepared?.isCached) return prepared.validateResponse(response);
+        if (response.status !== 206) {
+          const error: Error = new Error(
+            `Parsed result Range request failed (HTTP ${response.status}).`,
           );
+          rangeController.abort(error);
+          await response.body?.cancel(error).catch((): void => undefined);
+          throw error;
+        }
+        return prepared ? prepared.validateResponse(response) : response;
+      } catch (error) {
+        // zip.js can open a response before a decoder has started reading it.
+        // Abort here rather than waiting for the reader's pull to fail.
+        rangeController.abort(error);
         throw error;
       }
-      if (prepared?.isCached) return prepared.validateResponse(response);
-      if (response.status !== 206) {
-        await response.body?.cancel();
-        throw new Error(`Parsed result Range request failed (HTTP ${response.status}).`);
-      }
-      return prepared ? prepared.validateResponse(response) : response;
     },
   };
   const reader = new ZipReader(new AbortableHttpRangeReader(resultUrl, options, rangeController), {
@@ -513,6 +531,7 @@ async function openArchiveTransport(
       )
       .digest('hex');
     return {
+      signal: rangeSignal,
       identity: previous?.archiveIdentity === identity ? identity : archiveIdentity,
       downloadIdentity: identity,
       archiveCacheBypassed,
