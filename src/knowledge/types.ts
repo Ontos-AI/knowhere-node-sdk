@@ -121,6 +121,8 @@ export interface KnowledgeSyncParsedDocumentParams extends KnowledgeDocumentRefe
   readonly signal?: AbortSignal;
   /** Optionally retain the exact source ZIP as result.zip after committing the snapshot. */
   readonly retainResultArchive?: boolean;
+  /** Optionally cache the source ZIP in storage before extracting its files. */
+  readonly cacheResultArchive?: boolean;
 }
 
 export interface KnowledgeSyncParsedDocumentResponse {

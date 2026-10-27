@@ -19,7 +19,10 @@ import {
   syncParseResultToParsedDocumentStorage,
 } from '../storage/parsed-document-storage.js';
 import { keysToCamel } from '../lib/utils.js';
-import { syncRemoteResultArchive } from '../storage/streamed-parsed-document-sync.js';
+import {
+  syncRemoteResultArchive,
+  validateArchiveSyncLimits,
+} from '../storage/streamed-parsed-document-sync.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import type {
   IndexedKnowledgeChunk,
@@ -225,6 +228,7 @@ export class Knowledge {
     params.signal?.throwIfAborted();
     const normalized = normalizeDocumentReference(params);
     const parsedStorageConfig = this.requireParsedStorageConfig();
+    validateArchiveSyncLimits(parsedStorageConfig.limits);
 
     if (normalized.documentId && !normalized.jobId) {
       return this.syncRemoteDocumentToParsedStorage({
@@ -233,6 +237,7 @@ export class Knowledge {
         parsedStorageConfig,
         signal: params.signal,
         retainResultArchive: params.retainResultArchive,
+        cacheResultArchive: params.cacheResultArchive,
       });
     }
 
@@ -272,6 +277,7 @@ export class Knowledge {
         limits: parsedStorageConfig.limits,
         signal: params.signal,
         retainResultArchive: params.retainResultArchive,
+        cacheResultArchive: params.cacheResultArchive,
       });
     }
 
@@ -1278,6 +1284,7 @@ export class Knowledge {
     parsedStorageConfig: ParsedDocumentStorageConfig;
     signal?: AbortSignal;
     retainResultArchive?: boolean;
+    cacheResultArchive?: boolean;
   }): Promise<KnowledgeSyncParsedDocumentResponse> {
     params.signal?.throwIfAborted();
     const firstPage = await this.client.documents.listChunks(params.documentId, {
@@ -1318,6 +1325,7 @@ export class Knowledge {
           limits: params.parsedStorageConfig.limits,
           signal: params.signal,
           retainResultArchive: params.retainResultArchive,
+          cacheResultArchive: params.cacheResultArchive,
           verifyRevision: async (): Promise<void> => {
             const current = await this.client.documents.listChunks(params.documentId, {
               page: 1,

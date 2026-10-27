@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.6.0
+
+### Minor Changes
+
+- [#136](https://github.com/Ontos-AI/knowhere-node-sdk/pull/136) [`f8c489e`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/f8c489ec0b4f15ddca2e9087f5c17f4e62d8cc1d) Thanks [@suguanYang](https://github.com/suguanYang)! - Add bounded concurrent Range archive extraction, count/time checkpoint batching,
+  stream content lengths and storage entity tags, and optional source ZIP caching
+  with persistent fallback and immutable transport validation. Preserve sequential
+  streaming, existing storage adapters, archive order, and checkpoint identities.
+
 ## 2.5.0
 
 ### Minor Changes

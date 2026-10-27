@@ -99,6 +99,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref }}
 
+      - name: Resolve Changesets base branch
+        run: |
+          if ! git show-ref --verify --quiet refs/heads/main; then
+            git branch main origin/main
+          fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

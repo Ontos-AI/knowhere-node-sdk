@@ -51,6 +51,7 @@ export interface ParsedDocumentObjectParams extends ParsedDocumentRevisionParams
 }
 
 export interface ParsedDocumentObjectHead extends ParsedDocumentObjectParams {
+  readonly entityTag?: string;
   readonly contentType?: string;
   readonly contentLength?: number;
   readonly metadata?: Readonly<Record<string, string>>;
@@ -73,10 +74,13 @@ export interface ParsedDocumentWriteObjectStreamParams extends Omit<
   'body'
 > {
   readonly body: ReadableStream<Uint8Array>;
+  /** Expected uncompressed entry length, when supplied by the archive directory. */
+  readonly contentLength?: number;
   readonly signal?: AbortSignal;
 }
 
 export interface ParsedDocumentWriteObjectResult extends ParsedDocumentObjectParams {
+  readonly entityTag?: string;
   readonly url?: string;
 }
 
@@ -102,12 +106,21 @@ export interface ParsedDocumentSyncProgress {
   readonly nextChunkPage?: number;
   readonly pinnedRevisionKey?: string;
   readonly archiveIdentity?: string;
+  /** Strong canonical origin identity retained when a cached archive resumes sequentially. */
+  readonly archiveDownloadIdentity?: string;
+  /** Once true, later segments use the origin rather than retrying optional archive caching. */
+  readonly archiveCacheBypassed?: boolean;
   readonly nextArchiveEntry?: number;
   /** Content hashes for verifying a sequential retry without a strong HTTP validator. */
   readonly archiveEntryHashes?: readonly string[];
   readonly status: 'running' | 'completed' | 'failed';
   readonly updatedAt: string;
   readonly error?: string;
+}
+
+export interface ParsedDocumentSyncProgressOptions {
+  readonly signal?: AbortSignal;
+  readonly isSegmentBoundary?: boolean;
 }
 
 export interface ParsedDocumentStorage {
@@ -122,7 +135,10 @@ export interface ParsedDocumentStorage {
   readSyncProgress(
     params: ParsedDocumentRevisionParams,
   ): Promise<ParsedDocumentSyncProgress | null>;
-  writeSyncProgress(params: ParsedDocumentSyncProgress): Promise<void>;
+  writeSyncProgress(
+    params: ParsedDocumentSyncProgress,
+    options?: ParsedDocumentSyncProgressOptions,
+  ): Promise<void>;
 }
 
 export interface ParsedDocumentSyncScheduler {
@@ -132,6 +148,12 @@ export interface ParsedDocumentSyncScheduler {
 export interface ParsedDocumentStorageLimits {
   /** ZIP entries copied per invocation (default 100). */
   readonly maxEntriesPerSync?: number;
+  /** Maximum concurrent entry writes for Range archives (default 1). */
+  readonly maxConcurrentFiles?: number;
+  /** Successful files between checkpoints (default 1). */
+  readonly checkpointFileInterval?: number;
+  /** Maximum scheduling interval between checkpoints (default 2000ms). */
+  readonly checkpointIntervalMs?: number;
   /** ZIP copy budget checked between entries (default 120000ms). */
   readonly archiveSyncDeadlineMs?: number;
   readonly remotePageSize?: number;

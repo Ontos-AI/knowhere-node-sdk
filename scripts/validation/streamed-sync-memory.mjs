@@ -2,33 +2,42 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomFillSync } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { ZipWriter } from '@zip.js/zip.js';
 
 const MEBIBYTE = 1024 * 1024;
 const isWorker = process.argv[2] === '--worker';
 if (isWorker) {
-  await validateWorker(process.argv[3], Number(process.argv[4]), Number(process.argv[5] ?? 1));
+  await validateWorker(
+    process.argv[3],
+    Number(process.argv[4]),
+    Number(process.argv[5] ?? 1),
+    process.argv[6] === 'cache',
+  );
 } else {
   const directory = await mkdtemp(join(tmpdir(), 'knowhere-memory-validation-'));
   try {
-    for (const [sizeMebibytes, imageCount, concurrency] of [
-      [281, 922, 1],
-      [562, 1844, 1],
-      [281, 922, 2],
+    for (const [sizeMebibytes, imageCount, concurrency, cache] of [
+      [281, 922, 1, false],
+      [562, 1844, 1, false],
+      [281, 922, 2, false],
+      [281, 922, 1, true],
+      [562, 1844, 1, true],
+      [281, 922, 2, true],
     ]) {
       const archivePath = join(directory, `${sizeMebibytes}.zip`);
       if (!(await stat(archivePath).catch(() => null)))
         await generateArchive(archivePath, sizeMebibytes * MEBIBYTE, imageCount);
-      await runWorker(archivePath, imageCount, concurrency);
+      await runWorker(archivePath, imageCount, concurrency, cache);
     }
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    console.error(JSON.stringify({ generatedFixturesPreservedAt: directory }));
   }
 }
 
@@ -48,6 +57,8 @@ async function generateArchive(archivePath, totalBytes, imageCount) {
   const block = randomFillSync(Buffer.alloc(64 * 1024));
   let remaining = totalBytes;
   for (let index = 0; index < imageCount; index += 1) {
+    // Distinct payloads make CRC checks detect cross-entry mixups during concurrency.
+    randomFillSync(block);
     let imageBytes = Math.min(remaining, Math.ceil(totalBytes / imageCount));
     remaining -= imageBytes;
     const body = new ReadableStream({
@@ -75,7 +86,7 @@ function textStream(value) {
   });
 }
 
-async function runWorker(archivePath, imageCount, concurrency) {
+async function runWorker(archivePath, imageCount, concurrency, cache) {
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -86,6 +97,7 @@ async function runWorker(archivePath, imageCount, concurrency) {
         archivePath,
         String(imageCount),
         String(concurrency),
+        cache ? 'cache' : 'range',
       ],
       { stdio: ['ignore', 'pipe', 'inherit'] },
     );
@@ -97,12 +109,16 @@ async function runWorker(archivePath, imageCount, concurrency) {
   });
 }
 
-async function validateWorker(archivePath, imageCount, concurrency) {
+async function validateWorker(archivePath, imageCount, concurrency, cache) {
   const { Knowledge } = await import('../../dist/index.mjs');
   const { size } = await stat(archivePath);
   let rangeRequests = 0;
   let wholeRequests = 0;
+  const cachedArchives = new Map();
+  let cacheRangeRequests = 0;
   const server = createServer((request, response) => {
+    const cachedArchive = cachedArchives.get(new URL(request.url, 'http://fixture').pathname);
+    const selectedArchive = cachedArchive ?? archivePath;
     if (request.method !== 'GET') {
       response.writeHead(403).end();
       return;
@@ -111,7 +127,8 @@ async function validateWorker(archivePath, imageCount, concurrency) {
     let start = 0;
     let end = size - 1;
     if (range) {
-      rangeRequests += 1;
+      if (cachedArchive) cacheRangeRequests += 1;
+      else rangeRequests += 1;
       const match = /^bytes=(\d*)-(\d*)$/.exec(range);
       if (!match) {
         response.writeHead(416).end();
@@ -126,9 +143,9 @@ async function validateWorker(archivePath, imageCount, concurrency) {
       'accept-ranges': 'bytes',
       'content-length': end - start + 1,
       ...(range ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
-      etag: '"synthetic-immutable-archive"',
+      etag: cachedArchive ? '"storage-archive-version"' : '"synthetic-immutable-archive"',
     });
-    const source = createReadStream(archivePath, { start, end, highWaterMark: 64 * 1024 });
+    const source = createReadStream(selectedArchive, { start, end, highWaterMark: 64 * 1024 });
     response.on('close', () => source.destroy());
     source.pipe(response);
   });
@@ -149,7 +166,22 @@ async function validateWorker(archivePath, imageCount, concurrency) {
     const metadata = new Map();
     let progress = null;
     let calls = 0;
+    const cachePath = `${archivePath}.copy-${copyIndex}.cached.zip`;
+    const cacheUrl = `http://127.0.0.1:${address.port}/cache-${copyIndex}.zip`;
     const storage = {
+      async headObject(params) {
+        if (params.path !== 'result.zip' || !cachedArchives.has(`/cache-${copyIndex}.zip`))
+          return null;
+        return {
+          ...params,
+          url: cacheUrl,
+          contentLength: size,
+          entityTag: '"storage-archive-version"',
+        };
+      },
+      async getObjectUrl() {
+        return cacheUrl;
+      },
       readObject(params) {
         const body = metadata.get(params.path);
         return Promise.resolve(body ? { ...params, body } : null);
@@ -160,6 +192,13 @@ async function validateWorker(archivePath, imageCount, concurrency) {
         return Promise.resolve(params);
       },
       async writeObjectStream(params) {
+        if (params.path === 'result.zip') {
+          await pipeline(Readable.fromWeb(params.body), createWriteStream(cachePath), {
+            signal: params.signal,
+          });
+          cachedArchives.set(`/cache-${copyIndex}.zip`, cachePath);
+          return { ...params, url: cacheUrl, entityTag: '"storage-archive-version"' };
+        }
         const parts = [];
         const isMetadata = params.path === 'manifest.json' || params.path === 'chunks.json';
         for await (const part of params.body) {
@@ -204,12 +243,19 @@ async function validateWorker(archivePath, imageCount, concurrency) {
         },
       },
     };
-    const knowledge = new Knowledge(client).withParsedStorage({ storage });
+    const knowledge = new Knowledge(client).withParsedStorage({
+      storage,
+      limits: { maxConcurrentFiles: 4, checkpointFileInterval: 10, checkpointIntervalMs: 2000 },
+    });
     let result;
     do {
       calls += 1;
       syncCalls += 1;
-      result = await knowledge.syncParsedDocument({ documentId: 'doc_memory' });
+      result = await knowledge.syncParsedDocument({
+        documentId: 'doc_memory',
+        cacheResultArchive: cache,
+        retainResultArchive: cache,
+      });
       assert(calls <= Math.ceil((imageCount + 2) / 100) + 1, 'Sync must make bounded progress');
     } while (!result.completed);
     return result;
@@ -220,16 +266,25 @@ async function validateWorker(archivePath, imageCount, concurrency) {
     );
     sample();
     assert.equal(copiedImages, imageCount * concurrency);
-    assert.equal(wholeRequests, 0, 'Primary path must only issue Range requests');
+    assert.equal(
+      wholeRequests,
+      cache ? concurrency : 0,
+      'Each cached archive must require exactly one full source download',
+    );
+    if (cache) assert(cacheRangeRequests > 0, 'Expanded entries must read from retained archive');
     assert(peakRssBytes < 512 * MEBIBYTE, `Peak RSS exceeds 512 MiB: ${peakRssBytes}`);
     console.log(
       JSON.stringify({
         archiveMebibytes: Number((size / MEBIBYTE).toFixed(2)),
         imageCount,
         concurrency,
+        fileConcurrency: 4,
+        cacheEnabled: cache,
+        scope: 'SDK streams and disk cache; HTTP fixture shares measured process',
         copiedMebibytes: Number((copiedBytes / MEBIBYTE).toFixed(2)),
         syncCalls,
         rangeRequests,
+        cacheRangeRequests,
         wholeRequests,
         baselineRssMebibytes: Number((baselineRssBytes / MEBIBYTE).toFixed(2)),
         peakRssMebibytes: Number((peakRssBytes / MEBIBYTE).toFixed(2)),
