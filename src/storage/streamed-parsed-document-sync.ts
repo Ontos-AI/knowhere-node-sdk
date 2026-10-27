@@ -1,9 +1,16 @@
+import type { ReadableStreamReadResult } from 'node:stream/web';
 import { createHash } from 'crypto';
 import type { JobSnapshot } from '../types/job.js';
 import { ValidationError } from '../errors/index.js';
 import { ArchiveCacheTransportError } from './archive-cache-transport-error.js';
 import { prepareCachedArchive } from './parsed-document-archive-cache.js';
-import { HttpRangeReader, ZipReader, type FileEntry, type HttpOptions } from '@zip.js/zip.js';
+import {
+  HttpRangeReader,
+  ZipReader,
+  type CreateReadableOptions,
+  type FileEntry,
+  type HttpOptions,
+} from '@zip.js/zip.js';
 
 import type { KnowledgeSyncParsedDocumentResponse } from '../knowledge/types.js';
 import type {
@@ -33,6 +40,7 @@ interface RangeEntryRead {
 }
 
 export interface ArchiveSource {
+  readonly signal?: AbortSignal;
   readonly readArchive?: () => ReadableStream<Uint8Array>;
   readonly canSkipEntries: boolean;
   readonly identity: string;
@@ -73,9 +81,9 @@ export async function syncRemoteResultArchive(
   const signal: AbortSignal = params.signal
     ? AbortSignal.any([params.signal, controller.signal])
     : controller.signal;
-  const transferParams: StreamedSyncParams = { ...params, signal };
+  const openingParams: StreamedSyncParams = { ...params, signal };
   const previous: ParsedDocumentSyncProgress | null = await params.storage.readSyncProgress(params);
-  const openedSource: ArchiveSource = await openArchive(transferParams, previous);
+  const openedSource: ArchiveSource = await openArchive(openingParams, previous);
   // A validated cache can support Range even when its unchanged origin cannot.
   // Keep the directory identity while the sequential reader verifies every saved hash.
   const source: ArchiveSource =
@@ -84,6 +92,12 @@ export async function syncRemoteResultArchive(
     previous.archiveDownloadIdentity === openedSource.downloadIdentity
       ? { ...openedSource, identity: previous.archiveIdentity }
       : openedSource;
+  // A transport error must also interrupt sinks that are waiting for capacity,
+  // before they consume the entry stream and can observe its failure.
+  const transferParams: StreamedSyncParams = {
+    ...openingParams,
+    signal: source.signal ?? signal,
+  };
   const archiveDownloadIdentity: string | undefined = source.isCached
     ? source.downloadIdentity
     : previous?.archiveDownloadIdentity;
@@ -431,6 +445,58 @@ async function persistArchiveCacheBypass(
   return progress;
 }
 
+/** Abort decoder inputs before waiting for their output-stream cleanup. */
+class AbortableHttpRangeReader extends HttpRangeReader {
+  constructor(
+    url: string,
+    options: HttpOptions,
+    private readonly controller: AbortController,
+  ) {
+    super(url, options);
+  }
+
+  override createReadable(options?: CreateReadableOptions): ReadableStream<Uint8Array> {
+    const reader: ReadableStreamDefaultReader<Uint8Array> = super
+      .createReadable(options)
+      .getReader();
+    const cancellation: AbortController = this.controller;
+    return new ReadableStream<Uint8Array>(
+      {
+        async pull(output): Promise<void> {
+          try {
+            const chunk: ReadableStreamReadResult<Uint8Array> = await reader.read();
+            if (chunk.done) {
+              reader.releaseLock();
+              output.close();
+            } else output.enqueue(chunk.value);
+          } catch (error) {
+            cancellation.abort(error);
+            reader.releaseLock();
+            output.error(error);
+          }
+        },
+        async cancel(reason: unknown): Promise<void> {
+          try {
+            await reader.cancel(reason);
+          } finally {
+            reader.releaseLock();
+          }
+        },
+      },
+      { highWaterMark: 0 },
+    );
+  }
+
+  override async readUint8Array(index: number, length: number): Promise<Uint8Array> {
+    try {
+      return await super.readUint8Array(index, length);
+    } catch (error) {
+      this.controller.abort(error);
+      throw error;
+    }
+  }
+}
+
 async function openArchiveTransport(
   params: StreamedSyncParams,
   previous: ParsedDocumentSyncProgress | null,
@@ -462,32 +528,48 @@ async function openArchiveTransport(
     );
     return { ...source, archiveCacheBypassed };
   }
+  // Isolate setup failure from the document signal so cached setup can still fall back.
+  const rangeController: AbortController = new AbortController();
+  const rangeSignal: AbortSignal = params.signal
+    ? AbortSignal.any([params.signal, rangeController.signal])
+    : rangeController.signal;
   const options: HttpOptions = {
     forceRangeRequests: true,
     preventHeadRequest: true,
     // Cached reads already pin a strong ETag and exact lengths; CDN timestamps can drift.
     checkResourceChanges: !prepared?.isCached,
     fetch: async (input, init): Promise<Response> => {
-      let response: Response;
       try {
-        response = await fetch(input, { ...init, signal: params.signal });
-      } catch (error) {
-        params.signal?.throwIfAborted();
-        if (prepared?.isCached)
-          throw new ArchiveCacheTransportError(
-            'Parsed result archive cache transport unavailable.',
+        let response: Response;
+        try {
+          response = await fetch(input, { ...init, signal: rangeSignal });
+        } catch (error) {
+          rangeSignal.throwIfAborted();
+          if (prepared?.isCached)
+            throw new ArchiveCacheTransportError(
+              'Parsed result archive cache transport unavailable.',
+            );
+          throw error;
+        }
+        if (prepared?.isCached) return prepared.validateResponse(response);
+        if (response.status !== 206) {
+          const error: Error = new Error(
+            `Parsed result Range request failed (HTTP ${response.status}).`,
           );
+          rangeController.abort(error);
+          await response.body?.cancel(error).catch((): void => undefined);
+          throw error;
+        }
+        return prepared ? prepared.validateResponse(response) : response;
+      } catch (error) {
+        // zip.js can open a response before a decoder has started reading it.
+        // Abort here rather than waiting for the reader's pull to fail.
+        rangeController.abort(error);
         throw error;
       }
-      if (prepared?.isCached) return prepared.validateResponse(response);
-      if (response.status !== 206) {
-        await response.body?.cancel();
-        throw new Error(`Parsed result Range request failed (HTTP ${response.status}).`);
-      }
-      return prepared ? prepared.validateResponse(response) : response;
     },
   };
-  const reader = new ZipReader(new HttpRangeReader(resultUrl, options), {
+  const reader = new ZipReader(new AbortableHttpRangeReader(resultUrl, options, rangeController), {
     useWebWorkers: false,
     checkCrc32: true,
   });
@@ -506,6 +588,7 @@ async function openArchiveTransport(
       )
       .digest('hex');
     return {
+      signal: rangeSignal,
       identity: previous?.archiveIdentity === identity ? identity : archiveIdentity,
       downloadIdentity: identity,
       archiveCacheBypassed,
@@ -528,7 +611,7 @@ async function openArchiveTransport(
             path: normalizeResultPath(entry.filename),
             contentLength: entry.uncompressedSize,
             read: (): ReadableStream<Uint8Array> => {
-              entryRead = readRangeEntry(entry, params.signal, producers);
+              entryRead = readRangeEntry(entry, rangeSignal, producers);
               return entryRead.body;
             },
             waitForRead: (): Promise<void> => entryRead?.completed ?? Promise.resolve(),
@@ -542,6 +625,7 @@ async function openArchiveTransport(
       },
     };
   } catch (error) {
+    rangeController.abort(error);
     await reader.close();
     throw error;
   }
@@ -558,6 +642,12 @@ function readRangeEntry(
       streamController = controller;
     },
   });
+  // Interrupt the owned output even when decoder cleanup still holds its writable lock.
+  const cancelOutput = (): void => {
+    streamController?.error(signal?.reason);
+  };
+  signal?.addEventListener('abort', cancelOutput, { once: true });
+  if (signal?.aborted) cancelOutput();
   // The producer and sink run together. The TransformStream applies sink backpressure.
   const completed: Promise<void> = entry
     .getData(stream.writable, { signal, checkCrc32: true, useWebWorkers: false })
@@ -568,6 +658,7 @@ function readRangeEntry(
       streamController?.error(error);
     })
     .finally((): void => {
+      signal?.removeEventListener('abort', cancelOutput);
       producers.delete(producer);
     });
   producers.add(producer);

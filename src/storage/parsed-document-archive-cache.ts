@@ -359,15 +359,17 @@ function validateCachedResponse(
   marker: ArchiveCacheMarker,
   signal: AbortSignal | undefined,
 ): Response {
+  if (response.status !== 206 || !response.body)
+    rejectResponse(
+      response,
+      new ArchiveCacheTransportError(
+        `Parsed result archive cache requires a ranged response (HTTP ${response.status}).`,
+      ),
+    );
   if (response.headers.get('etag') !== marker.storageEntityTag)
     rejectResponse(
       response,
       new ArchiveCacheTransportError('Parsed result archive cache response version changed.'),
-    );
-  if (response.status !== 206 || !response.body)
-    rejectResponse(
-      response,
-      new ArchiveCacheTransportError('Parsed result archive cache requires a ranged response.'),
     );
   const range: RegExpExecArray | null = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(
     response.headers.get('content-range') ?? '',

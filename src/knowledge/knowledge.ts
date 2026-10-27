@@ -209,14 +209,17 @@ export class Knowledge {
   ): Promise<KnowledgeSyncParsedDocumentResponse> {
     const response: KnowledgeSyncParsedDocumentResponse =
       await this.performParsedDocumentSync(params);
+    params.signal?.throwIfAborted();
     if (response.completed && !response.snapshot) {
       const storage = this.requireParsedStorageConfig().storage;
       await serializeSnapshotPublication(storage, response.documentId, async (): Promise<void> => {
+        params.signal?.throwIfAborted();
         if (params.documentId || params.jobId) {
           const current: DocumentChunkListResponse = await this.client.documents.listChunks(
             response.documentId,
             { page: 1, pageSize: 1 },
           );
+          params.signal?.throwIfAborted();
           if (params.jobId && current.jobId !== params.jobId) return;
           if (!params.jobId && current.jobResultId !== response.revisionKey) return;
         }
@@ -231,6 +234,7 @@ export class Knowledge {
         });
       });
     }
+    params.signal?.throwIfAborted();
     return response;
   }
 
@@ -341,15 +345,18 @@ export class Knowledge {
       signal: params.signal,
       retainResultArchive: params.retainResultArchive,
     });
+    params.signal?.throwIfAborted();
     if (response.completed && snapshot.snapshotId === params.job.currentSnapshotId) {
       await serializeSnapshotPublication(
         params.parsedStorageConfig.storage,
         params.documentId,
         async (): Promise<void> => {
+          params.signal?.throwIfAborted();
           const current: DocumentChunkListResponse = await this.client.documents.listChunks(
             params.documentId,
             { page: 1, pageSize: 1 },
           );
+          params.signal?.throwIfAborted();
           if (current.jobResultId !== snapshot.jobResultId) return;
           const pointer: Uint8Array = Buffer.from(
             JSON.stringify({
@@ -365,6 +372,7 @@ export class Knowledge {
               body: pointer,
               contentType: 'application/json; charset=utf-8',
             });
+            params.signal?.throwIfAborted();
           }
           await params.parsedStorageConfig.storage.writeObject({
             documentId: params.documentId,
@@ -376,6 +384,7 @@ export class Knowledge {
         },
       );
     }
+    params.signal?.throwIfAborted();
     return response;
   }
 

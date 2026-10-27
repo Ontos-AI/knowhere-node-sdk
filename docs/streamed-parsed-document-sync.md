@@ -92,6 +92,13 @@ Re-enqueued running or failed transfers continue from their successful checkpoin
 Existing remote-chunk limits (`remotePageSize`, `maxPagesPerSync`, and
 `syncDeadlineMs`) continue to bound reconstruction when no archive is available.
 
+Range validation failures also cancel the signal supplied to active storage writes,
+including adapters waiting for capacity before reading their body. Response validation
+aborts the archive transport immediately, even when the decoder has not yet consumed
+that response. Failed cached setup keeps its cancellation isolated so origin fallback
+can proceed. Adapters must reject on signal cancellation and settle their resources
+before returning; callers must not rely only on a failed body read to release capacity.
+
 ## Optional original ZIP
 
 `retainResultArchive: true` streams the exact source archive to `result.zip` after

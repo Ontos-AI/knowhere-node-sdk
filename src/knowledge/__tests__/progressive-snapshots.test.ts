@@ -3,6 +3,8 @@ import JSZip from 'jszip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Knowhere } from '../../client.js';
 import type { JobResult, JobSnapshot } from '../../types/job.js';
+import type { DocumentChunkListResponse } from '../../types/document.js';
+import { serializeSnapshotPublication } from '../serialize-snapshot-publication.js';
 import type {
   ParsedDocumentObject,
   ParsedDocumentStorage,
@@ -132,6 +134,109 @@ afterEach(() => {
 });
 
 describe('progressive immutable snapshots', () => {
+  it.each(['legacy', 'baseline', 'final'] as const)(
+    'does not publish a %s reader pointer after cancellation during metadata verification',
+    async (stage): Promise<void> => {
+      const fixture: ProgressiveFixture = await createFixture();
+      if (stage === 'legacy') {
+        fixture.job.snapshots = undefined;
+        fixture.job.currentSnapshotId = undefined;
+      } else if (stage === 'final') {
+        fixture.job.snapshots = [fixture.final];
+        fixture.job.currentSnapshotId = fixture.final.snapshotId;
+        fixture.job.resultUrl = fixture.final.resultUrl;
+      }
+      const controller: AbortController = new AbortController();
+      const cancellation: Error = new Error('Cancelled during publication metadata verification');
+      const listChunks = vi.spyOn(fixture.client.documents, 'listChunks').getMockImplementation();
+      if (!listChunks) throw new Error('Missing document metadata fixture');
+      vi.spyOn(fixture.client.documents, 'listChunks').mockImplementation(
+        async (documentId, params): Promise<DocumentChunkListResponse> => {
+          const response: DocumentChunkListResponse = await listChunks(documentId, params);
+          if (!params?.includeAssetUrls) controller.abort(cancellation);
+          return response;
+        },
+      );
+      await expect(
+        fixture.knowledge.syncParsedDocument({
+          documentId: 'doc_test',
+          signal: controller.signal,
+        }),
+      ).rejects.toBe(cancellation);
+      expect(fixture.objects.has('current/.knowhere-sdk/current-snapshot.json')).toBe(false);
+      expect(fixture.objects.has('current/.knowhere-sdk/final-snapshot.json')).toBe(false);
+    },
+  );
+
+  it.each(['legacy', 'baseline', 'final'] as const)(
+    'does not publish a queued %s reader pointer after cancellation',
+    async (stage): Promise<void> => {
+      const fixture: ProgressiveFixture = await createFixture();
+      if (stage === 'legacy') {
+        fixture.job.snapshots = undefined;
+        fixture.job.currentSnapshotId = undefined;
+      } else if (stage === 'final') {
+        fixture.job.snapshots = [fixture.final];
+        fixture.job.currentSnapshotId = fixture.final.snapshotId;
+        fixture.job.resultUrl = fixture.final.resultUrl;
+      }
+      let releasePublication: () => void = (): void => {
+        throw new Error('Publication gate not initialized');
+      };
+      const gate: Promise<void> = new Promise((resolve): void => {
+        releasePublication = resolve;
+      });
+      const held: Promise<void> = serializeSnapshotPublication(
+        fixture.storage,
+        'doc_test',
+        (): Promise<void> => gate,
+      );
+      const controller: AbortController = new AbortController();
+      const cancellation: Error = new Error('Cancelled while reader publication was queued');
+      const operation = fixture.knowledge.syncParsedDocument({
+        documentId: 'doc_test',
+        signal: controller.signal,
+      });
+      const rejection = expect(operation).rejects.toBe(cancellation);
+      try {
+        await vi.waitFor((): void => {
+          expect(
+            [...fixture.objects.keys()].some((key: string): boolean =>
+              key.endsWith('/.knowhere-sdk/commit.json'),
+            ),
+          ).toBe(true);
+        });
+        controller.abort(cancellation);
+      } finally {
+        releasePublication();
+      }
+      await held;
+      await rejection;
+      expect(fixture.objects.has('current/.knowhere-sdk/current-snapshot.json')).toBe(false);
+      expect(fixture.objects.has('current/.knowhere-sdk/final-snapshot.json')).toBe(false);
+    },
+  );
+
+  it('stops current reader publication when cancelled during the final pointer write', async (): Promise<void> => {
+    const fixture: ProgressiveFixture = await createFixture();
+    fixture.job.snapshots = [fixture.final];
+    fixture.job.currentSnapshotId = fixture.final.snapshotId;
+    fixture.job.resultUrl = fixture.final.resultUrl;
+    const controller: AbortController = new AbortController();
+    const cancellation: Error = new Error('Cancelled during final reader pointer write');
+    const writeObject = fixture.storage.writeObject.bind(fixture.storage);
+    fixture.storage.writeObject = async (params): Promise<ParsedDocumentWriteObjectResult> => {
+      const result: ParsedDocumentWriteObjectResult = await writeObject(params);
+      if (params.path === '.knowhere-sdk/final-snapshot.json') controller.abort(cancellation);
+      return result;
+    };
+    await expect(
+      fixture.knowledge.syncParsedDocument({ documentId: 'doc_test', signal: controller.signal }),
+    ).rejects.toBe(cancellation);
+    expect(fixture.objects.has('current/.knowhere-sdk/final-snapshot.json')).toBe(true);
+    expect(fixture.objects.has('current/.knowhere-sdk/current-snapshot.json')).toBe(false);
+  });
+
   it('copies final under a new local key despite sharing the upstream Job Result and keeps pinned baseline readable', async () => {
     const fixture = await createFixture();
     const first = await fixture.knowledge.syncParsedDocument({ jobId: 'job_test' });

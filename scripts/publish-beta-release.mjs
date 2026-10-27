@@ -24,6 +24,8 @@ const packageJson = releaseUtils.readJson('package.json');
 const packageName = packageJson.name;
 const version = packageJson.version;
 const tagName = `v${version}`;
+// workflow_dispatch can check out inputs.ref while GITHUB_SHA still identifies the workflow ref.
+const sourceCommit = releaseUtils.readCommand('git', ['rev-parse', 'HEAD']).trim();
 
 if (!version.includes(`-${distTag}.`)) {
   throw new Error(`Beta publish expected ${version} to include prerelease tag ${distTag}`);
@@ -42,8 +44,7 @@ const releaseNotes = [
   `Beta snapshot publish for \`${packageName}@${version}\`.`,
   '',
   `- npm dist-tag: \`${distTag}\``,
-  `- git ref: \`${process.env.GITHUB_REF_NAME ?? 'local'}\``,
-  `- commit: \`${process.env.GITHUB_SHA ?? 'local'}\``,
+  `- source commit: \`${sourceCommit}\``,
   '',
   'This prerelease was generated from pending changesets in CI without committing prerelease state back to the source branch.',
 ].join('\n');
@@ -59,6 +60,6 @@ releaseUtils.runCommand('gh', [
   '--notes-file',
   notesPath,
   '--target',
-  process.env.GITHUB_SHA ?? 'HEAD',
+  sourceCommit,
   '--prerelease',
 ]);
