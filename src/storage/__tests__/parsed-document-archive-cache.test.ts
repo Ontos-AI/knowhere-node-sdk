@@ -225,6 +225,17 @@ describe('prepareCachedArchive', (): void => {
     );
   });
 
+  it('reports a non-206 response without mistaking missing version headers for a revision change', async (): Promise<void> => {
+    const fixture: CacheFixture = createFixture();
+    const prepared = await prepareCachedArchive({ ...document, storage: fixture.storage });
+    const cancel = vi.fn();
+    const response: Response = new Response(new ReadableStream<Uint8Array>({ cancel }), {
+      status: 503,
+    });
+    expect((): Response => prepared.validateResponse(response)).toThrow(/HTTP 503/);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('rejects a mismatched cached range total before consuming bytes', async (): Promise<void> => {
     const fixture: CacheFixture = createFixture();
     const prepared = await prepareCachedArchive({ ...document, storage: fixture.storage });

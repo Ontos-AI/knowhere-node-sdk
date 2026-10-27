@@ -1,3 +1,4 @@
+import type { ReadableStreamReadResult } from 'node:stream/web';
 import JSZip from 'jszip';
 import { ZipReader, type FileEntry } from '@zip.js/zip.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +16,7 @@ import type {
 import { syncRemoteResultArchive } from '../streamed-parsed-document-sync.js';
 
 interface Fixture {
+  readonly archive: Uint8Array;
   readonly storage: ParsedDocumentStorage;
   readonly objects: Map<string, Uint8Array>;
   readonly progress: ParsedDocumentSyncProgress[];
@@ -28,6 +30,8 @@ interface Fixture {
 
 async function createFixture(
   options: {
+    readonly fileCount?: number;
+    readonly largeEntries?: boolean;
     readonly sequential?: boolean;
     readonly originSequential?: boolean;
     readonly cache?: boolean;
@@ -40,7 +44,11 @@ async function createFixture(
   const zip: JSZip = new JSZip();
   zip.file('manifest.json', '{"job_id":"job"}');
   zip.file('chunks.json', '[]');
-  for (let index: number = 0; index < 8; index += 1) zip.file(`file-${index}.txt`, `body-${index}`);
+  for (let index: number = 0; index < (options.fileCount ?? 8); index += 1)
+    zip.file(
+      `file-${index}.txt`,
+      options.largeEntries ? `body-${index}`.repeat(262144) : `body-${index}`,
+    );
   const archive: Uint8Array = await zip.generateAsync({
     type: 'uint8array',
     compression: 'DEFLATE',
@@ -135,6 +143,7 @@ async function createFixture(
       Promise.resolve('https://cache.example/result.zip');
   }
   return {
+    archive,
     storage,
     objects,
     progress,
@@ -276,6 +285,221 @@ describe('bounded parsed archive concurrency', () => {
     expect(pendingWrites).toBe(0);
     expect(settledWrites).toBeGreaterThan(0);
     expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+  });
+
+  it.each([
+    { failure: 'etag', concurrency: 1 },
+    { failure: 'etag', concurrency: 2 },
+    { failure: 'etag', concurrency: 4 },
+    { failure: 'http', concurrency: 4 },
+    { failure: 'truncated', concurrency: 4 },
+  ] as const)(
+    'cancels cached Range reads before decoder cleanup after $failure failure at concurrency $concurrency',
+    async ({ failure, concurrency }) => {
+      const fixture: Fixture = await createFixture({
+        cache: true,
+        largeEntries: true,
+        fileCount: 4,
+        wrapErrors: true,
+      });
+      const archive: Buffer = Buffer.from(fixture.archive);
+      const headerOffset: number = archive.indexOf(Buffer.from('file-0.txt')) - 30;
+      expect(archive.readUInt32LE(headerOffset)).toBe(0x04034b50);
+      const dataOffset: number = headerOffset + 30 + Buffer.byteLength('file-0.txt');
+      const dataEnd: number = dataOffset + archive.readUInt32LE(headerOffset + 18);
+      let isInvalid: boolean = false;
+      let markFailure: (() => void) | undefined;
+      const failedResponse: Promise<void> = new Promise((resolve) => {
+        markFailure = resolve;
+      });
+      const originalFetch: typeof fetch = fetch;
+      vi.stubGlobal(
+        'fetch',
+        async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+          const response: Response = await originalFetch(input, init);
+          const url: string =
+            typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          const range: string | null = new Headers(init?.headers).get('range');
+          const offset: number = Number(/^bytes=(\d+)-/.exec(range ?? '')?.[1] ?? -1);
+          if (
+            !isInvalid ||
+            !url.startsWith('https://cache.example/') ||
+            offset < dataOffset ||
+            offset >= dataEnd
+          )
+            return response;
+          markFailure?.();
+          const headers: Headers = new Headers(response.headers);
+          if (failure === 'http') {
+            await response.body?.cancel();
+            return new Response('Service unavailable', { status: 503 });
+          }
+          if (failure === 'truncated') {
+            const bytes: Uint8Array = new Uint8Array(await response.arrayBuffer());
+            return new Response(bytes.subarray(0, bytes.length - 1), {
+              status: response.status,
+              headers,
+            });
+          }
+          headers.set('etag', '"changed-cache"');
+          return new Response(response.body, { status: response.status, headers });
+        },
+      );
+      const sync = (signal?: AbortSignal, maxEntriesPerSync?: number): Promise<unknown> =>
+        syncRemoteResultArchive({
+          documentId: 'document',
+          revisionKey: 'revision',
+          jobId: 'job',
+          resultUrl: 'https://archive.example/result.zip',
+          storage: fixture.storage,
+          cacheResultArchive: true,
+          signal,
+          limits: {
+            maxConcurrentFiles: concurrency,
+            checkpointFileInterval: 10,
+            maxEntriesPerSync,
+          },
+        });
+      expect(await sync(undefined, 2)).toMatchObject({ completed: false });
+      isInvalid = true;
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- called with the current reader below.
+      const getEntries = ZipReader.prototype.getEntries;
+      vi.spyOn(ZipReader.prototype, 'getEntries').mockImplementation(async function (
+        this: ZipReader<unknown>,
+        options,
+      ) {
+        const entries = await getEntries.call(this, options);
+        for (const entry of entries) {
+          if (entry.directory || entry.filename !== 'file-0.txt') continue;
+          const getData = entry.getData.bind(entry);
+          vi.spyOn(entry, 'getData').mockImplementation(async (writable, entryOptions) => {
+            if (!isInvalid) return getData(writable, entryOptions);
+            if (!(writable instanceof WritableStream))
+              throw new Error('Expected a stream decoder sink.');
+            const writer: WritableStreamDefaultWriter<unknown> = writable.getWriter();
+            const destination: WritableStream<Uint8Array> = new WritableStream<Uint8Array>({
+              write: (chunk): Promise<void> => writer.write(chunk),
+              close: (): Promise<void> => writer.close(),
+              async abort(error: unknown): Promise<void> {
+                // Decoder cleanup needs its input cancelled before releasing the output lock.
+                await new Promise<void>((resolve) => {
+                  if (entryOptions?.signal?.aborted) resolve();
+                  else
+                    entryOptions?.signal?.addEventListener('abort', (): void => resolve(), {
+                      once: true,
+                    });
+                });
+                await writer.abort(error);
+              },
+            });
+            try {
+              return await getData(destination, entryOptions);
+            } finally {
+              writer.releaseLock();
+            }
+          });
+        }
+        return entries;
+      });
+      const controller: AbortController = new AbortController();
+      const outcome: Promise<string> = sync(controller.signal).then(
+        (): string => 'completed',
+        (): string => 'rejected',
+      );
+      try {
+        await failedResponse;
+        expect(
+          await Promise.race([
+            outcome,
+            new Promise<string>((resolve) => setTimeout((): void => resolve('pending'), 250)),
+          ]),
+        ).toBe('rejected');
+      } finally {
+        controller.abort(new Error('Release the regression fixture after assertion.'));
+        await outcome;
+      }
+      expect(fixture.progress.at(-1)).toMatchObject({
+        nextArchiveEntry: 2,
+        archiveCacheBypassed: true,
+      });
+      expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+      const writesAtReturn: number = fixture.finished.length;
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      expect(fixture.finished).toHaveLength(writesAtReturn);
+      isInvalid = false;
+      expect(await sync()).toMatchObject({ completed: true });
+    },
+  );
+
+  it('interrupts a decoder awaiting output cleanup when the caller cancels', async () => {
+    const fixture: Fixture = await createFixture();
+    const controller: AbortController = new AbortController();
+    const reason: Error = new Error('Caller cancelled the archive.');
+    let heldWriter: WritableStreamDefaultWriter<Uint8Array> | undefined;
+    let markWaiting: (() => void) | undefined;
+    const waiting: Promise<void> = new Promise((resolve) => {
+      markWaiting = resolve;
+    });
+    let hasSettledProducer: boolean = false;
+    let markConsumed: (() => void) | undefined;
+    const consumed: Promise<void> = new Promise((resolve) => {
+      markConsumed = resolve;
+    });
+    fixture.storage.writeObjectStream = async (
+      params,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      const reader: ReadableStreamDefaultReader<Uint8Array> = params.body.getReader();
+      try {
+        while (true) {
+          const part: ReadableStreamReadResult<Uint8Array> = await reader.read();
+          if (part.done) break;
+          params.signal?.throwIfAborted();
+          markConsumed?.();
+        }
+        return params;
+      } finally {
+        reader.releaseLock();
+      }
+    };
+    const entry: FileEntry = {
+      filename: 'manifest.json',
+      directory: false,
+      uncompressedSize: 16,
+      signature: 0,
+      async getData(writable: WritableStream<Uint8Array>): Promise<void> {
+        const writer: WritableStreamDefaultWriter<Uint8Array> = writable.getWriter();
+        heldWriter = writer;
+        try {
+          await writer.write(Buffer.from('{"job_id":"job"}'));
+          markWaiting?.();
+          await writer.closed;
+        } finally {
+          writer.releaseLock();
+          hasSettledProducer = true;
+        }
+      },
+    } as FileEntry;
+    vi.spyOn(ZipReader.prototype, 'getEntries').mockResolvedValue([entry]);
+    const outcome: Promise<string> = fixture.sync(undefined, controller.signal).then(
+      (): string => 'completed',
+      (): string => 'rejected',
+    );
+    try {
+      await waiting;
+      await consumed;
+      controller.abort(reason);
+      expect(
+        await Promise.race([
+          outcome,
+          new Promise<string>((resolve) => setTimeout((): void => resolve('pending'), 100)),
+        ]),
+      ).toBe('rejected');
+      expect(hasSettledProducer).toBe(true);
+      expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+    } finally {
+      await heldWriter?.abort(reason).catch((): void => undefined);
+      await outcome;
+    }
   });
 
   it('rejects a producer failure while its writable is locked without hanging the sink', async () => {
