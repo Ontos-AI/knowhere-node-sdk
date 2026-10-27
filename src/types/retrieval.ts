@@ -82,6 +82,10 @@ export interface RetrievalSource {
   sourceFileName?: string | null;
   /** Human-readable section path */
   sectionPath?: string | null;
+  /** Physical source pages, stable across progressive parsing snapshots. */
+  pageNums?: number[];
+  /** Original ingestion revision, shared by its baseline and final snapshots. */
+  jobResultId?: string | null;
 }
 
 /**
@@ -144,6 +148,10 @@ export interface RetrievalReferencedChunk {
   filePath?: string | null;
   /** Published job identifier for the referenced chunk */
   jobId?: string | null;
+  /** Original ingestion revision, shared by its baseline and final snapshots. */
+  jobResultId?: string | null;
+  /** All physical source pages supporting this evidence. */
+  pageNums?: number[];
   /** Presigned asset URL for media chunks when available */
   assetUrl?: string | null;
   /** Chunk metadata returned by the API */

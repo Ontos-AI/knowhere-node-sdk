@@ -96,12 +96,22 @@ describe('Retrieval wire response', () => {
             { type: 'image', media_type: 'image/png', data: 'abc' },
           ],
           evidence_text: '',
+          referenced_chunks: [
+            {
+              document_id: 'doc-1',
+              chunk_id: 'baseline-page-2',
+              chunk_type: 'page',
+              section_path: 'Page 2',
+              job_result_id: 'original-result',
+              page_nums: [2, 3],
+            },
+          ],
           results: [
             {
               content: '[images/a.png]',
               chunk_type: 'text',
               score: 1,
-              source: { document_id: 'doc-1' },
+              source: { document_id: 'doc-1', job_result_id: 'original-result', page_nums: [2, 3] },
             },
           ],
         }),
@@ -126,6 +136,12 @@ describe('Retrieval wire response', () => {
         { type: 'image', mediaType: 'image/png', data: 'abc' },
       ]);
       expect(result.results[0]?.content).toBe('[images/a.png]');
+      const sourcePages: number[] | undefined = result.results[0]?.source.pageNums;
+      const referencePages: number[] | undefined = result.referencedChunks[0]?.pageNums;
+      expect(sourcePages).toEqual([2, 3]);
+      expect(referencePages).toEqual(sourcePages);
+      expect(result.results[0]?.source.jobResultId).toBe('original-result');
+      expect(result.referencedChunks[0]?.jobResultId).toBe('original-result');
       expect(result.results[0]).not.toHaveProperty('composed');
     } finally {
       await new Promise<void>((resolve, reject) => {

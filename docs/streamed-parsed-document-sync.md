@@ -174,3 +174,69 @@ whole-archive GET. The two concurrent jobs share one process and stream a combin
 allocations, and garbage-collection/native-allocation variance; they do not
 establish a safe concurrency limit for a deployed application. Storage adapters
 must preserve stream backpressure for the same memory behavior.
+
+## Progressive ingestion snapshots
+
+Progressive Jobs add `enhancement`, `snapshots`, and `currentSnapshotId`. Each
+`JobSnapshot` contains an opaque `snapshotId`, `stage`, real upstream
+`jobResultId`, document/job identity, SHA-256 `checksum`, `resultUrl`, and
+`resultUrlExpiresAt`. Baseline and final may share one upstream Job Result.
+`jobs.retryEnhancement(jobId)` calls the authenticated bodyless enrichment retry
+command and returns `{ jobId, enhancement }`; it does not create an ingestion.
+
+```typescript
+const copied = await knowledge.syncParsedDocument({ jobId, documentId });
+if (!copied.completed) {
+  // Persist the returned revisionKey and pass it to every continuation.
+  await knowledge.syncParsedDocument({ jobId, documentId, revisionKey: copied.revisionKey });
+}
+```
+
+The returned `revisionKey` is the selected immutable `snapshotId`. Every partial
+and completed response includes its `snapshot` descriptor. Each continuation
+refreshes that exact retained descriptor's signed URL. `documentId` alone can
+resolve its Job through the document API; providing `jobId` avoids that lookup.
+The upstream Job Result is validated separately and is never replaced by the
+local snapshot ID in server document/chunk calls.
+
+Before committing, sequential extraction verifies SHA-256 of the exact compressed
+bytes in its temporary disk spool, in addition to entry CRCs, archive identity
+and required asset checks. Range extraction compares every extracted entry hash
+with a separate sequential spool whose exact ZIP bytes pass SHA-256 validation.
+This adds one archive download on a completing Range invocation, with bounded
+memory and temporary disk usage proportional to the compressed archive. It does
+not rely on HTTP validators proving that two downloads contain the same bytes.
+Completed progressive copies validate remote entry hashes and checksum without
+rewriting committed content. A later `retainResultArchive` request can repair a
+missing optional archive; retained ZIP bytes come from that verified spool.
+Legacy/full copies retain the explicit rebuild behavior described above.
+
+After a current snapshot commits, ordinary local read/grep/outline operations use
+its durable reader pointer. An incomplete or failed final copy leaves baseline
+current. A late baseline completion cannot supersede a committed final snapshot
+of the same upstream revision. Explicit `revisionKey` reads retain their selected
+content and assets; a missing pinned local snapshot cannot fall back to live
+content, including before the first progressive copy completes. Sync the retained
+snapshot before reading it. A later committed full-mode reparse also advances the
+ordinary reader pointer while explicit historical snapshot reads stay pinned. Keep the storage objects and checkpoint keys for both stages.
+
+Commits remain version 1 and add optional `snapshotId`, `jobResultId`, `checksum`,
+and `stage`. Checkpoints add `snapshotChecksum` and `upstreamJobResultId`; adapters
+must persist these fields along with existing archive identity and entry hashes.
+SDK reader pointers use reserved `.knowhere-sdk/` objects in the `current`
+revision; adapters should treat all revision/path keys as SDK-owned opaque keys.
+
+
+## Current snapshot publication
+
+Historical Job synchronization retains an immutable, explicitly pinned snapshot and
+only advances ordinary reads when that Job still owns the published document.
+A completed baseline remains locally readable while final synchronization is pending,
+even if the upstream final archive is already available. Reads with a revision key
+remain pinned and do not change the ordinary reader selection.
+
+Current-pointer writes are serialized per document across Knowledge clients sharing
+the same storage adapter instance. The generic adapter exposes unconditional object
+writes rather than compare-and-swap. Applications synchronizing the same document
+from multiple processes or distinct adapter instances must serialize current-pointer
+publication externally; immutable revision-key reads do not require that coordination.

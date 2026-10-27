@@ -47,6 +47,9 @@ export interface JobError {
  * Job status response with full details
  */
 export interface JobResult {
+  enhancement?: JobEnhancement;
+  snapshots?: readonly JobSnapshot[];
+  currentSnapshotId?: string;
   /** Unique job identifier */
   jobId: string;
   /** Current job status */
@@ -90,4 +93,29 @@ export interface JobResult {
   readonly isDone: boolean;
   /** Whether the job failed */
   readonly isFailed: boolean;
+}
+
+/** Background work does not change an already completed ingestion job. */
+export interface JobEnhancement {
+  readonly status: 'pending' | 'running' | 'complete' | 'failed';
+  readonly canRetry: boolean;
+  readonly attempt: number;
+  readonly error?: string | null;
+}
+
+/** Immutable archive generation; signed URL capabilities may be refreshed. */
+export interface JobSnapshot {
+  readonly snapshotId: string;
+  readonly stage: 'baseline' | 'final';
+  readonly jobId: string;
+  readonly jobResultId: string;
+  readonly documentId: string;
+  readonly checksum: string;
+  readonly resultUrl: string;
+  readonly resultUrlExpiresAt: Date;
+}
+
+export interface JobEnhancementRetryResult {
+  readonly jobId: string;
+  readonly enhancement: JobEnhancement;
 }
