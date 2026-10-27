@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.7.1
+
+### Patch Changes
+
+- [#138](https://github.com/Ontos-AI/knowhere-node-sdk/pull/138) [`bccb2a4`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/bccb2a47b6d9b2e5a46fc59c1e82eba8c2e97c79) Thanks [@suguanYang](https://github.com/suguanYang)! - Cancel all Range reads and owned decoder output streams when an archive read fails or synchronization is aborted. This prevents cache validation failures from waiting indefinitely on decoder cleanup, preserves contiguous checkpoints and cache bypass for retry, and reports non-206 cache responses with their HTTP status.
+
+  Abort invalid prefetched Range responses before a decoder reads them, and propagate archive transport cancellation to storage adapters waiting for capacity. Preserve cached-setup fallback and retry checkpoints.
+
+  Tag beta releases with the checked-out source commit when the workflow dispatch ref differs from the selected build ref.
+
+  Recheck cancellation after waiting for reader-pointer publication and metadata verification, and between final/current pointer writes. Cancelled ordinary and progressive synchronization calls cannot start later pointer writes or return a completed response.
+
 ## 2.7.0
 
 ### Minor Changes
