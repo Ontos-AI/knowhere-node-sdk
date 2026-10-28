@@ -1,4 +1,5 @@
 import type { ParseResult } from './result.js';
+import type { JobSnapshotDelivery } from './job.js';
 
 export type KnowhereAssetStorageBody = Uint8Array;
 
@@ -96,6 +97,14 @@ export interface ParsedDocumentCommit {
   readonly revisionKey: string;
   readonly source: ParsedDocumentCommitSource;
   readonly committedAt: string;
+}
+
+/** Readability is independent of the full-copy commit and archive checkpoints. */
+export interface ParsedDocumentReadableSnapshot extends JobSnapshotDelivery {
+  readonly version: 1;
+  readonly revisionKey: string;
+  readonly stage: 'baseline' | 'final';
+  readonly readableAt: string;
 }
 
 export interface ParsedDocumentSyncProgress {

@@ -27,6 +27,10 @@ export type {
   KnowledgeStartupRecoveryResponse,
   KnowledgeSyncParsedDocumentParams,
   KnowledgeSyncParsedDocumentResponse,
+  KnowledgePrepareReadableSnapshotParams,
+  KnowledgePrepareReadableSnapshotResponse,
+  KnowledgeReadParsedDocumentObjectParams,
+  KnowledgeReadParsedDocumentObjectUrlsParams,
   LocalKnowledgeDocument,
   LocalKnowledgeParseResponse,
 } from './types.js';

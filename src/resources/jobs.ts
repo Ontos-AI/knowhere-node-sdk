@@ -1,5 +1,12 @@
 import { BaseResource } from './base.js';
-import type { Job, JobResult, JobEnhancementRetryResult } from '../types/job.js';
+import type {
+  Job,
+  JobResult,
+  JobEnhancementRetryResult,
+  JobSnapshotDelivery,
+  JobSnapshotObjectAccess,
+  JobSnapshotObjectAccessBatch,
+} from '../types/job.js';
 import type { CreateJobParams, UploadParams, WaitOptions, LoadOptions } from '../types/params.js';
 import type { ParseResult } from '../types/result.js';
 import {
@@ -42,10 +49,67 @@ export class Jobs extends BaseResource {
   /**
    * Get job status
    */
-  async get(jobId: string): Promise<JobResult> {
-    const jobResult = await this.httpClient.get<JobResult>(this.endpoint(`/jobs/${jobId}`));
+  async get(jobId: string, options?: { readonly signal?: AbortSignal }): Promise<JobResult> {
+    const jobResult = options
+      ? await this.httpClient.get<JobResult>(this.endpoint(`/jobs/${jobId}`), {
+          signal: options.signal,
+        })
+      : await this.httpClient.get<JobResult>(this.endpoint(`/jobs/${jobId}`));
     enrichJobResult(jobResult);
     return jobResult;
+  }
+
+  /** Obtain the immutable inventory; historical snapshots may not support object delivery. */
+  async getSnapshotDelivery(
+    jobId: string,
+    snapshotId: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<JobSnapshotDelivery> {
+    return this.httpClient.get<JobSnapshotDelivery>(
+      this.endpoint(
+        `/jobs/${encodeURIComponent(jobId)}/snapshots/${encodeURIComponent(snapshotId)}/readable`,
+      ),
+      { signal: options?.signal },
+    );
+  }
+
+  /** Resolve a fresh authorized capability for one exact immutable inventory member. */
+  async getSnapshotObjectAccess(
+    jobId: string,
+    snapshotId: string,
+    path: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<JobSnapshotObjectAccess> {
+    return this.httpClient.get<JobSnapshotObjectAccess>(
+      this.endpoint(
+        `/jobs/${encodeURIComponent(jobId)}/snapshots/${encodeURIComponent(snapshotId)}/objects`,
+      ),
+      { params: { path }, signal: options?.signal },
+    );
+  }
+
+  /** Resolve fresh authorized capabilities for up to 200 unique immutable inventory members. */
+  async getSnapshotObjectsAccess(
+    jobId: string,
+    snapshotId: string,
+    paths: readonly string[],
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<JobSnapshotObjectAccessBatch> {
+    return this.httpClient.post<JobSnapshotObjectAccessBatch>(
+      this.endpoint(
+        `/jobs/${encodeURIComponent(jobId)}/snapshots/${encodeURIComponent(snapshotId)}/objects/access`,
+      ),
+      { paths },
+      { signal: options?.signal },
+    );
+  }
+
+  /** Download capability bytes without forwarding API authentication to the object origin. */
+  async downloadSnapshotObject(
+    access: JobSnapshotObjectAccess,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<Uint8Array> {
+    return this.httpClient.download(access.downloadUrl, { signal: options?.signal });
   }
 
   /** Renew unfinished enhancement without creating another ingestion. */

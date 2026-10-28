@@ -37,6 +37,23 @@ describe('Knowledge', () => {
     tempDirectories.length = 0;
   });
 
+  it.each([
+    { page: 1, pageSize: 2 },
+    { sectionPath: 'Intro', limit: 5 },
+  ])(
+    'forwards explicit metadata-only reads to the documents API: %j',
+    async (window): Promise<void> => {
+      const cacheDirectory = await createTempDirectory();
+      const { client, documentsListChunks } = createClient(createParseResult());
+      const knowledge = new Knowledge(client, { cacheDirectory });
+      await knowledge.readChunks({ documentId: 'doc_remote', ...window, includeAssetUrls: false });
+      expect(documentsListChunks).toHaveBeenCalledWith(
+        'doc_remote',
+        expect.objectContaining({ includeAssetUrls: false }),
+      );
+    },
+  );
+
   it('should parse through the SDK and store a local document copy', async () => {
     const cacheDirectory = await createTempDirectory();
     const parseResult = createParseResult();

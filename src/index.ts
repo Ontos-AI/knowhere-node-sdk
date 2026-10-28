@@ -20,6 +20,11 @@ export type {
   JobResult,
   JobStatus,
   JobError,
+  JobSnapshot,
+  JobSnapshotObject,
+  JobSnapshotDelivery,
+  JobSnapshotObjectAccess,
+  JobSnapshotObjectAccessBatch,
   // Document types
   Document,
   DocumentChunk,
@@ -69,6 +74,7 @@ export type {
   KnowhereAssetStorageWriteResult,
   ParsedDocumentCommit,
   ParsedDocumentCommitSource,
+  ParsedDocumentReadableSnapshot,
   ParsedDocumentObject,
   ParsedDocumentObjectHead,
   ParsedDocumentObjectParams,
@@ -126,6 +132,10 @@ export type {
   KnowledgeStartupRecoveryResponse,
   KnowledgeSyncParsedDocumentParams,
   KnowledgeSyncParsedDocumentResponse,
+  KnowledgePrepareReadableSnapshotParams,
+  KnowledgePrepareReadableSnapshotResponse,
+  KnowledgeReadParsedDocumentObjectParams,
+  KnowledgeReadParsedDocumentObjectUrlsParams,
 } from './types/index.js';
 
 export { storeParseResultAssets } from './storage/asset-storage.js';

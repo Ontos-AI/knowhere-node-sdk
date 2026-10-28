@@ -25,6 +25,7 @@ import {
 } from '../storage/streamed-parsed-document-sync.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import { serializeSnapshotPublication } from './serialize-snapshot-publication.js';
+import { ReadableParsedDocumentSnapshots } from '../storage/readable-parsed-document-snapshots.js';
 import type {
   IndexedKnowledgeChunk,
   KnowledgeAsyncCacheResult,
@@ -54,14 +55,19 @@ import type {
   KnowledgeStartupRecoveryResponse,
   KnowledgeSyncParsedDocumentParams,
   KnowledgeSyncParsedDocumentResponse,
+  KnowledgePrepareReadableSnapshotParams,
+  KnowledgePrepareReadableSnapshotResponse,
+  KnowledgeReadParsedDocumentObjectParams,
+  KnowledgeReadParsedDocumentObjectUrlsParams,
   KnowledgeChunkType,
   LocalKnowledgeDocument,
   LocalKnowledgeParseResponse,
 } from './types.js';
 import type {
-  ParsedDocumentCommit,
   ParsedDocumentStorageConfig,
   ParsedDocumentStorageLimits,
+  ParsedDocumentObject,
+  ParsedDocumentReadableSnapshot,
 } from '../types/storage.js';
 
 const DEFAULT_READ_LIMIT = 12;
@@ -236,6 +242,72 @@ export class Knowledge {
     }
     params.signal?.throwIfAborted();
     return response;
+  }
+
+  /** Establish a durable readable core without advancing archive replication or display pointers. */
+  async prepareReadableSnapshot(
+    params: KnowledgePrepareReadableSnapshotParams,
+  ): Promise<KnowledgePrepareReadableSnapshotResponse> {
+    params.signal?.throwIfAborted();
+    const storage = this.requireParsedStorageConfig().storage;
+    if (!params.jobId.trim() || !params.revisionKey.trim())
+      throw new ValidationError('A job ID and immutable snapshot revisionKey are required.');
+    const job: JobResult = await this.client.jobs.get(params.jobId, { signal: params.signal });
+    params.signal?.throwIfAborted();
+    const snapshot: JobSnapshot | undefined = job.snapshots?.find(
+      (candidate: JobSnapshot): boolean => candidate.snapshotId === params.revisionKey,
+    );
+    if (
+      !job.isDone ||
+      !snapshot ||
+      snapshot.jobId !== params.jobId ||
+      (params.documentId !== undefined && snapshot.documentId !== params.documentId) ||
+      (job.documentId !== undefined && snapshot.documentId !== job.documentId)
+    )
+      throw new ValidationError(
+        'Requested immutable readable snapshot is unavailable or differs from the request.',
+      );
+    const readable: ParsedDocumentReadableSnapshot = await new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      storage,
+    ).prepare(snapshot, params.signal);
+    params.signal?.throwIfAborted();
+    return {
+      documentId: snapshot.documentId,
+      revisionKey: snapshot.snapshotId,
+      snapshot,
+      readable,
+    };
+  }
+
+  /** Read a stored object, or an uncopied image through its fresh pinned origin capability. */
+  async readParsedDocumentObject(
+    params: KnowledgeReadParsedDocumentObjectParams,
+  ): Promise<ParsedDocumentObject | null> {
+    return new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      this.requireParsedStorageConfig().storage,
+    ).readObject(params);
+  }
+
+  /** Resolve a local URL or a fresh immutable image capability without copying the image. */
+  async getParsedDocumentObjectUrl(
+    params: KnowledgeReadParsedDocumentObjectParams,
+  ): Promise<string | null> {
+    return new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      this.requireParsedStorageConfig().storage,
+    ).getObjectUrl(params);
+  }
+
+  /** Resolve exact requested paths in batches; absent objects have null URLs. No image bodies are read. */
+  async getParsedDocumentObjectUrls(
+    params: KnowledgeReadParsedDocumentObjectUrlsParams,
+  ): Promise<Readonly<Record<string, string | null>>> {
+    return new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      this.requireParsedStorageConfig().storage,
+    ).getObjectUrls(params);
   }
 
   private async performParsedDocumentSync(
@@ -758,7 +830,7 @@ export class Knowledge {
       page: pageParams.page,
       pageSize: pageParams.pageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: true,
+      includeAssetUrls: params.includeAssetUrls ?? true,
     });
     const revisionKey = getRemoteRevisionKey(remotePage);
     if (params.revisionKey && params.revisionKey !== revisionKey)
@@ -813,7 +885,7 @@ export class Knowledge {
       page: 1,
       pageSize: limits.remotePageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: true,
+      includeAssetUrls: params.includeAssetUrls ?? true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
     if (params.revisionKey && params.revisionKey !== revisionKey)
@@ -850,7 +922,7 @@ export class Knowledge {
         page,
         pageSize: limits.remotePageSize,
         chunkType: params.chunkType,
-        includeAssetUrls: true,
+        includeAssetUrls: params.includeAssetUrls ?? true,
       });
     }
 
@@ -1111,12 +1183,21 @@ export class Knowledge {
           (pageParams.page - 1) * pageParams.pageSize,
           pageParams.page * pageParams.pageSize,
         );
-    const visibleChunks = await applyStoredAssetUrlsToReadChunks({
-      storageConfig: this.requireParsedStorageConfig(),
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      chunks: selected.map(toReadChunk),
-    });
+    const chunks: KnowledgeReadChunk[] = selected.map(toReadChunk);
+    const visibleChunks =
+      params.params.includeAssetUrls === false
+        ? chunks
+        : await applyStoredAssetUrlsToReadChunks({
+            chunks,
+            resolveObjectUrls: (
+              paths: readonly string[],
+            ): Promise<Readonly<Record<string, string | null>>> =>
+              this.getParsedDocumentObjectUrls({
+                documentId: params.documentId,
+                revisionKey: params.revisionKey,
+                paths,
+              }),
+          });
     const totalChunks = scopedChunks.length;
     return {
       document: createStoredKnowledgeDocument({
@@ -1239,9 +1320,13 @@ export class Knowledge {
       documentId,
       revisionKey,
     });
-    if (!commit) {
-      return null;
-    }
+    const readable: ParsedDocumentReadableSnapshot | null = commit
+      ? null
+      : await new ReadableParsedDocumentSnapshots(
+          this.client.jobs,
+          parsedStorageConfig.storage,
+        ).readDescriptor({ documentId, revisionKey });
+    if (!commit && !readable) return null;
 
     const [manifestObject, chunksObject, docNavObject] = await Promise.all([
       parsedStorageConfig.storage.readObject({
@@ -1264,16 +1349,16 @@ export class Knowledge {
       return null;
     }
 
-    const manifest = readJsonObject<Manifest>(manifestObject);
+    const manifest = keysToCamel<Manifest>(readJsonObject<unknown>(manifestObject));
     const chunks = parseStoredResultChunks({
       payload: readJsonObject<unknown>(chunksObject),
       sourceFileName: manifest.sourceFileName,
     });
     const docNav = docNavObject
-      ? readJsonObject<{ readonly sections?: DocNavSection[] }>(docNavObject)
+      ? keysToCamel<{ readonly sections?: DocNavSection[] }>(readJsonObject<unknown>(docNavObject))
       : undefined;
     return {
-      commit,
+      storedAt: commit?.committedAt ?? readable!.readableAt,
       manifest,
       chunks,
       docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
@@ -1619,7 +1704,7 @@ interface ContinuationCursor {
 }
 
 interface StoredParsedDocumentResult {
-  readonly commit: ParsedDocumentCommit;
+  readonly storedAt: string;
   readonly manifest: Manifest;
   readonly chunks: IndexedKnowledgeChunk[];
   readonly docNav?: {
@@ -1832,8 +1917,8 @@ function createStoredKnowledgeDocument(params: {
     chunkCount: params.storedResult.chunks.length,
     typeCounts: params.storedResult.typeCounts,
     resultDirectoryPath: `parsed-storage:${params.documentId}`,
-    createdAt: new Date(params.storedResult.commit.committedAt),
-    updatedAt: new Date(params.storedResult.commit.committedAt),
+    createdAt: new Date(params.storedResult.storedAt),
+    updatedAt: new Date(params.storedResult.storedAt),
   };
 }
 
@@ -2012,39 +2097,48 @@ function getNextChunkPosition(
 }
 
 async function applyStoredAssetUrlsToReadChunks(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly chunks: readonly KnowledgeReadChunk[];
+  readonly resolveObjectUrls: (
+    paths: readonly string[],
+  ) => Promise<Readonly<Record<string, string | null>>>;
 }): Promise<KnowledgeReadChunk[]> {
+  const paths: Set<string> = new Set();
+  for (const chunk of params.chunks) {
+    if (chunk.filePath) paths.add(chunk.filePath);
+    for (const asset of getStoredPageAssets(chunk.metadata) ?? []) {
+      if (!isRecord(asset)) continue;
+      const artifactRef: string | undefined = readRecordString(
+        asset,
+        'artifactRef',
+        'artifact_ref',
+      );
+      if (artifactRef) paths.add(artifactRef);
+    }
+  }
+  const urls: Readonly<Record<string, string | null>> = await params.resolveObjectUrls([...paths]);
   return Promise.all(
     params.chunks.map((chunk) =>
       applyStoredAssetUrlsToReadChunk({
-        ...params,
         chunk,
+        resolveObjectUrl: (path: string): Promise<string | null> =>
+          Promise.resolve(urls[path] ?? null),
       }),
     ),
   );
 }
 
 async function applyStoredAssetUrlsToReadChunk(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly chunk: KnowledgeReadChunk;
+  readonly resolveObjectUrl: (path: string) => Promise<string | null>;
 }): Promise<KnowledgeReadChunk> {
   const metadata = cloneMetadata(params.chunk.metadata);
   const storedAssetUrl = await getStoredObjectUrl({
-    storageConfig: params.storageConfig,
-    documentId: params.documentId,
-    revisionKey: params.revisionKey,
     path: params.chunk.filePath,
+    resolveObjectUrl: params.resolveObjectUrl,
   });
   const pageAssets = await applyStoredPageAssetUrls({
-    storageConfig: params.storageConfig,
-    documentId: params.documentId,
-    revisionKey: params.revisionKey,
     metadata,
+    resolveObjectUrl: params.resolveObjectUrl,
   });
   if (pageAssets) {
     metadata.pageAssets = pageAssets;
@@ -2059,10 +2153,8 @@ async function applyStoredAssetUrlsToReadChunk(params: {
 }
 
 async function applyStoredPageAssetUrls(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly metadata: Record<string, unknown>;
+  readonly resolveObjectUrl: (path: string) => Promise<string | null>;
 }): Promise<unknown[] | undefined> {
   const pageAssets = getStoredPageAssets(params.metadata);
   if (!pageAssets) {
@@ -2081,10 +2173,8 @@ async function applyStoredPageAssetUrls(params: {
       }
 
       const storedAssetUrl = await getStoredObjectUrl({
-        storageConfig: params.storageConfig,
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
         path: artifactRef,
+        resolveObjectUrl: params.resolveObjectUrl,
       });
       if (storedAssetUrl) {
         return {
@@ -2129,22 +2219,14 @@ function normalizeStoredPageAsset(pageAsset: unknown): unknown {
 }
 
 async function getStoredObjectUrl(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly path: string | undefined;
+  readonly resolveObjectUrl: (path: string) => Promise<string | null>;
 }): Promise<string | undefined> {
   if (!params.path) {
     return undefined;
   }
 
-  return (
-    (await params.storageConfig.storage.getObjectUrl?.({
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      path: params.path,
-    })) ?? undefined
-  );
+  return (await params.resolveObjectUrl(params.path)) ?? undefined;
 }
 
 function countRemoteChunkTypes(

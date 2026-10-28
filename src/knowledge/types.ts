@@ -6,6 +6,9 @@ import type {
   KnowhereAssetStorageOptions,
   ParsedDocumentCommit,
   ParsedDocumentStorageConfig,
+  ParsedDocumentReadableSnapshot,
+  ParsedDocumentObjectParams,
+  ParsedDocumentRevisionParams,
 } from '../types/storage.js';
 
 export type KnowledgeChunkType = DocumentChunkType;
@@ -134,6 +137,30 @@ export interface KnowledgeSyncParsedDocumentResponse {
   commit?: ParsedDocumentCommit;
 }
 
+export interface KnowledgePrepareReadableSnapshotParams {
+  readonly jobId: string;
+  /** Immutable snapshot ID, including when baseline and final share a Job Result ID. */
+  readonly revisionKey: string;
+  readonly documentId?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface KnowledgePrepareReadableSnapshotResponse {
+  readonly documentId: string;
+  readonly revisionKey: string;
+  readonly snapshot: JobSnapshot;
+  readonly readable: ParsedDocumentReadableSnapshot;
+}
+
+export interface KnowledgeReadParsedDocumentObjectParams extends ParsedDocumentObjectParams {
+  readonly signal?: AbortSignal;
+}
+
+export interface KnowledgeReadParsedDocumentObjectUrlsParams extends ParsedDocumentRevisionParams {
+  readonly paths: readonly string[];
+  readonly signal?: AbortSignal;
+}
+
 export interface KnowledgeSection {
   sectionPath: string;
   sectionTitle: string;
@@ -157,6 +184,8 @@ export interface KnowledgeOutline {
 }
 
 export interface KnowledgeReadParams extends KnowledgeDocumentReference {
+  /** Generate asset URLs while reading metadata (default true). */
+  includeAssetUrls?: boolean;
   page?: number;
   pageSize?: number;
   sectionPath?: string;

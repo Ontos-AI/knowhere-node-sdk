@@ -468,6 +468,69 @@ temporary disk space for ZIP integrity validation. See the
 [streaming snapshot guide](docs/streamed-parsed-document-sync.md) for the adapter
 contract, retry semantics, and memory validation harness.
 
+For immutable snapshots that support object delivery, establish readability before
+copying every image:
+
+```typescript
+const prepared = await knowledge.prepareReadableSnapshot({
+  jobId: 'job_123',
+  revisionKey: 'snapshot_baseline_123', // Always the snapshot ID, not the Job Result ID.
+  documentId: 'doc_123',
+  signal,
+});
+
+// Persist the selected revision in your durable workflow and publish your ready state.
+const page = await knowledge.readChunks({
+  documentId: prepared.documentId,
+  revisionKey: prepared.revisionKey,
+  page: 1,
+});
+
+// Resume image replication in a subsequent durable queue invocation.
+const copied = await knowledge.syncParsedDocument({
+  jobId: prepared.snapshot.jobId,
+  revisionKey: prepared.revisionKey,
+  signal,
+});
+// Re-enqueue the same revision while copied.completed is false.
+```
+
+`prepareReadableSnapshot` validates and stores every essential inventory object,
+including `manifest.json`, `chunks.json`, `doc_nav.json`, and `source.pdf`. It checks
+the pinned object inventory against document references and writes a separate
+`.knowhere-sdk/readable.json` descriptor. Interrupted core transfers reuse valid
+persisted objects on retry. Preparation does not write a full-copy commit, advance
+archive checkpoints, or change the current displayed snapshot. Readers must pass
+the selected `revisionKey` until the application publishes its own snapshot pointer.
+
+`readChunks` supplies local essential-object URLs after the readable barrier. Image
+URLs use fresh capabilities through the authenticated immutable snapshot while
+replication is incomplete; local image URLs are preferred after a full-copy commit
+certifies the same document, revision, and snapshot checksum. Conflicting commit
+identities are rejected without reading every image body to resolve metadata URLs.
+Applications can also call `getParsedDocumentObjectUrl({ documentId, revisionKey, path, signal })`
+or `getParsedDocumentObjectUrls({ documentId, revisionKey, paths, signal })` directly.
+The plural method returns a readonly record keyed by requested paths, with `null`
+for unavailable objects. It deduplicates paths and authorizes partial-copy image
+URLs in sequential batches of at most 200 through the authenticated snapshot API.
+`readChunks` batches only assets referenced by its selected chunks; URL resolution
+does not download image bodies. Legacy full copies use their existing local URLs.
+Applications can use `readParsedDocumentObject(...)` for bytes. Object reads prefer stored bytes and
+verify origin image length and SHA-256 before returning uncopied bytes. Origin
+reads do not copy images or certify replication. Capability URLs expire and must
+be refreshed rather than stored as permanent identities. The application must
+authorize its own document owner before exposing bytes or URLs to its readers.
+
+Use `knowledge.readChunks({ documentId, revisionKey, includeAssetUrls: false })`
+when the application resolves stored asset references through its own authorized
+resource reader. URL generation is enabled by default.
+
+Only `syncParsedDocument(...).completed` and its existing full commit certify the
+complete archive copy and integrity checks. An origin or replication failure does
+not remove the readable descriptor. Historical snapshots without immutable object
+delivery return the API's unsupported/not-found error from preparation; callers
+can retain the existing full-archive synchronization path for those snapshots.
+
 If a search result only has a published `documentId`, read-oriented helpers can
 accept that remote identifier directly. `readChunks` supports display paging;
 remote fallback requests asset URLs from the Knowhere API, and storage hits use

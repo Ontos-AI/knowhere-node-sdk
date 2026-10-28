@@ -115,6 +115,36 @@ export interface JobSnapshot {
   readonly resultUrlExpiresAt: Date;
 }
 
+/** Immutable object inventory published with a snapshot, without expiring capabilities. */
+export interface JobSnapshotObject {
+  readonly path: string;
+  readonly sizeBytes: number;
+  readonly checksumSha256: string;
+  readonly contentType: string;
+  readonly kind: 'essential' | 'image';
+}
+
+export interface JobSnapshotDelivery {
+  readonly snapshotId: string;
+  readonly jobId: string;
+  readonly jobResultId: string;
+  readonly documentId: string;
+  readonly checksum: string;
+  readonly objects: readonly JobSnapshotObject[];
+}
+
+/** Fresh capability resolved through the authenticated immutable snapshot route. */
+export interface JobSnapshotObjectAccess extends Omit<JobSnapshotDelivery, 'objects'> {
+  readonly path: string;
+  readonly downloadUrl: string;
+  readonly expiresAt: Date;
+}
+
+/** Capabilities for an exact set of immutable inventory members, sharing one snapshot pin. */
+export interface JobSnapshotObjectAccessBatch extends Omit<JobSnapshotDelivery, 'objects'> {
+  readonly objects: readonly Pick<JobSnapshotObjectAccess, 'path' | 'downloadUrl' | 'expiresAt'>[];
+}
+
 export interface JobEnhancementRetryResult {
   readonly jobId: string;
   readonly enhancement: JobEnhancement;
