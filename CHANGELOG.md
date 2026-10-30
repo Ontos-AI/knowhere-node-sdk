@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.8.0
+
+### Minor Changes
+
+- [#142](https://github.com/Ontos-AI/knowhere-node-sdk/pull/142) [`691a029`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/691a029886afbdbf78883eadf1da8f63cee1569d) Thanks [@suguanYang](https://github.com/suguanYang)! - Add bounded physical-page reads and complete snapshot summaries for local and stored parsed snapshots. Select chunks before rich normalization and asset URL hydration, preserve physical pages and chunk identity, and expose a body-free document index with explicit embedded ownership for progressive readers. Add `knowledge.getDocumentSummary(reference)` to load the complete verified metadata index independently of rich chunk construction, table/image files, navigation bodies, and asset URL generation; remote-only references require a prepared or synchronized snapshot.
+
+- [#142](https://github.com/Ontos-AI/knowhere-node-sdk/pull/142) [`691a029`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/691a029886afbdbf78883eadf1da8f63cee1569d) Thanks [@suguanYang](https://github.com/suguanYang)! - Add revision- and namespace-fenced initial directory reads without downloading document assets or triggering retrieval enhancement.
+
+- [#142](https://github.com/Ontos-AI/knowhere-node-sdk/pull/142) [`691a029`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/691a029886afbdbf78883eadf1da8f63cee1569d) Thanks [@suguanYang](https://github.com/suguanYang)! - Add durable readable snapshot preparation and authenticated, pinned image access before full image replication completes. Prefer certified local image replicas and keep archive checkpoints, completeness validation, and full-copy commits independent from the readable marker.
+
+  Batch selected image URL capabilities through the immutable snapshot API, avoiding one API authorization request per page. Expose `getParsedDocumentObjectUrls` for authorized application resource readers without reading image bodies.
+
 ## 2.7.1
 
 ### Patch Changes
