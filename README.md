@@ -543,6 +543,22 @@ Use `knowledge.readChunks({ documentId, revisionKey, includeAssetUrls: false })`
 when the application resolves stored asset references through its own authorized
 resource reader. URL generation is enabled by default.
 
+Use `knowledge.getDocumentSummary(reference)` to build document navigation before
+loading any selected chunk body:
+
+```typescript
+const summary = await knowledge.getDocumentSummary({ documentId, revisionKey });
+console.log(summary.chunks); // Complete ordered metadata index, including unloaded chunks
+```
+
+The method reads only cached `manifest.json` and `chunks.json` after verifying a
+stored commit or readable snapshot identity. It does not construct rich chunks,
+read image/table files or navigation bodies, generate asset URLs, or scan remote
+chunks. A local cache ID (including a string reference) is also supported. A
+remote-only reference or unavailable stored revision rejects with `ValidationError`;
+prepare or synchronize the snapshot first. Job IDs alone do not locate a complete
+stored snapshot.
+
 For a complete local or stored snapshot, `readChunks` also returns
 `documentSummary`: the resolved revision, full chunk/type counts, trusted manifest
 page count (or `null`), sorted original physical page numbers, presentation flags,

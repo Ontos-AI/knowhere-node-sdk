@@ -386,6 +386,294 @@ function addPageImages(fixture: ReadableFixture, count: number): readonly string
 }
 
 describe('readable snapshot storage boundary', (): void => {
+  it.each([{ committedAt: '2026-10-08T00:00:00Z' }, { committedAt: 'legacy-import' }, {}])(
+    'preserves legacy marker reads, outline, grep, and summaries without source: %j',
+    async (legacyTimestamp): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      const legacyReference = { documentId: 'doc_test', revisionKey: 'retained-revision' } as const;
+      const payloads: Readonly<Record<string, unknown>> = {
+        '.knowhere-sdk/commit.json': { version: 1, ...legacyReference, ...legacyTimestamp },
+        'manifest.json': { sourceFileName: 'Construction.docx' },
+        'chunks.json': {
+          chunks: [
+            {
+              chunk_id: 'table-1',
+              type: 'table',
+              path: 'tables/result.html',
+              content: 'tables/result.html',
+              file_path: 'tables/result.html',
+              metadata: { page_nums: [2] },
+            },
+            {
+              chunk_id: 'text-1',
+              type: 'text',
+              path: 'Construction.docx/Introduction',
+              content: 'Introduction',
+              metadata: {},
+            },
+          ],
+        },
+      };
+      for (const [path, payload] of Object.entries(payloads))
+        fixture.objects.set(`retained-revision/${path}`, Buffer.from(JSON.stringify(payload)));
+      fixture.storage.getObjectUrl = (): Promise<string> =>
+        Promise.resolve('https://blob.example/retained/tables/result.html');
+      const read = await fixture.knowledge.readChunks(legacyReference);
+      expect(read.chunks).toMatchObject([
+        {
+          chunkId: 'table-1',
+          content: 'tables/result.html',
+          assetUrl: 'https://blob.example/retained/tables/result.html',
+        },
+        { chunkId: 'text-1', content: 'Introduction' },
+      ]);
+      expect((await fixture.knowledge.getDocumentOutline(legacyReference)).totalChunks).toBe(2);
+      expect(
+        (await fixture.knowledge.grepChunks({ ...legacyReference, pattern: 'Introduction' }))
+          .matches[0]?.chunkId,
+      ).toBe('text-1');
+      expect(await fixture.knowledge.getDocumentSummary(legacyReference)).toMatchObject({
+        revisionKey: 'retained-revision',
+        chunkCount: 2,
+        pageNumbers: [2],
+      });
+      expect(fixture.requests).toEqual([]);
+    },
+  );
+
+  it('returns all 188 metadata descriptors without normalizing bodies or loading asset URLs', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    addPageImages(fixture, 188);
+    updateOriginObject(
+      fixture,
+      'manifest.json',
+      Buffer.from(
+        JSON.stringify({
+          job_id: 'job_readable',
+          job_result_id: 'result_shared',
+          source_file_name: 'manual.pdf',
+          processing: { page_count: 188 },
+        }),
+      ),
+    );
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    fixture.requests.length = 0;
+    const reads: string[] = [];
+    const readObject = fixture.storage.readObject.bind(fixture.storage);
+    fixture.storage.readObject = (params): Promise<ParsedDocumentObject | null> => {
+      reads.push(params.path);
+      if (
+        params.path === 'doc_nav.json' ||
+        params.path.startsWith('tables/') ||
+        params.path.startsWith('images/')
+      )
+        throw new Error(`Unexpected rich-object read: ${params.path}`);
+      return readObject(params);
+    };
+    fixture.storage.getObjectUrl = (): Promise<string> => {
+      throw new Error('Metadata must not resolve asset URLs');
+    };
+    const summary = await fixture.knowledge.getDocumentSummary(imageReference);
+    expect(summary).toMatchObject({
+      revisionKey: 'snapshot_baseline',
+      chunkCount: 188,
+      typeCounts: { text: 0, image: 0, table: 0, page: 188 },
+      pageCount: 188,
+      pageNumbers: Array.from({ length: 188 }, (_, index): number => index + 1),
+      hasPageAssets: true,
+      hasNativePageContent: false,
+    });
+    expect(summary.chunks).toHaveLength(188);
+    expect(summary.chunks[187]).toEqual({
+      chunkId: 'page_188',
+      position: 188,
+      chunkType: 'page',
+      sourceChunkPath: 'manual.pdf/Page 188',
+      sectionPath: 'Page 188',
+      pageNumbers: [188],
+    });
+    expect(reads).toEqual([
+      '.knowhere-sdk/commit.json',
+      '.knowhere-sdk/readable.json',
+      'manifest.json',
+      'chunks.json',
+    ]);
+    expect(fixture.requests).toEqual([]);
+    expect(fixture.batchRequests).toEqual([]);
+  });
+
+  it.each(['connect_to', 'connectTo'])(
+    'preserves complete explicit ownership from %s without loading bodies',
+    async (field): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      updateOriginObject(
+        fixture,
+        'chunks.json',
+        Buffer.from(
+          JSON.stringify({
+            chunks: [
+              {
+                chunk_id: 'owner',
+                type: 'text',
+                path: 'manual.pdf/Chapter',
+                metadata: {
+                  page_nums: [1],
+                  [field]: [
+                    { target: 'figure', relation: 'embeds' },
+                    { target: 'figure', relation: 'embeds' },
+                    { target: 'unowned', relation: 'related' },
+                  ],
+                },
+              },
+              {
+                chunk_id: 'figure',
+                type: 'image',
+                path: 'images/page-1.jpg',
+                file_path: 'images/page-1.jpg',
+                metadata: { page_nums: [1] },
+              },
+            ],
+          }),
+        ),
+      );
+      await fixture.knowledge.prepareReadableSnapshot(reference);
+      fixture.requests.length = 0;
+      const summary = await fixture.knowledge.getDocumentSummary(imageReference);
+      expect(summary.chunks[0]?.embeddedChunkIds).toEqual(['figure']);
+      expect(summary.chunks[1]).toMatchObject({ chunkId: 'figure', filePath: 'images/page-1.jpg' });
+      expect(summary.chunks[1]).not.toHaveProperty('embeddedChunkIds');
+      expect(summary.hasNativePageContent).toBe(true);
+      expect(fixture.requests).toEqual([]);
+    },
+  );
+
+  it('reads legacy full-copy metadata using the committed revision without immutable delivery calls', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    for (const path of ['manifest.json', 'chunks.json']) {
+      fixture.objects.set(`snapshot_baseline/${path}`, fixture.origins.get(path)!);
+    }
+    fixture.objects.set(
+      'snapshot_baseline/.knowhere-sdk/commit.json',
+      Buffer.from(
+        JSON.stringify({
+          version: 1,
+          documentId: 'doc_readable',
+          revisionKey: 'snapshot_baseline',
+          source: 'resultZip',
+          committedAt: '2026-10-28T00:00:00.000Z',
+        }),
+      ),
+    );
+    fixture.objects.set(
+      'current/.knowhere-sdk/current-snapshot.json',
+      Buffer.from(JSON.stringify({ snapshotId: 'snapshot_baseline' })),
+    );
+    const summary = await fixture.knowledge.getDocumentSummary('doc_readable');
+    expect(summary).toMatchObject({ revisionKey: 'snapshot_baseline', chunkCount: 1 });
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it.each(['snapshotId', 'documentId', 'revisionKey'])(
+    'rejects a conflicting readable %s before returning metadata',
+    async (field): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      await fixture.knowledge.prepareReadableSnapshot(reference);
+      const descriptor: Record<string, unknown> = JSON.parse(
+        Buffer.from(fixture.objects.get('snapshot_baseline/.knowhere-sdk/readable.json')!).toString(
+          'utf8',
+        ),
+      ) as Record<string, unknown>;
+      fixture.objects.set(
+        'snapshot_baseline/.knowhere-sdk/readable.json',
+        Buffer.from(JSON.stringify({ ...descriptor, [field]: 'foreign' })),
+      );
+      fixture.requests.length = 0;
+      await expect(fixture.knowledge.getDocumentSummary(imageReference)).rejects.toBeInstanceOf(
+        ValidationError,
+      );
+      expect(fixture.requests).toEqual([]);
+    },
+  );
+
+  it.each([
+    { path: 'chunks.json', payload: { chunks: null } },
+    { path: 'chunks.json', payload: { chunks: [null] } },
+    { path: 'chunks.json', payload: { chunks: [{ type: 'text', path: 'manual.pdf/Chapter' }] } },
+    { path: 'manifest.json', payload: null },
+  ])('rejects malformed summary core $path: $payload', async ({ path, payload }): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    fixture.objects.set(`snapshot_baseline/${path}`, Buffer.from(JSON.stringify(payload)));
+    fixture.requests.length = 0;
+    await expect(fixture.knowledge.getDocumentSummary(imageReference)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it('rejects an unavailable pin without reading the current remote document', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    fixture.requests.length = 0;
+    await expect(
+      fixture.knowledge.getDocumentSummary({ documentId: 'doc_readable', revisionKey: 'foreign' }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it.each([
+    { version: 2 },
+    { stage: 'invalid-stage' },
+    { snapshotId: 'foreign' },
+    { jobResultId: 'foreign' },
+  ])('rejects an invalid full-copy metadata certificate: %j', async (override): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    for (const path of ['manifest.json', 'chunks.json'])
+      fixture.objects.set(`snapshot_baseline/${path}`, fixture.origins.get(path)!);
+    fixture.objects.set(
+      'snapshot_baseline/.knowhere-sdk/commit.json',
+      Buffer.from(JSON.stringify({ ...createFullCommit(fixture), ...override })),
+    );
+    await expect(fixture.knowledge.getDocumentSummary(imageReference)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it('accepts an opaque full-copy checksum without inferring an archive hash contract', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    for (const path of ['manifest.json', 'chunks.json'])
+      fixture.objects.set(`snapshot_baseline/${path}`, fixture.origins.get(path)!);
+    fixture.objects.set(
+      'snapshot_baseline/.knowhere-sdk/commit.json',
+      Buffer.from(JSON.stringify({ ...createFullCommit(fixture), checksum: 'snapshot-checksum' })),
+    );
+    expect(await fixture.knowledge.getDocumentSummary(imageReference)).toMatchObject({
+      revisionKey: 'snapshot_baseline',
+      chunkCount: 1,
+      pageNumbers: [1],
+    });
+    expect(fixture.requests).toEqual([]);
+  });
+
+  it('rejects valid metadata bytes that no longer match the readable snapshot inventory', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    fixture.objects.set(
+      'snapshot_baseline/chunks.json',
+      Buffer.from(
+        JSON.stringify({
+          chunks: [{ chunk_id: 'foreign-page', type: 'page', path: 'manual.pdf/Page 1' }],
+        }),
+      ),
+    );
+    fixture.requests.length = 0;
+    await expect(fixture.knowledge.getDocumentSummary(imageReference)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(fixture.requests).toEqual([]);
+  });
+
   it('reads physical page 137 before hydrating URLs and returns a complete body-free index', async (): Promise<void> => {
     const fixture: ReadableFixture = await createFixture();
     const paths: readonly string[] = addPageImages(fixture, 188);

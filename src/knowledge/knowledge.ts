@@ -69,6 +69,7 @@ import type {
   ParsedDocumentStorageConfig,
   ParsedDocumentStorageLimits,
   ParsedDocumentObject,
+  ParsedDocumentCommit,
   ParsedDocumentReadableSnapshot,
 } from '../types/storage.js';
 
@@ -604,6 +605,39 @@ export class Knowledge {
 
   async listDocuments(): Promise<LocalKnowledgeDocument[]> {
     return this.store.listDocuments();
+  }
+
+  /** Read a complete metadata index without constructing chunk bodies or resolving asset URLs. */
+  async getDocumentSummary(
+    reference: KnowledgeDocumentReference | string,
+  ): Promise<KnowledgeDocumentSummary> {
+    const normalized: KnowledgeDocumentReference = normalizeDocumentReference(reference);
+    if (normalized.localDocumentId && !normalized.documentId) {
+      const document: LocalKnowledgeDocument | undefined = await this.store.getDocument(
+        normalized.localDocumentId,
+      );
+      if (document) {
+        const metadata = await this.store.loadResultMetadata(normalized.localDocumentId);
+        return parseDocumentMetadata(metadata.manifest, metadata.chunks, null).documentSummary;
+      }
+    }
+    const documentId: string | undefined =
+      normalized.documentId ??
+      (normalized.localDocumentId && looksLikeRemoteDocumentId(normalized.localDocumentId)
+        ? normalized.localDocumentId
+        : undefined);
+    const revisionKey: string | undefined =
+      normalized.revisionKey ??
+      normalized.jobId ??
+      (documentId ? await this.resolveStoredSnapshotKey(documentId) : undefined);
+    if (documentId && revisionKey) {
+      const metadata: StoredParsedDocumentMetadata | null =
+        await this.readCommittedParsedStorageMetadata(documentId, revisionKey);
+      if (metadata) return metadata.documentSummary;
+    }
+    throw new ValidationError(
+      'Document summary requires a complete local or committed/readable stored parsed snapshot; prepare or synchronize the pinned snapshot first',
+    );
   }
 
   async getDocumentOutline(
@@ -1333,6 +1367,59 @@ export class Knowledge {
     revisionKey: string,
     readParams?: KnowledgeReadParams,
   ): Promise<StoredParsedDocumentResult | null> {
+    const metadata: StoredParsedDocumentMetadata | null =
+      await this.readCommittedParsedStorageMetadata(documentId, revisionKey, 'read');
+    if (!metadata) return null;
+    const { manifest, records, documentSummary, docNav } = metadata;
+    const scoped = documentSummary.chunks.filter((chunk) =>
+      matchesDescriptorScope(chunk, readParams),
+    );
+    const page = getReadPageParams(readParams ?? {});
+    const selected =
+      readParams === undefined
+        ? documentSummary.chunks
+        : hasScanReadFilters(readParams)
+          ? selectReadDescriptors(
+              scoped,
+              readParams,
+              clampLimit(readParams.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT),
+            )
+          : scoped.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+    const chunks = selected.flatMap((descriptor) => {
+      const record = records[descriptor.position - 1];
+      if (record === undefined) return [];
+      const parsed = parseStoredResultChunks({
+        payload: [record],
+        sourceFileName: manifest.sourceFileName,
+      });
+      return parsed.map((chunk) =>
+        narrowReadChunkPage(
+          { ...chunk, position: descriptor.position },
+          readParams?.sourcePageNumber,
+        ),
+      );
+    });
+    return {
+      storedAt: metadata.storedAt,
+      manifest,
+      chunks,
+      docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
+      typeCounts: documentSummary.typeCounts,
+      documentSummary,
+      scopedChunkCount: scoped.length,
+      nextChunk:
+        selected.length > 0
+          ? scoped[scoped.findIndex((chunk) => chunk.position === selected.at(-1)?.position) + 1]
+              ?.position
+          : undefined,
+    };
+  }
+
+  private async readCommittedParsedStorageMetadata(
+    documentId: string,
+    revisionKey: string,
+    mode: 'summary' | 'read' = 'summary',
+  ): Promise<StoredParsedDocumentMetadata | null> {
     const parsedStorageConfig = this.parsedStorageConfig;
     if (!parsedStorageConfig) {
       return null;
@@ -1362,63 +1449,32 @@ export class Knowledge {
         revisionKey,
         path: 'chunks.json',
       }),
-      parsedStorageConfig.storage.readObject({
-        documentId,
-        revisionKey,
-        path: 'doc_nav.json',
-      }),
+      mode === 'read'
+        ? parsedStorageConfig.storage.readObject({ documentId, revisionKey, path: 'doc_nav.json' })
+        : Promise.resolve(null),
     ]);
     if (!manifestObject || !chunksObject) {
       return null;
     }
 
-    const manifest = keysToCamel<Manifest>(readJsonObject<unknown>(manifestObject));
-    const records = extractStoredChunkRecords(readJsonObject<unknown>(chunksObject));
-    const documentSummary = summarizeStoredRecords(records, manifest, revisionKey);
-    const scoped = documentSummary.chunks.filter((chunk) =>
-      matchesDescriptorScope(chunk, readParams),
-    );
-    const page = getReadPageParams(readParams ?? {});
-    const selected =
-      readParams === undefined
-        ? documentSummary.chunks
-        : hasScanReadFilters(readParams)
-          ? selectReadDescriptors(
-              scoped,
-              readParams,
-              clampLimit(readParams.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT),
-            )
-          : scoped.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
-    const chunks = selected.flatMap((descriptor) => {
-      const record = records[descriptor.position - 1];
-      if (record === undefined) return [];
-      const parsed = parseStoredResultChunks({
-        payload: [record],
-        sourceFileName: manifest.sourceFileName,
-      });
-      return parsed.map((chunk) =>
-        narrowReadChunkPage(
-          { ...chunk, position: descriptor.position },
-          readParams?.sourcePageNumber,
-        ),
-      );
-    });
+    const manifestPayload: unknown = readJsonObject<unknown>(manifestObject);
+    if (mode === 'summary')
+      validateStoredMetadataCertificate(commit, readable, manifestPayload, [
+        manifestObject,
+        chunksObject,
+      ]);
     const docNav = docNavObject
       ? keysToCamel<{ readonly sections?: DocNavSection[] }>(readJsonObject<unknown>(docNavObject))
       : undefined;
     return {
-      storedAt: commit?.committedAt ?? readable!.readableAt,
-      manifest,
-      chunks,
+      storedAt: commit?.committedAt ?? readable?.readableAt ?? '',
       docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
-      typeCounts: documentSummary.typeCounts,
-      documentSummary,
-      scopedChunkCount: scoped.length,
-      nextChunk:
-        selected.length > 0
-          ? scoped[scoped.findIndex((chunk) => chunk.position === selected.at(-1)?.position) + 1]
-              ?.position
-          : undefined,
+      ...parseDocumentMetadata(
+        manifestPayload,
+        readJsonObject<unknown>(chunksObject),
+        revisionKey,
+        mode === 'summary',
+      ),
     };
   }
 
@@ -1770,6 +1826,19 @@ interface StoredParsedDocumentResult {
     readonly sections: DocNavSection[];
   };
   readonly typeCounts: Record<KnowledgeChunkType, number>;
+}
+
+interface ParsedDocumentMetadata {
+  readonly manifest: Manifest;
+  readonly records: readonly Record<string, unknown>[];
+  readonly documentSummary: KnowledgeDocumentSummary;
+}
+
+interface StoredParsedDocumentMetadata extends ParsedDocumentMetadata {
+  readonly storedAt: string;
+  readonly docNav?: {
+    readonly sections: DocNavSection[];
+  };
 }
 
 const defaultParsedStorageScheduler = {
@@ -2133,6 +2202,80 @@ function summarizeStoredRecords(
     hasNativePageContent,
     chunks,
   };
+}
+
+function parseDocumentMetadata(
+  manifestPayload: unknown,
+  chunksPayload: unknown,
+  revisionKey: string | null,
+  shouldValidate: boolean = true,
+): ParsedDocumentMetadata {
+  if (
+    shouldValidate &&
+    (!isRecord(manifestPayload) ||
+      !readRecordString(manifestPayload, 'sourceFileName', 'source_file_name'))
+  )
+    throw new ValidationError('Parsed snapshot manifest is missing a source file name');
+  const values: readonly unknown[] | null = toUnknownArray(
+    isRecord(chunksPayload) ? chunksPayload.chunks : chunksPayload,
+  );
+  if (
+    shouldValidate &&
+    (values === null ||
+      !values.every(
+        (record): record is Record<string, unknown> =>
+          isRecord(record) && Boolean(readRecordString(record, 'chunkId', 'chunk_id')),
+      ))
+  )
+    throw new ValidationError('Parsed snapshot chunks must be an array of chunk records with IDs');
+  const manifest: Manifest = keysToCamel<Manifest>(manifestPayload);
+  const records: readonly Record<string, unknown>[] = extractStoredChunkRecords(chunksPayload);
+  return {
+    manifest,
+    records,
+    documentSummary: summarizeStoredRecords(records, manifest, revisionKey),
+  };
+}
+
+function validateStoredMetadataCertificate(
+  commit: ParsedDocumentCommit | null,
+  readable: ParsedDocumentReadableSnapshot | null,
+  manifestPayload: unknown,
+  objects: readonly ParsedDocumentObject[],
+): void {
+  if (
+    commit &&
+    (commit.version !== 1 ||
+      (commit.snapshotId !== undefined && commit.snapshotId !== commit.revisionKey) ||
+      (commit.stage !== undefined && commit.stage !== 'baseline' && commit.stage !== 'final'))
+  )
+    throw new ValidationError('Invalid full-copy parsed snapshot metadata certificate');
+  if (!isRecord(manifestPayload))
+    throw new ValidationError('Invalid parsed snapshot manifest metadata');
+  const jobResultId: string | undefined = readRecordString(
+    manifestPayload,
+    'jobResultId',
+    'job_result_id',
+  );
+  if (
+    (commit?.jobResultId !== undefined &&
+      jobResultId !== undefined &&
+      commit.jobResultId !== jobResultId) ||
+    (readable &&
+      (readRecordString(manifestPayload, 'jobId', 'job_id') !== readable.jobId ||
+        (jobResultId !== undefined && jobResultId !== readable.jobResultId)))
+  )
+    throw new ValidationError('Parsed snapshot manifest metadata differs from its pinned identity');
+  if (!readable) return;
+  for (const object of objects) {
+    const entry = readable.objects.find((candidate): boolean => candidate.path === object.path);
+    if (
+      !entry ||
+      object.body.byteLength !== entry.sizeBytes ||
+      createHash('sha256').update(object.body).digest('hex') !== entry.checksumSha256
+    )
+      throw new ValidationError(`Parsed snapshot metadata integrity check failed: ${object.path}`);
+  }
 }
 
 function matchesDescriptorScope(

@@ -216,6 +216,21 @@ export class LocalKnowledgeStore {
     return { document, result };
   }
 
+  async loadResultMetadata(localDocumentId: string): Promise<{
+    readonly manifest: unknown;
+    readonly chunks: unknown;
+  }> {
+    const document: LocalKnowledgeDocument | undefined = await this.getDocument(localDocumentId);
+    if (!document) throw new Error(`Local Knowhere document not found: ${localDocumentId}`);
+    const [manifest, chunks]: readonly string[] = await Promise.all(
+      ['manifest.json', 'chunks.json'].map(
+        (fileName): Promise<string> =>
+          fs.readFile(path.join(document.resultDirectoryPath, fileName), 'utf8'),
+      ),
+    );
+    return { manifest: JSON.parse(manifest) as unknown, chunks: JSON.parse(chunks) as unknown };
+  }
+
   private getResultDirectoryPath(localDocumentId: string): string {
     const documentsDirectory = path.resolve(this.cacheDirectory, 'documents');
     const resultDirectoryPath = path.resolve(documentsDirectory, localDocumentId);
