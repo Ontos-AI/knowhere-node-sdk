@@ -543,6 +543,42 @@ Use `knowledge.readChunks({ documentId, revisionKey, includeAssetUrls: false })`
 when the application resolves stored asset references through its own authorized
 resource reader. URL generation is enabled by default.
 
+For a complete local or stored snapshot, `readChunks` also returns
+`documentSummary`: the resolved revision, full chunk/type counts, trusted manifest
+page count (or `null`), sorted original physical page numbers, presentation flags,
+and an ordered `chunks` index containing IDs, positions, types, section/source
+paths, physical page numbers, and optional file paths. Index entries contain no
+body text or asset URLs. The summary covers the complete snapshot even when the
+returned chunk batch is filtered or paginated. Remote-only chunk windows omit it.
+Descriptors also expose optional `embeddedChunkIds` for explicit `embeds`
+connections, preserving chapter ownership for unloaded image/table entries.
+Unversioned local caches report `revisionKey: null`; a caller-supplied revision
+does not certify their contents. Stored snapshots report their verified revision.
+
+Use `sourcePageNumber` to read one original physical page without hydrating URLs
+for other pages:
+
+```typescript
+const page = await knowledge.readChunks({
+  documentId: prepared.documentId,
+  revisionKey: prepared.revisionKey,
+  sourcePageNumber: 137,
+  page: 1,
+  pageSize: 20,
+});
+```
+
+`sourcePageNumber` must be a positive safe integer. It filters before display
+pagination and URL resolution, retaining original chunk IDs and global positions.
+Multi-page chunks retain their content while their page-asset list is narrowed
+to the requested physical page. `totalChunks` and `totalPages` describe matching
+chunks and display batches; `documentSummary.pageNumbers` preserves the original
+physical page domain, including sparse pages. The stored JSON is still read and
+lightly scanned in full; only selected chunks receive rich normalization and URL
+hydration. Physical-page reads require a complete local or stored snapshot and
+throw `ValidationError` for remote-only documents; prepare or synchronize the
+pinned snapshot first. Ordinary remote reads keep their existing behavior.
+
 Only `syncParsedDocument(...).completed` and its existing full commit certify the
 complete archive copy and integrity checks. An origin or replication failure does
 not remove the readable descriptor. Historical snapshots without immutable object

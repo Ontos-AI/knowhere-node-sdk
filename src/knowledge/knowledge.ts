@@ -47,6 +47,8 @@ import type {
   KnowledgeReadChunk,
   KnowledgeReadParams,
   KnowledgeReadResponse,
+  KnowledgeChunkDescriptor,
+  KnowledgeDocumentSummary,
   KnowledgeSearchParams,
   KnowledgeSearchReference,
   KnowledgeSearchResponse,
@@ -656,18 +658,43 @@ export class Knowledge {
 
     const { document, result } = await this.loadReadableResult(params);
     const limit = clampLimit(params.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT);
-    const chunks = indexChunks(result).filter((chunk) => matchesReadScope(chunk, params));
-    const selected = selectReadWindow(chunks, params, limit);
+    const records: readonly Record<string, unknown>[] = result.chunks.map((chunk) => ({
+      ...chunk,
+    }));
+    const documentSummary: KnowledgeDocumentSummary = summarizeStoredRecords(
+      records,
+      result.manifest,
+      null,
+    );
+    const chunks = documentSummary.chunks.filter((chunk) => matchesDescriptorScope(chunk, params));
+    const selectedDescriptors = selectReadDescriptors(chunks, params, limit);
+    const selected = selectedDescriptors.flatMap((descriptor) => {
+      const source = result.chunks[descriptor.position - 1];
+      if (source === undefined) return [];
+      return indexChunks({ ...result, chunks: [source] }).map((chunk) =>
+        narrowReadChunkPage({ ...chunk, position: descriptor.position }, params.sourcePageNumber),
+      );
+    });
     const lastSelected = selected[selected.length - 1];
     const nextChunk =
       lastSelected && selected.length < chunks.length
-        ? chunks[chunks.indexOf(lastSelected) + 1]?.position
+        ? chunks[chunks.findIndex((chunk) => chunk.position === lastSelected.position) + 1]
+            ?.position
         : undefined;
 
     return {
       document,
+      documentSummary,
       chunks: selected.map(toReadChunk),
       nextChunk,
+      ...(params.sourcePageNumber === undefined
+        ? {}
+        : {
+            page: getReadPageParams(params).page,
+            pageSize: getReadPageParams(params).pageSize,
+            totalChunks: chunks.length,
+            totalPages: Math.max(1, Math.ceil(chunks.length / getReadPageParams(params).pageSize)),
+          }),
     };
   }
 
@@ -821,6 +848,11 @@ export class Knowledge {
         throw new ValidationError('Requested parsed snapshot is not committed locally');
     }
 
+    if (params.sourcePageNumber !== undefined) {
+      throw new ValidationError(
+        'sourcePageNumber requires a complete local or stored parsed snapshot; prepare or synchronize the pinned snapshot before reading a physical page',
+      );
+    }
     if (hasScanReadFilters(params)) {
       return this.scanRemoteDocumentChunks(documentId, params);
     }
@@ -1167,22 +1199,11 @@ export class Knowledge {
     const storedResult = await this.readCommittedParsedStorageResult(
       params.documentId,
       params.revisionKey,
+      params.params,
     );
     if (!storedResult) return null;
     const pageParams = getReadPageParams(params.params);
-    const scopedChunks = storedResult.chunks
-      .filter((chunk) => !params.params.chunkType || chunk.chunkType === params.params.chunkType)
-      .filter((chunk) => matchesReadScope(chunk, params.params));
-    const selected = hasScanReadFilters(params.params)
-      ? selectReadWindow(
-          scopedChunks,
-          params.params,
-          clampLimit(params.params.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT),
-        )
-      : scopedChunks.slice(
-          (pageParams.page - 1) * pageParams.pageSize,
-          pageParams.page * pageParams.pageSize,
-        );
+    const selected = storedResult.chunks;
     const chunks: KnowledgeReadChunk[] = selected.map(toReadChunk);
     const visibleChunks =
       params.params.includeAssetUrls === false
@@ -1198,8 +1219,9 @@ export class Knowledge {
                 paths,
               }),
           });
-    const totalChunks = scopedChunks.length;
+    const totalChunks = storedResult.scopedChunkCount ?? selected.length;
     return {
+      documentSummary: storedResult.documentSummary,
       document: createStoredKnowledgeDocument({
         documentId: params.documentId,
         storedResult,
@@ -1210,7 +1232,7 @@ export class Knowledge {
       pageSize: hasScanReadFilters(params.params) ? undefined : pageParams.pageSize,
       totalChunks,
       totalPages: Math.max(1, Math.ceil(totalChunks / pageParams.pageSize)),
-      nextChunk: getNextChunkPosition(scopedChunks, selected),
+      nextChunk: storedResult.nextChunk,
     };
   }
 
@@ -1309,6 +1331,7 @@ export class Knowledge {
   private async readCommittedParsedStorageResult(
     documentId: string,
     revisionKey: string,
+    readParams?: KnowledgeReadParams,
   ): Promise<StoredParsedDocumentResult | null> {
     const parsedStorageConfig = this.parsedStorageConfig;
     if (!parsedStorageConfig) {
@@ -1350,9 +1373,35 @@ export class Knowledge {
     }
 
     const manifest = keysToCamel<Manifest>(readJsonObject<unknown>(manifestObject));
-    const chunks = parseStoredResultChunks({
-      payload: readJsonObject<unknown>(chunksObject),
-      sourceFileName: manifest.sourceFileName,
+    const records = extractStoredChunkRecords(readJsonObject<unknown>(chunksObject));
+    const documentSummary = summarizeStoredRecords(records, manifest, revisionKey);
+    const scoped = documentSummary.chunks.filter((chunk) =>
+      matchesDescriptorScope(chunk, readParams),
+    );
+    const page = getReadPageParams(readParams ?? {});
+    const selected =
+      readParams === undefined
+        ? documentSummary.chunks
+        : hasScanReadFilters(readParams)
+          ? selectReadDescriptors(
+              scoped,
+              readParams,
+              clampLimit(readParams.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT),
+            )
+          : scoped.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+    const chunks = selected.flatMap((descriptor) => {
+      const record = records[descriptor.position - 1];
+      if (record === undefined) return [];
+      const parsed = parseStoredResultChunks({
+        payload: [record],
+        sourceFileName: manifest.sourceFileName,
+      });
+      return parsed.map((chunk) =>
+        narrowReadChunkPage(
+          { ...chunk, position: descriptor.position },
+          readParams?.sourcePageNumber,
+        ),
+      );
     });
     const docNav = docNavObject
       ? keysToCamel<{ readonly sections?: DocNavSection[] }>(readJsonObject<unknown>(docNavObject))
@@ -1362,7 +1411,14 @@ export class Knowledge {
       manifest,
       chunks,
       docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
-      typeCounts: countIndexedTypes(chunks),
+      typeCounts: documentSummary.typeCounts,
+      documentSummary,
+      scopedChunkCount: scoped.length,
+      nextChunk:
+        selected.length > 0
+          ? scoped[scoped.findIndex((chunk) => chunk.position === selected.at(-1)?.position) + 1]
+              ?.position
+          : undefined,
     };
   }
 
@@ -1704,6 +1760,9 @@ interface ContinuationCursor {
 }
 
 interface StoredParsedDocumentResult {
+  readonly documentSummary?: KnowledgeDocumentSummary;
+  readonly scopedChunkCount?: number;
+  readonly nextChunk?: number;
   readonly storedAt: string;
   readonly manifest: Manifest;
   readonly chunks: IndexedKnowledgeChunk[];
@@ -1738,6 +1797,12 @@ function getParsedStorageLimits(
 }
 
 function validateReadParams(params: KnowledgeReadParams): void {
+  if (
+    params.sourcePageNumber !== undefined &&
+    (!Number.isSafeInteger(params.sourcePageNumber) || params.sourcePageNumber < 1)
+  ) {
+    throw new ValidationError('sourcePageNumber must be a positive safe integer');
+  }
   const usesPagedDisplay = params.page !== undefined || params.pageSize !== undefined;
   if (!usesPagedDisplay) {
     return;
@@ -1914,7 +1979,8 @@ function createStoredKnowledgeDocument(params: {
     jobId: params.storedResult.manifest.jobId || params.revisionKey,
     documentId: params.documentId,
     sourceFileName: params.storedResult.manifest.sourceFileName,
-    chunkCount: params.storedResult.chunks.length,
+    chunkCount:
+      params.storedResult.documentSummary?.chunkCount ?? params.storedResult.chunks.length,
     typeCounts: params.storedResult.typeCounts,
     resultDirectoryPath: `parsed-storage:${params.documentId}`,
     createdAt: new Date(params.storedResult.storedAt),
@@ -1955,6 +2021,174 @@ function getReadableRemoteChunkContent(
 function toIndexedRemoteChunk(chunk: DocumentChunk): IndexedKnowledgeChunk {
   const readChunk = toRemoteReadChunk(chunk);
   return toIndexedReadChunk(readChunk);
+}
+
+function readRawMetadata(record: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(record.metadata) ? record.metadata : {};
+}
+
+function readRawPageAssets(metadata: Record<string, unknown>): readonly Record<string, unknown>[] {
+  const values: unknown = metadata.pageAssets ?? metadata.page_assets;
+  return Array.isArray(values) ? values.filter(isRecord) : [];
+}
+
+function readAssetPageNumber(asset: Record<string, unknown>): number | undefined {
+  const page: unknown = asset.pageNum ?? asset.pageNumber ?? asset.page_num ?? asset.page_number;
+  return typeof page === 'number' && Number.isSafeInteger(page) && page > 0 ? page : undefined;
+}
+
+function hasRawPageAssetReference(asset: Record<string, unknown>): boolean {
+  return Boolean(readRecordString(asset, 'artifactRef', 'artifact_ref', 'assetUrl', 'asset_url'));
+}
+
+function readEmbeddedChunkIds(metadata: Record<string, unknown>): readonly string[] {
+  const connections: readonly unknown[] = [metadata.connectTo, metadata.connect_to].flatMap(
+    (value) => toUnknownArray(value) ?? [],
+  );
+  return [
+    ...new Set(
+      connections.flatMap((connection): readonly string[] =>
+        isRecord(connection) &&
+        connection.relation === 'embeds' &&
+        typeof connection.target === 'string' &&
+        connection.target.length > 0
+          ? [connection.target]
+          : [],
+      ),
+    ),
+  ];
+}
+
+function readPhysicalPageNumbers(metadata: Record<string, unknown>): number[] {
+  const candidates: unknown[] = [
+    metadata.pageNumber,
+    metadata.pageNum,
+    metadata.page_number,
+    metadata.page_num,
+  ];
+  for (const value of [metadata.pageNumbers, metadata.pageNums, metadata.page_nums]) {
+    const values: readonly unknown[] | null = toUnknownArray(value);
+    if (values !== null) candidates.push(...values);
+  }
+  candidates.push(...readRawPageAssets(metadata).map(readAssetPageNumber));
+  return [
+    ...new Set(
+      candidates.filter(
+        (value): value is number =>
+          typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+      ),
+    ),
+  ].sort((left, right) => left - right);
+}
+
+function summarizeStoredRecords(
+  records: readonly Record<string, unknown>[],
+  manifest: Manifest,
+  revisionKey: string | null,
+): KnowledgeDocumentSummary {
+  const typeCounts: Record<KnowledgeChunkType, number> = { text: 0, image: 0, table: 0, page: 0 };
+  let hasPageAssets: boolean = false;
+  let hasNativePageContent: boolean = false;
+  const chunks: KnowledgeChunkDescriptor[] = records.map((record, index) => {
+    const metadata: Record<string, unknown> = readRawMetadata(record);
+    const rawType: string | undefined = readRecordString(record, 'type', 'chunkType', 'chunk_type');
+    const chunkType: KnowledgeChunkType = isKnowledgeChunkType(rawType) ? rawType : 'text';
+    const sourceChunkPath: string =
+      readRecordString(record, 'path', 'sourceChunkPath', 'source_chunk_path') ?? '';
+    const filePath: string | undefined =
+      readRecordString(record, 'filePath', 'file_path') ??
+      readRecordString(metadata, 'filePath', 'file_path');
+    const hasAssets: boolean = readRawPageAssets(metadata).some(hasRawPageAssetReference);
+    const embeddedChunkIds: readonly string[] = readEmbeddedChunkIds(metadata);
+    typeCounts[chunkType] += 1;
+    hasPageAssets ||= hasAssets;
+    hasNativePageContent ||= (chunkType === 'page' || chunkType === 'text') && !hasAssets;
+    return {
+      chunkId: readRecordString(record, 'chunkId', 'chunk_id') ?? '',
+      position: index + 1,
+      chunkType,
+      sourceChunkPath,
+      sectionPath: normalizeSectionPath(sourceChunkPath, manifest.sourceFileName),
+      pageNumbers: readPhysicalPageNumbers(metadata),
+      ...(filePath === undefined ? {} : { filePath }),
+      ...(embeddedChunkIds.length === 0 ? {} : { embeddedChunkIds }),
+    };
+  });
+  const pageCount: number | undefined = [
+    manifest.processing?.pageCount,
+    manifest.statistics?.totalPages,
+  ].find(
+    (value): value is number =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+  );
+  return {
+    revisionKey,
+    chunkCount: chunks.length,
+    typeCounts,
+    pageCount: pageCount ?? null,
+    pageNumbers: [...new Set(chunks.flatMap((chunk) => chunk.pageNumbers))].sort(
+      (left, right) => left - right,
+    ),
+    hasPageAssets,
+    hasNativePageContent,
+    chunks,
+  };
+}
+
+function matchesDescriptorScope(
+  chunk: KnowledgeChunkDescriptor,
+  params: KnowledgeReadParams | undefined,
+): boolean {
+  if (params === undefined) return true;
+  return (
+    (!params.chunkId || chunk.chunkId === params.chunkId) &&
+    (!params.chunkType || chunk.chunkType === params.chunkType) &&
+    (!params.sectionPath || isInSection(chunk.sectionPath, params.sectionPath)) &&
+    (params.sourcePageNumber === undefined || chunk.pageNumbers.includes(params.sourcePageNumber))
+  );
+}
+
+function selectReadDescriptors(
+  chunks: readonly KnowledgeChunkDescriptor[],
+  params: KnowledgeReadParams,
+  limit: number,
+): readonly KnowledgeChunkDescriptor[] {
+  if (params.sourcePageNumber !== undefined && !hasScanReadFilters(params)) {
+    const page = getReadPageParams(params);
+    return chunks.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+  }
+  if (params.chunkId) return chunks.slice(0, limit);
+  return chunks
+    .filter(
+      (chunk) =>
+        chunk.position >= (params.startChunk ?? 1) &&
+        chunk.position <= (params.endChunk ?? Number.MAX_SAFE_INTEGER),
+    )
+    .slice(0, limit);
+}
+
+function narrowReadChunkPage(
+  chunk: IndexedKnowledgeChunk,
+  sourcePageNumber: number | undefined,
+): IndexedKnowledgeChunk {
+  if (sourcePageNumber === undefined) return chunk;
+  const metadata: Record<string, unknown> = { ...chunk.metadata };
+  const pageNumbers: number[] = chunk.pageNumbers ?? readPhysicalPageNumbers(chunk.metadata);
+  if (Array.isArray(metadata.pageAssets) || Array.isArray(metadata.page_assets)) {
+    metadata.pageAssets = readRawPageAssets(metadata).filter(
+      (asset) =>
+        readAssetPageNumber(asset) === sourcePageNumber ||
+        (readAssetPageNumber(asset) === undefined &&
+          pageNumbers.length === 1 &&
+          pageNumbers[0] === sourcePageNumber),
+    );
+    delete metadata.page_assets;
+  }
+  return {
+    ...chunk,
+    metadata,
+    pageNumbers,
+  };
 }
 
 function parseStoredResultChunks(params: {
@@ -2083,17 +2317,6 @@ function buildFlatSectionsFromIndexedChunks(chunks: IndexedKnowledgeChunk[]): Kn
 
 function matchesRemoteReadScope(chunk: DocumentChunk, params: KnowledgeReadParams): boolean {
   return matchesReadScope(toIndexedRemoteChunk(chunk), params);
-}
-
-function getNextChunkPosition(
-  chunks: readonly IndexedKnowledgeChunk[],
-  selected: readonly IndexedKnowledgeChunk[],
-): number | undefined {
-  const lastSelected = selected[selected.length - 1];
-  if (!lastSelected || selected.length >= chunks.length) {
-    return undefined;
-  }
-  return chunks[chunks.indexOf(lastSelected) + 1]?.position;
 }
 
 async function applyStoredAssetUrlsToReadChunks(params: {
@@ -2585,22 +2808,6 @@ function matchesReadScope(chunk: IndexedKnowledgeChunk, params: KnowledgeReadPar
     return false;
   }
   return true;
-}
-
-function selectReadWindow(
-  chunks: IndexedKnowledgeChunk[],
-  params: KnowledgeReadParams,
-  limit: number,
-): IndexedKnowledgeChunk[] {
-  if (params.chunkId) {
-    return chunks.slice(0, limit);
-  }
-
-  const startChunk = params.startChunk ?? chunks[0]?.position ?? 1;
-  const endChunk = params.endChunk ?? Number.MAX_SAFE_INTEGER;
-  return chunks
-    .filter((chunk) => chunk.position >= startChunk && chunk.position <= endChunk)
-    .slice(0, limit);
 }
 
 function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {

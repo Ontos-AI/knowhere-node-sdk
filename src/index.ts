@@ -126,6 +126,8 @@ export type {
   KnowledgeReadParams,
   KnowledgeReadChunk,
   KnowledgeReadResponse,
+  KnowledgeChunkDescriptor,
+  KnowledgeDocumentSummary,
   KnowledgeGrepParams,
   KnowledgeGrepMatch,
   KnowledgeGrepResponse,

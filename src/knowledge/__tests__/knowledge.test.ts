@@ -37,6 +37,71 @@ describe('Knowledge', () => {
     tempDirectories.length = 0;
   });
 
+  it('rejects remote-only physical page reads without requesting unselected asset URLs', async (): Promise<void> => {
+    const cacheDirectory: string = await createTempDirectory();
+    const { client, documentsListChunks } = createClient(createParseResult());
+    const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    await expect(
+      knowledge.readChunks({ documentId: 'doc_remote', sourcePageNumber: 5 }),
+    ).rejects.toThrow(/complete local or stored parsed snapshot/);
+    expect(documentsListChunks).not.toHaveBeenCalled();
+    const normalRead = await knowledge.readChunks({ documentId: 'doc_remote', page: 1 });
+    expect(normalRead.documentSummary).toBeUndefined();
+    expect(documentsListChunks).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns full local snapshot descriptors while paging sparse physical-page matches', async (): Promise<void> => {
+    const cacheDirectory: string = await createTempDirectory();
+    const result: ParseResult = createParseResult();
+    result.chunks = result.chunks.map((chunk, index) => ({
+      ...chunk,
+      metadata: { ...chunk.metadata, page_nums: [index === 0 ? 1 : 5] },
+    }));
+    result.manifest.processing = { pageCount: 9 };
+    const { client } = createClient(result);
+    const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    await knowledge.parseToLocalCache({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'physical-local',
+    });
+    const read = await knowledge.readChunks({
+      localDocumentId: 'physical-local',
+      sourcePageNumber: 5,
+      page: 2,
+      pageSize: 1,
+    });
+    expect(read.chunks.map((chunk) => [chunk.chunkId, chunk.position])).toEqual([
+      ['chunk-margin', 3],
+    ]);
+    expect(read.totalChunks).toBe(2);
+    expect(read.page).toBe(2);
+    expect(read.totalPages).toBe(2);
+    expect(read.documentSummary).toMatchObject({
+      revisionKey: null,
+      chunkCount: 3,
+      pageNumbers: [1, 5],
+      pageCount: 9,
+      hasNativePageContent: true,
+    });
+    expect(read.documentSummary?.chunks.map((chunk) => chunk.chunkId)).toEqual([
+      'chunk-intro',
+      'chunk-table',
+      'chunk-margin',
+    ]);
+  });
+
+  it('does not certify a requested snapshot revision for an unversioned local cache', async (): Promise<void> => {
+    const knowledge: Knowledge = await createKnowledgeWithCachedResult();
+    const read = await knowledge.readChunks({
+      localDocumentId: 'local-report',
+      revisionKey: 'foreign-requested-snapshot',
+      limit: 1,
+    });
+    expect(read.document.jobId).toBe('job-1');
+    expect(read.chunks[0]?.chunkId).toBe('chunk-intro');
+    expect(read.documentSummary?.revisionKey).toBeNull();
+  });
+
   it.each([
     { page: 1, pageSize: 2 },
     { sectionPath: 'Intro', limit: 5 },

@@ -386,6 +386,226 @@ function addPageImages(fixture: ReadableFixture, count: number): readonly string
 }
 
 describe('readable snapshot storage boundary', (): void => {
+  it('reads physical page 137 before hydrating URLs and returns a complete body-free index', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    const paths: readonly string[] = addPageImages(fixture, 188);
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    fixture.requests.length = 0;
+    const read = await fixture.knowledge.readChunks({
+      ...imageReference,
+      sourcePageNumber: 137,
+      page: 1,
+      pageSize: 1,
+    });
+    expect(read.chunks.map((chunk) => [chunk.chunkId, chunk.position])).toEqual([
+      ['page_137', 137],
+    ]);
+    expect(fixture.batchRequests).toEqual([[paths[136]]]);
+    expect(fixture.requests).toEqual([
+      'POST /v2/jobs/job_readable/snapshots/snapshot_baseline/objects/access',
+    ]);
+    expect(read.totalChunks).toBe(1);
+    expect(read.documentSummary).toMatchObject({
+      revisionKey: 'snapshot_baseline',
+      chunkCount: 188,
+      typeCounts: { text: 0, image: 0, table: 0, page: 188 },
+      pageCount: null,
+      pageNumbers: Array.from({ length: 188 }, (_, index) => index + 1),
+      hasPageAssets: true,
+      hasNativePageContent: false,
+    });
+    expect(read.documentSummary?.chunks[136]).toEqual({
+      chunkId: 'page_137',
+      position: 137,
+      chunkType: 'page',
+      sectionPath: 'Page 137',
+      sourceChunkPath: 'manual.pdf/Page 137',
+      pageNumbers: [137],
+    });
+  });
+
+  it('uses sparse asset page aliases and narrows multi-page assets before URL collection', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    const paths: readonly string[] = addPageImages(fixture, 5);
+    updateOriginObject(
+      fixture,
+      'chunks.json',
+      Buffer.from(
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'native',
+              type: 'text',
+              content: 'Native text',
+              path: 'manual.pdf/Intro',
+              metadata: { page_nums: [1] },
+            },
+            {
+              chunk_id: 'multi',
+              type: 'page',
+              content: 'Body must stay out of descriptors',
+              path: 'manual.pdf/Images',
+              metadata: {
+                page_assets: [
+                  { page_number: 1, artifact_ref: paths[0], content_type: 'image/jpeg' },
+                  { pageNum: 5, artifact_ref: paths[4], content_type: 'image/jpeg' },
+                ],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    const first = await fixture.knowledge.readChunks({
+      ...imageReference,
+      pageSize: 1,
+      includeAssetUrls: false,
+    });
+    expect(first.documentSummary).toMatchObject({
+      pageNumbers: [1, 5],
+      hasPageAssets: true,
+      hasNativePageContent: true,
+    });
+    const read = await fixture.knowledge.readChunks({
+      ...imageReference,
+      sourcePageNumber: 5,
+      pageSize: 1,
+    });
+    expect(read.chunks.map((chunk) => [chunk.chunkId, chunk.position])).toEqual([['multi', 2]]);
+    expect(read.chunks[0]?.metadata.pageAssets).toHaveLength(1);
+    expect(fixture.batchRequests).toEqual([[paths[4]]]);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN])(
+    'rejects invalid physical page %s',
+    async (sourcePageNumber): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      await expect(
+        fixture.knowledge.readChunks({ ...imageReference, sourcePageNumber }),
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect(fixture.requests).toEqual([]);
+    },
+  );
+
+  it.each([{ pageNums: [5] }, { page_nums: [5] }, { pageNumbers: [5] }, { pageNumber: 5 }])(
+    'preserves physical pages from metadata aliases %j',
+    async (metadata): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      updateOriginObject(
+        fixture,
+        'chunks.json',
+        Buffer.from(
+          JSON.stringify({
+            chunks: [
+              {
+                chunk_id: 'physical-five',
+                type: 'text',
+                content: 'Fifth source page',
+                path: 'manual.pdf/Five',
+                metadata,
+              },
+            ],
+          }),
+        ),
+      );
+      await fixture.knowledge.prepareReadableSnapshot(reference);
+      const read = await fixture.knowledge.readChunks({ ...imageReference, sourcePageNumber: 5 });
+      expect(read.chunks[0]?.pageNumbers).toEqual([5]);
+      expect(read.documentSummary?.pageNumbers).toEqual([5]);
+      expect(read.chunks[0]?.position).toBe(1);
+    },
+  );
+
+  it('does not guess physical pages for unlabeled multi-page assets', async (): Promise<void> => {
+    const fixture: ReadableFixture = await createFixture();
+    const paths: readonly string[] = addPageImages(fixture, 5);
+    updateOriginObject(
+      fixture,
+      'chunks.json',
+      Buffer.from(
+        JSON.stringify({
+          chunks: [
+            {
+              chunk_id: 'ambiguous',
+              type: 'page',
+              content: 'Pages one and five',
+              path: 'manual.pdf/Several',
+              metadata: {
+                page_nums: [1, 5],
+                page_assets: [{ artifact_ref: paths[0] }, { artifact_ref: paths[4] }],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    await fixture.knowledge.prepareReadableSnapshot(reference);
+    const read = await fixture.knowledge.readChunks({ ...imageReference, sourcePageNumber: 5 });
+    expect(read.chunks[0]?.metadata.pageAssets).toEqual([]);
+    expect(fixture.batchRequests).toEqual([]);
+    expect(read.documentSummary?.hasPageAssets).toBe(true);
+  });
+
+  it.each(['connect_to', 'connectTo'])(
+    'keeps complete explicit ownership from %s when the owning body is not selected',
+    async (field): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      addPageImages(fixture, 5);
+      updateOriginObject(
+        fixture,
+        'chunks.json',
+        Buffer.from(
+          JSON.stringify({
+            chunks: [
+              {
+                chunk_id: 'unloaded-body',
+                type: 'text',
+                content: 'Unloaded owning body',
+                path: 'manual.pdf/Chapter',
+                metadata: {
+                  page_nums: [1],
+                  [field]: [
+                    { target: 'figure-five', relation: 'embeds' },
+                    { target: 'related-table', relation: 'related' },
+                    { target: 'figure-five', relation: 'embeds' },
+                    { target: 42, relation: 'embeds' },
+                  ],
+                },
+              },
+              {
+                chunk_id: 'figure-five',
+                type: 'image',
+                content: 'Selected figure',
+                path: 'images/page-5.jpg',
+                file_path: 'images/page-5.jpg',
+                metadata: { page_nums: [5] },
+              },
+            ],
+          }),
+        ),
+      );
+      await fixture.knowledge.prepareReadableSnapshot(reference);
+      const read = await fixture.knowledge.readChunks({
+        ...imageReference,
+        sourcePageNumber: 5,
+        includeAssetUrls: false,
+      });
+      expect(read.chunks.map((chunk) => chunk.chunkId)).toEqual(['figure-five']);
+      expect(read.documentSummary?.chunks[0]).toEqual({
+        chunkId: 'unloaded-body',
+        position: 1,
+        chunkType: 'text',
+        sectionPath: 'Chapter',
+        sourceChunkPath: 'manual.pdf/Chapter',
+        pageNumbers: [1],
+        embeddedChunkIds: ['figure-five'],
+      });
+      expect(read.documentSummary?.chunks[1]).not.toHaveProperty('embeddedChunkIds');
+      expect(fixture.batchRequests).toEqual([]);
+    },
+  );
+
   it('authorizes 188 selected page images in one batch without single capabilities or image bodies', async (): Promise<void> => {
     const fixture: ReadableFixture = await createFixture();
     const paths: readonly string[] = addPageImages(fixture, 188);

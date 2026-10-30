@@ -184,6 +184,8 @@ export interface KnowledgeOutline {
 }
 
 export interface KnowledgeReadParams extends KnowledgeDocumentReference {
+  /** Read chunks on one original physical page from a complete local or stored snapshot. */
+  sourcePageNumber?: number;
   /** Generate asset URLs while reading metadata (default true). */
   includeAssetUrls?: boolean;
   page?: number;
@@ -214,6 +216,8 @@ export interface KnowledgeReadChunk {
 }
 
 export interface KnowledgeReadResponse {
+  /** Complete snapshot metadata; omitted when only a remote chunk window is available. */
+  documentSummary?: KnowledgeDocumentSummary;
   document: LocalKnowledgeDocument;
   chunks: KnowledgeReadChunk[];
   nextChunk?: number;
@@ -221,6 +225,29 @@ export interface KnowledgeReadResponse {
   pageSize?: number;
   totalChunks?: number;
   totalPages?: number;
+}
+
+export interface KnowledgeChunkDescriptor {
+  readonly chunkId: string;
+  readonly position: number;
+  readonly chunkType: KnowledgeChunkType;
+  readonly sectionPath: string;
+  readonly sourceChunkPath: string;
+  readonly pageNumbers: number[];
+  readonly filePath?: string;
+  /** Parser chunk identifiers explicitly embedded by this chunk, without loading either body. */
+  readonly embeddedChunkIds?: readonly string[];
+}
+
+export interface KnowledgeDocumentSummary {
+  readonly revisionKey: string | null;
+  readonly chunkCount: number;
+  readonly typeCounts: Record<KnowledgeChunkType, number>;
+  readonly pageCount: number | null;
+  readonly pageNumbers: number[];
+  readonly hasPageAssets: boolean;
+  readonly hasNativePageContent: boolean;
+  readonly chunks: readonly KnowledgeChunkDescriptor[];
 }
 
 export interface KnowledgeGrepParams extends KnowledgeDocumentReference {
