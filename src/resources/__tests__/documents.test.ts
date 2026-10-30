@@ -102,6 +102,69 @@ describe('Documents Resource', () => {
     expect(document.documentId).toBe('doc-123');
   });
 
+  it('reads the initial directory pinned to a revision and namespace without fetching assets', async () => {
+    const directory = {
+      documentId: 'doc-123',
+      jobId: 'job-123',
+      jobResultId: 'result-123',
+      namespace: 'support-center',
+      directoryVersion: 1,
+      directoryCommittedAt: new Date('2026-10-29T17:00:00Z'),
+      sections: [
+        {
+          sectionId: 'sec-123',
+          parentSectionId: null,
+          sectionPath: 'Chapter 1',
+          sectionTitle: 'Chapter 1',
+          sectionLevel: 1,
+          sortOrder: 0,
+          pageNums: [1, 2],
+        },
+      ],
+    };
+    mockHttpClient.get.mockResolvedValue(directory);
+
+    const response = await documents.getStructure('doc-123', {
+      jobResultId: 'result-123',
+      namespace: 'support-center',
+    });
+
+    expect(response).toEqual(directory);
+    expect(mockHttpClient.get).toHaveBeenCalledExactlyOnceWith('/v2/documents/doc-123/structure', {
+      params: { job_result_id: 'result-123', namespace: 'support-center' },
+    });
+    expect(mockHttpClient.post).not.toHaveBeenCalled();
+  });
+
+  it('preserves pending directory state and omits unspecified structure options', async () => {
+    mockHttpClient.get.mockResolvedValue({
+      documentId: 'doc-123',
+      jobId: 'job-123',
+      jobResultId: 'result-123',
+      namespace: 'support-center',
+      directoryVersion: 0,
+      directoryCommittedAt: null,
+      sections: [],
+    });
+
+    const response = await documents.getStructure('doc-123');
+
+    expect(response.directoryVersion).toBe(0);
+    expect(response.directoryCommittedAt).toBeNull();
+    expect(mockHttpClient.get).toHaveBeenCalledExactlyOnceWith(
+      '/v2/documents/doc-123/structure',
+      undefined,
+    );
+  });
+
+  it('propagates a stale or inaccessible directory response', async () => {
+    const error = new Error('not found');
+    mockHttpClient.get.mockRejectedValue(error);
+    await expect(documents.getStructure('doc-404', { jobResultId: 'old-result' })).rejects.toBe(
+      error,
+    );
+  });
+
   it('should list current document chunks with optional filters', async () => {
     mockHttpClient.get.mockResolvedValue({
       documentId: 'doc-123',

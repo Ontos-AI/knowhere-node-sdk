@@ -300,6 +300,14 @@ if (!documentId) {
 
 console.log(documentId);
 
+// Read all initially recognized chapters without waiting for Fine or copying assets.
+const directory = await client.documents.getStructure(documentId, {
+  namespace: 'support-center',
+});
+if (directory.directoryVersion === 1) {
+  console.log(directory.sections); // physical pageNums are 1-based
+}
+
 // Agentic mode (LLM navigation + answer synthesis)
 const response = await client.retrieval.query({
   namespace: 'support-center',
@@ -395,6 +403,16 @@ if (chunks.chunks[0]) {
 console.log(archived.status);
 ```
 
+Progressive parsing delivers `job.document.directory_ready` once logically per
+parsed revision, independently of baseline and final completion. Retries retain
+the same `event_id`; consumers should apply them idempotently and pass the
+event's `job_result_id` and `namespace` to `getStructure`. Version zero means
+the directory is pending. Version one includes every recognized descendant,
+including an empty directory when no hierarchy was found. A structure read
+does not trigger Fine or download page images. Raw webhook types are exported
+as `DocumentDirectoryReadyEvent`; SDK responses use camelCase and parse the
+directory timestamp into a `Date`.
+
 ### Local Knowledge Tools
 
 The SDK can also run exact inspection tools over parsed results. Local import
@@ -467,6 +485,121 @@ after committing the expanded snapshot. Servers without HTTP Range support need
 temporary disk space for ZIP integrity validation. See the
 [streaming snapshot guide](docs/streamed-parsed-document-sync.md) for the adapter
 contract, retry semantics, and memory validation harness.
+
+For immutable snapshots that support object delivery, establish readability before
+copying every image:
+
+```typescript
+const prepared = await knowledge.prepareReadableSnapshot({
+  jobId: 'job_123',
+  revisionKey: 'snapshot_baseline_123', // Always the snapshot ID, not the Job Result ID.
+  documentId: 'doc_123',
+  signal,
+});
+
+// Persist the selected revision in your durable workflow and publish your ready state.
+const page = await knowledge.readChunks({
+  documentId: prepared.documentId,
+  revisionKey: prepared.revisionKey,
+  page: 1,
+});
+
+// Resume image replication in a subsequent durable queue invocation.
+const copied = await knowledge.syncParsedDocument({
+  jobId: prepared.snapshot.jobId,
+  revisionKey: prepared.revisionKey,
+  signal,
+});
+// Re-enqueue the same revision while copied.completed is false.
+```
+
+`prepareReadableSnapshot` validates and stores every essential inventory object,
+including `manifest.json`, `chunks.json`, `doc_nav.json`, and `source.pdf`. It checks
+the pinned object inventory against document references and writes a separate
+`.knowhere-sdk/readable.json` descriptor. Interrupted core transfers reuse valid
+persisted objects on retry. Preparation does not write a full-copy commit, advance
+archive checkpoints, or change the current displayed snapshot. Readers must pass
+the selected `revisionKey` until the application publishes its own snapshot pointer.
+
+`readChunks` supplies local essential-object URLs after the readable barrier. Image
+URLs use fresh capabilities through the authenticated immutable snapshot while
+replication is incomplete; local image URLs are preferred after a full-copy commit
+certifies the same document, revision, and snapshot checksum. Conflicting commit
+identities are rejected without reading every image body to resolve metadata URLs.
+Applications can also call `getParsedDocumentObjectUrl({ documentId, revisionKey, path, signal })`
+or `getParsedDocumentObjectUrls({ documentId, revisionKey, paths, signal })` directly.
+The plural method returns a readonly record keyed by requested paths, with `null`
+for unavailable objects. It deduplicates paths and authorizes partial-copy image
+URLs in sequential batches of at most 200 through the authenticated snapshot API.
+`readChunks` batches only assets referenced by its selected chunks; URL resolution
+does not download image bodies. Legacy full copies use their existing local URLs.
+Applications can use `readParsedDocumentObject(...)` for bytes. Object reads prefer stored bytes and
+verify origin image length and SHA-256 before returning uncopied bytes. Origin
+reads do not copy images or certify replication. Capability URLs expire and must
+be refreshed rather than stored as permanent identities. The application must
+authorize its own document owner before exposing bytes or URLs to its readers.
+
+Use `knowledge.readChunks({ documentId, revisionKey, includeAssetUrls: false })`
+when the application resolves stored asset references through its own authorized
+resource reader. URL generation is enabled by default.
+
+Use `knowledge.getDocumentSummary(reference)` to build document navigation before
+loading any selected chunk body:
+
+```typescript
+const summary = await knowledge.getDocumentSummary({ documentId, revisionKey });
+console.log(summary.chunks); // Complete ordered metadata index, including unloaded chunks
+```
+
+The method reads only cached `manifest.json` and `chunks.json` after verifying a
+stored commit or readable snapshot identity. It does not construct rich chunks,
+read image/table files or navigation bodies, generate asset URLs, or scan remote
+chunks. A local cache ID (including a string reference) is also supported. A
+remote-only reference or unavailable stored revision rejects with `ValidationError`;
+prepare or synchronize the snapshot first. Job IDs alone do not locate a complete
+stored snapshot.
+
+For a complete local or stored snapshot, `readChunks` also returns
+`documentSummary`: the resolved revision, full chunk/type counts, trusted manifest
+page count (or `null`), sorted original physical page numbers, presentation flags,
+and an ordered `chunks` index containing IDs, positions, types, section/source
+paths, physical page numbers, and optional file paths. Index entries contain no
+body text or asset URLs. The summary covers the complete snapshot even when the
+returned chunk batch is filtered or paginated. Remote-only chunk windows omit it.
+Descriptors also expose optional `embeddedChunkIds` for explicit `embeds`
+connections, preserving chapter ownership for unloaded image/table entries.
+Unversioned local caches report `revisionKey: null`; a caller-supplied revision
+does not certify their contents. Stored snapshots report their verified revision.
+
+Use `sourcePageNumber` to read one original physical page without hydrating URLs
+for other pages:
+
+```typescript
+const page = await knowledge.readChunks({
+  documentId: prepared.documentId,
+  revisionKey: prepared.revisionKey,
+  sourcePageNumber: 137,
+  page: 1,
+  pageSize: 20,
+});
+```
+
+`sourcePageNumber` must be a positive safe integer. It filters before display
+pagination and URL resolution, retaining original chunk IDs and global positions.
+Multi-page chunks retain their content while their page-asset list is narrowed
+to the requested physical page. `totalChunks` and `totalPages` describe matching
+chunks and display batches; `documentSummary.pageNumbers` preserves the original
+physical page domain, including sparse pages. The stored JSON is still read and
+lightly scanned in full; only selected chunks receive rich normalization and URL
+hydration. Physical-page reads require a complete local or stored snapshot and
+throw `ValidationError` for remote-only documents; prepare or synchronize the
+pinned snapshot first. Ordinary remote reads keep their existing behavior.
+
+Only `syncParsedDocument(...).completed` and its existing full commit certify the
+complete archive copy and integrity checks. An origin or replication failure does
+not remove the readable descriptor. Historical snapshots without immutable object
+delivery return the API's unsupported/not-found error from preparation; callers
+can retain the existing full-archive synchronization path for those snapshots.
 
 If a search result only has a published `documentId`, read-oriented helpers can
 accept that remote identifier directly. `readChunks` supports display paging;

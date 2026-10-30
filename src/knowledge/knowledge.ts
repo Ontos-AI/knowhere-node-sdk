@@ -25,6 +25,7 @@ import {
 } from '../storage/streamed-parsed-document-sync.js';
 import { LocalKnowledgeStore } from './local-store.js';
 import { serializeSnapshotPublication } from './serialize-snapshot-publication.js';
+import { ReadableParsedDocumentSnapshots } from '../storage/readable-parsed-document-snapshots.js';
 import type {
   IndexedKnowledgeChunk,
   KnowledgeAsyncCacheResult,
@@ -46,6 +47,8 @@ import type {
   KnowledgeReadChunk,
   KnowledgeReadParams,
   KnowledgeReadResponse,
+  KnowledgeChunkDescriptor,
+  KnowledgeDocumentSummary,
   KnowledgeSearchParams,
   KnowledgeSearchReference,
   KnowledgeSearchResponse,
@@ -54,14 +57,20 @@ import type {
   KnowledgeStartupRecoveryResponse,
   KnowledgeSyncParsedDocumentParams,
   KnowledgeSyncParsedDocumentResponse,
+  KnowledgePrepareReadableSnapshotParams,
+  KnowledgePrepareReadableSnapshotResponse,
+  KnowledgeReadParsedDocumentObjectParams,
+  KnowledgeReadParsedDocumentObjectUrlsParams,
   KnowledgeChunkType,
   LocalKnowledgeDocument,
   LocalKnowledgeParseResponse,
 } from './types.js';
 import type {
-  ParsedDocumentCommit,
   ParsedDocumentStorageConfig,
   ParsedDocumentStorageLimits,
+  ParsedDocumentObject,
+  ParsedDocumentCommit,
+  ParsedDocumentReadableSnapshot,
 } from '../types/storage.js';
 
 const DEFAULT_READ_LIMIT = 12;
@@ -236,6 +245,72 @@ export class Knowledge {
     }
     params.signal?.throwIfAborted();
     return response;
+  }
+
+  /** Establish a durable readable core without advancing archive replication or display pointers. */
+  async prepareReadableSnapshot(
+    params: KnowledgePrepareReadableSnapshotParams,
+  ): Promise<KnowledgePrepareReadableSnapshotResponse> {
+    params.signal?.throwIfAborted();
+    const storage = this.requireParsedStorageConfig().storage;
+    if (!params.jobId.trim() || !params.revisionKey.trim())
+      throw new ValidationError('A job ID and immutable snapshot revisionKey are required.');
+    const job: JobResult = await this.client.jobs.get(params.jobId, { signal: params.signal });
+    params.signal?.throwIfAborted();
+    const snapshot: JobSnapshot | undefined = job.snapshots?.find(
+      (candidate: JobSnapshot): boolean => candidate.snapshotId === params.revisionKey,
+    );
+    if (
+      !job.isDone ||
+      !snapshot ||
+      snapshot.jobId !== params.jobId ||
+      (params.documentId !== undefined && snapshot.documentId !== params.documentId) ||
+      (job.documentId !== undefined && snapshot.documentId !== job.documentId)
+    )
+      throw new ValidationError(
+        'Requested immutable readable snapshot is unavailable or differs from the request.',
+      );
+    const readable: ParsedDocumentReadableSnapshot = await new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      storage,
+    ).prepare(snapshot, params.signal);
+    params.signal?.throwIfAborted();
+    return {
+      documentId: snapshot.documentId,
+      revisionKey: snapshot.snapshotId,
+      snapshot,
+      readable,
+    };
+  }
+
+  /** Read a stored object, or an uncopied image through its fresh pinned origin capability. */
+  async readParsedDocumentObject(
+    params: KnowledgeReadParsedDocumentObjectParams,
+  ): Promise<ParsedDocumentObject | null> {
+    return new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      this.requireParsedStorageConfig().storage,
+    ).readObject(params);
+  }
+
+  /** Resolve a local URL or a fresh immutable image capability without copying the image. */
+  async getParsedDocumentObjectUrl(
+    params: KnowledgeReadParsedDocumentObjectParams,
+  ): Promise<string | null> {
+    return new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      this.requireParsedStorageConfig().storage,
+    ).getObjectUrl(params);
+  }
+
+  /** Resolve exact requested paths in batches; absent objects have null URLs. No image bodies are read. */
+  async getParsedDocumentObjectUrls(
+    params: KnowledgeReadParsedDocumentObjectUrlsParams,
+  ): Promise<Readonly<Record<string, string | null>>> {
+    return new ReadableParsedDocumentSnapshots(
+      this.client.jobs,
+      this.requireParsedStorageConfig().storage,
+    ).getObjectUrls(params);
   }
 
   private async performParsedDocumentSync(
@@ -532,6 +607,39 @@ export class Knowledge {
     return this.store.listDocuments();
   }
 
+  /** Read a complete metadata index without constructing chunk bodies or resolving asset URLs. */
+  async getDocumentSummary(
+    reference: KnowledgeDocumentReference | string,
+  ): Promise<KnowledgeDocumentSummary> {
+    const normalized: KnowledgeDocumentReference = normalizeDocumentReference(reference);
+    if (normalized.localDocumentId && !normalized.documentId) {
+      const document: LocalKnowledgeDocument | undefined = await this.store.getDocument(
+        normalized.localDocumentId,
+      );
+      if (document) {
+        const metadata = await this.store.loadResultMetadata(normalized.localDocumentId);
+        return parseDocumentMetadata(metadata.manifest, metadata.chunks, null).documentSummary;
+      }
+    }
+    const documentId: string | undefined =
+      normalized.documentId ??
+      (normalized.localDocumentId && looksLikeRemoteDocumentId(normalized.localDocumentId)
+        ? normalized.localDocumentId
+        : undefined);
+    const revisionKey: string | undefined =
+      normalized.revisionKey ??
+      normalized.jobId ??
+      (documentId ? await this.resolveStoredSnapshotKey(documentId) : undefined);
+    if (documentId && revisionKey) {
+      const metadata: StoredParsedDocumentMetadata | null =
+        await this.readCommittedParsedStorageMetadata(documentId, revisionKey);
+      if (metadata) return metadata.documentSummary;
+    }
+    throw new ValidationError(
+      'Document summary requires a complete local or committed/readable stored parsed snapshot; prepare or synchronize the pinned snapshot first',
+    );
+  }
+
   async getDocumentOutline(
     reference: string | KnowledgeDocumentReference,
   ): Promise<KnowledgeOutline> {
@@ -584,18 +692,43 @@ export class Knowledge {
 
     const { document, result } = await this.loadReadableResult(params);
     const limit = clampLimit(params.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT);
-    const chunks = indexChunks(result).filter((chunk) => matchesReadScope(chunk, params));
-    const selected = selectReadWindow(chunks, params, limit);
+    const records: readonly Record<string, unknown>[] = result.chunks.map((chunk) => ({
+      ...chunk,
+    }));
+    const documentSummary: KnowledgeDocumentSummary = summarizeStoredRecords(
+      records,
+      result.manifest,
+      null,
+    );
+    const chunks = documentSummary.chunks.filter((chunk) => matchesDescriptorScope(chunk, params));
+    const selectedDescriptors = selectReadDescriptors(chunks, params, limit);
+    const selected = selectedDescriptors.flatMap((descriptor) => {
+      const source = result.chunks[descriptor.position - 1];
+      if (source === undefined) return [];
+      return indexChunks({ ...result, chunks: [source] }).map((chunk) =>
+        narrowReadChunkPage({ ...chunk, position: descriptor.position }, params.sourcePageNumber),
+      );
+    });
     const lastSelected = selected[selected.length - 1];
     const nextChunk =
       lastSelected && selected.length < chunks.length
-        ? chunks[chunks.indexOf(lastSelected) + 1]?.position
+        ? chunks[chunks.findIndex((chunk) => chunk.position === lastSelected.position) + 1]
+            ?.position
         : undefined;
 
     return {
       document,
+      documentSummary,
       chunks: selected.map(toReadChunk),
       nextChunk,
+      ...(params.sourcePageNumber === undefined
+        ? {}
+        : {
+            page: getReadPageParams(params).page,
+            pageSize: getReadPageParams(params).pageSize,
+            totalChunks: chunks.length,
+            totalPages: Math.max(1, Math.ceil(chunks.length / getReadPageParams(params).pageSize)),
+          }),
     };
   }
 
@@ -749,6 +882,11 @@ export class Knowledge {
         throw new ValidationError('Requested parsed snapshot is not committed locally');
     }
 
+    if (params.sourcePageNumber !== undefined) {
+      throw new ValidationError(
+        'sourcePageNumber requires a complete local or stored parsed snapshot; prepare or synchronize the pinned snapshot before reading a physical page',
+      );
+    }
     if (hasScanReadFilters(params)) {
       return this.scanRemoteDocumentChunks(documentId, params);
     }
@@ -758,7 +896,7 @@ export class Knowledge {
       page: pageParams.page,
       pageSize: pageParams.pageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: true,
+      includeAssetUrls: params.includeAssetUrls ?? true,
     });
     const revisionKey = getRemoteRevisionKey(remotePage);
     if (params.revisionKey && params.revisionKey !== revisionKey)
@@ -813,7 +951,7 @@ export class Knowledge {
       page: 1,
       pageSize: limits.remotePageSize,
       chunkType: params.chunkType,
-      includeAssetUrls: true,
+      includeAssetUrls: params.includeAssetUrls ?? true,
     });
     const revisionKey = getRemoteRevisionKey(firstPage);
     if (params.revisionKey && params.revisionKey !== revisionKey)
@@ -850,7 +988,7 @@ export class Knowledge {
         page,
         pageSize: limits.remotePageSize,
         chunkType: params.chunkType,
-        includeAssetUrls: true,
+        includeAssetUrls: params.includeAssetUrls ?? true,
       });
     }
 
@@ -1095,30 +1233,29 @@ export class Knowledge {
     const storedResult = await this.readCommittedParsedStorageResult(
       params.documentId,
       params.revisionKey,
+      params.params,
     );
     if (!storedResult) return null;
     const pageParams = getReadPageParams(params.params);
-    const scopedChunks = storedResult.chunks
-      .filter((chunk) => !params.params.chunkType || chunk.chunkType === params.params.chunkType)
-      .filter((chunk) => matchesReadScope(chunk, params.params));
-    const selected = hasScanReadFilters(params.params)
-      ? selectReadWindow(
-          scopedChunks,
-          params.params,
-          clampLimit(params.params.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT),
-        )
-      : scopedChunks.slice(
-          (pageParams.page - 1) * pageParams.pageSize,
-          pageParams.page * pageParams.pageSize,
-        );
-    const visibleChunks = await applyStoredAssetUrlsToReadChunks({
-      storageConfig: this.requireParsedStorageConfig(),
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      chunks: selected.map(toReadChunk),
-    });
-    const totalChunks = scopedChunks.length;
+    const selected = storedResult.chunks;
+    const chunks: KnowledgeReadChunk[] = selected.map(toReadChunk);
+    const visibleChunks =
+      params.params.includeAssetUrls === false
+        ? chunks
+        : await applyStoredAssetUrlsToReadChunks({
+            chunks,
+            resolveObjectUrls: (
+              paths: readonly string[],
+            ): Promise<Readonly<Record<string, string | null>>> =>
+              this.getParsedDocumentObjectUrls({
+                documentId: params.documentId,
+                revisionKey: params.revisionKey,
+                paths,
+              }),
+          });
+    const totalChunks = storedResult.scopedChunkCount ?? selected.length;
     return {
+      documentSummary: storedResult.documentSummary,
       document: createStoredKnowledgeDocument({
         documentId: params.documentId,
         storedResult,
@@ -1129,7 +1266,7 @@ export class Knowledge {
       pageSize: hasScanReadFilters(params.params) ? undefined : pageParams.pageSize,
       totalChunks,
       totalPages: Math.max(1, Math.ceil(totalChunks / pageParams.pageSize)),
-      nextChunk: getNextChunkPosition(scopedChunks, selected),
+      nextChunk: storedResult.nextChunk,
     };
   }
 
@@ -1228,7 +1365,61 @@ export class Knowledge {
   private async readCommittedParsedStorageResult(
     documentId: string,
     revisionKey: string,
+    readParams?: KnowledgeReadParams,
   ): Promise<StoredParsedDocumentResult | null> {
+    const metadata: StoredParsedDocumentMetadata | null =
+      await this.readCommittedParsedStorageMetadata(documentId, revisionKey, 'read');
+    if (!metadata) return null;
+    const { manifest, records, documentSummary, docNav } = metadata;
+    const scoped = documentSummary.chunks.filter((chunk) =>
+      matchesDescriptorScope(chunk, readParams),
+    );
+    const page = getReadPageParams(readParams ?? {});
+    const selected =
+      readParams === undefined
+        ? documentSummary.chunks
+        : hasScanReadFilters(readParams)
+          ? selectReadDescriptors(
+              scoped,
+              readParams,
+              clampLimit(readParams.limit, DEFAULT_READ_LIMIT, MAX_READ_LIMIT),
+            )
+          : scoped.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+    const chunks = selected.flatMap((descriptor) => {
+      const record = records[descriptor.position - 1];
+      if (record === undefined) return [];
+      const parsed = parseStoredResultChunks({
+        payload: [record],
+        sourceFileName: manifest.sourceFileName,
+      });
+      return parsed.map((chunk) =>
+        narrowReadChunkPage(
+          { ...chunk, position: descriptor.position },
+          readParams?.sourcePageNumber,
+        ),
+      );
+    });
+    return {
+      storedAt: metadata.storedAt,
+      manifest,
+      chunks,
+      docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
+      typeCounts: documentSummary.typeCounts,
+      documentSummary,
+      scopedChunkCount: scoped.length,
+      nextChunk:
+        selected.length > 0
+          ? scoped[scoped.findIndex((chunk) => chunk.position === selected.at(-1)?.position) + 1]
+              ?.position
+          : undefined,
+    };
+  }
+
+  private async readCommittedParsedStorageMetadata(
+    documentId: string,
+    revisionKey: string,
+    mode: 'summary' | 'read' = 'summary',
+  ): Promise<StoredParsedDocumentMetadata | null> {
     const parsedStorageConfig = this.parsedStorageConfig;
     if (!parsedStorageConfig) {
       return null;
@@ -1239,9 +1430,13 @@ export class Knowledge {
       documentId,
       revisionKey,
     });
-    if (!commit) {
-      return null;
-    }
+    const readable: ParsedDocumentReadableSnapshot | null = commit
+      ? null
+      : await new ReadableParsedDocumentSnapshots(
+          this.client.jobs,
+          parsedStorageConfig.storage,
+        ).readDescriptor({ documentId, revisionKey });
+    if (!commit && !readable) return null;
 
     const [manifestObject, chunksObject, docNavObject] = await Promise.all([
       parsedStorageConfig.storage.readObject({
@@ -1254,30 +1449,32 @@ export class Knowledge {
         revisionKey,
         path: 'chunks.json',
       }),
-      parsedStorageConfig.storage.readObject({
-        documentId,
-        revisionKey,
-        path: 'doc_nav.json',
-      }),
+      mode === 'read'
+        ? parsedStorageConfig.storage.readObject({ documentId, revisionKey, path: 'doc_nav.json' })
+        : Promise.resolve(null),
     ]);
     if (!manifestObject || !chunksObject) {
       return null;
     }
 
-    const manifest = readJsonObject<Manifest>(manifestObject);
-    const chunks = parseStoredResultChunks({
-      payload: readJsonObject<unknown>(chunksObject),
-      sourceFileName: manifest.sourceFileName,
-    });
+    const manifestPayload: unknown = readJsonObject<unknown>(manifestObject);
+    if (mode === 'summary')
+      validateStoredMetadataCertificate(commit, readable, manifestPayload, [
+        manifestObject,
+        chunksObject,
+      ]);
     const docNav = docNavObject
-      ? readJsonObject<{ readonly sections?: DocNavSection[] }>(docNavObject)
+      ? keysToCamel<{ readonly sections?: DocNavSection[] }>(readJsonObject<unknown>(docNavObject))
       : undefined;
     return {
-      commit,
-      manifest,
-      chunks,
+      storedAt: commit?.committedAt ?? readable?.readableAt ?? '',
       docNav: docNav?.sections ? { sections: docNav.sections } : undefined,
-      typeCounts: countIndexedTypes(chunks),
+      ...parseDocumentMetadata(
+        manifestPayload,
+        readJsonObject<unknown>(chunksObject),
+        revisionKey,
+        mode === 'summary',
+      ),
     };
   }
 
@@ -1619,13 +1816,29 @@ interface ContinuationCursor {
 }
 
 interface StoredParsedDocumentResult {
-  readonly commit: ParsedDocumentCommit;
+  readonly documentSummary?: KnowledgeDocumentSummary;
+  readonly scopedChunkCount?: number;
+  readonly nextChunk?: number;
+  readonly storedAt: string;
   readonly manifest: Manifest;
   readonly chunks: IndexedKnowledgeChunk[];
   readonly docNav?: {
     readonly sections: DocNavSection[];
   };
   readonly typeCounts: Record<KnowledgeChunkType, number>;
+}
+
+interface ParsedDocumentMetadata {
+  readonly manifest: Manifest;
+  readonly records: readonly Record<string, unknown>[];
+  readonly documentSummary: KnowledgeDocumentSummary;
+}
+
+interface StoredParsedDocumentMetadata extends ParsedDocumentMetadata {
+  readonly storedAt: string;
+  readonly docNav?: {
+    readonly sections: DocNavSection[];
+  };
 }
 
 const defaultParsedStorageScheduler = {
@@ -1653,6 +1866,12 @@ function getParsedStorageLimits(
 }
 
 function validateReadParams(params: KnowledgeReadParams): void {
+  if (
+    params.sourcePageNumber !== undefined &&
+    (!Number.isSafeInteger(params.sourcePageNumber) || params.sourcePageNumber < 1)
+  ) {
+    throw new ValidationError('sourcePageNumber must be a positive safe integer');
+  }
   const usesPagedDisplay = params.page !== undefined || params.pageSize !== undefined;
   if (!usesPagedDisplay) {
     return;
@@ -1829,11 +2048,12 @@ function createStoredKnowledgeDocument(params: {
     jobId: params.storedResult.manifest.jobId || params.revisionKey,
     documentId: params.documentId,
     sourceFileName: params.storedResult.manifest.sourceFileName,
-    chunkCount: params.storedResult.chunks.length,
+    chunkCount:
+      params.storedResult.documentSummary?.chunkCount ?? params.storedResult.chunks.length,
     typeCounts: params.storedResult.typeCounts,
     resultDirectoryPath: `parsed-storage:${params.documentId}`,
-    createdAt: new Date(params.storedResult.commit.committedAt),
-    updatedAt: new Date(params.storedResult.commit.committedAt),
+    createdAt: new Date(params.storedResult.storedAt),
+    updatedAt: new Date(params.storedResult.storedAt),
   };
 }
 
@@ -1870,6 +2090,248 @@ function getReadableRemoteChunkContent(
 function toIndexedRemoteChunk(chunk: DocumentChunk): IndexedKnowledgeChunk {
   const readChunk = toRemoteReadChunk(chunk);
   return toIndexedReadChunk(readChunk);
+}
+
+function readRawMetadata(record: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(record.metadata) ? record.metadata : {};
+}
+
+function readRawPageAssets(metadata: Record<string, unknown>): readonly Record<string, unknown>[] {
+  const values: unknown = metadata.pageAssets ?? metadata.page_assets;
+  return Array.isArray(values) ? values.filter(isRecord) : [];
+}
+
+function readAssetPageNumber(asset: Record<string, unknown>): number | undefined {
+  const page: unknown = asset.pageNum ?? asset.pageNumber ?? asset.page_num ?? asset.page_number;
+  return typeof page === 'number' && Number.isSafeInteger(page) && page > 0 ? page : undefined;
+}
+
+function hasRawPageAssetReference(asset: Record<string, unknown>): boolean {
+  return Boolean(readRecordString(asset, 'artifactRef', 'artifact_ref', 'assetUrl', 'asset_url'));
+}
+
+function readEmbeddedChunkIds(metadata: Record<string, unknown>): readonly string[] {
+  const connections: readonly unknown[] = [metadata.connectTo, metadata.connect_to].flatMap(
+    (value) => toUnknownArray(value) ?? [],
+  );
+  return [
+    ...new Set(
+      connections.flatMap((connection): readonly string[] =>
+        isRecord(connection) &&
+        connection.relation === 'embeds' &&
+        typeof connection.target === 'string' &&
+        connection.target.length > 0
+          ? [connection.target]
+          : [],
+      ),
+    ),
+  ];
+}
+
+function readPhysicalPageNumbers(metadata: Record<string, unknown>): number[] {
+  const candidates: unknown[] = [
+    metadata.pageNumber,
+    metadata.pageNum,
+    metadata.page_number,
+    metadata.page_num,
+  ];
+  for (const value of [metadata.pageNumbers, metadata.pageNums, metadata.page_nums]) {
+    const values: readonly unknown[] | null = toUnknownArray(value);
+    if (values !== null) candidates.push(...values);
+  }
+  candidates.push(...readRawPageAssets(metadata).map(readAssetPageNumber));
+  return [
+    ...new Set(
+      candidates.filter(
+        (value): value is number =>
+          typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+      ),
+    ),
+  ].sort((left, right) => left - right);
+}
+
+function summarizeStoredRecords(
+  records: readonly Record<string, unknown>[],
+  manifest: Manifest,
+  revisionKey: string | null,
+): KnowledgeDocumentSummary {
+  const typeCounts: Record<KnowledgeChunkType, number> = { text: 0, image: 0, table: 0, page: 0 };
+  let hasPageAssets: boolean = false;
+  let hasNativePageContent: boolean = false;
+  const chunks: KnowledgeChunkDescriptor[] = records.map((record, index) => {
+    const metadata: Record<string, unknown> = readRawMetadata(record);
+    const rawType: string | undefined = readRecordString(record, 'type', 'chunkType', 'chunk_type');
+    const chunkType: KnowledgeChunkType = isKnowledgeChunkType(rawType) ? rawType : 'text';
+    const sourceChunkPath: string =
+      readRecordString(record, 'path', 'sourceChunkPath', 'source_chunk_path') ?? '';
+    const filePath: string | undefined =
+      readRecordString(record, 'filePath', 'file_path') ??
+      readRecordString(metadata, 'filePath', 'file_path');
+    const hasAssets: boolean = readRawPageAssets(metadata).some(hasRawPageAssetReference);
+    const embeddedChunkIds: readonly string[] = readEmbeddedChunkIds(metadata);
+    typeCounts[chunkType] += 1;
+    hasPageAssets ||= hasAssets;
+    hasNativePageContent ||= (chunkType === 'page' || chunkType === 'text') && !hasAssets;
+    return {
+      chunkId: readRecordString(record, 'chunkId', 'chunk_id') ?? '',
+      position: index + 1,
+      chunkType,
+      sourceChunkPath,
+      sectionPath: normalizeSectionPath(sourceChunkPath, manifest.sourceFileName),
+      pageNumbers: readPhysicalPageNumbers(metadata),
+      ...(filePath === undefined ? {} : { filePath }),
+      ...(embeddedChunkIds.length === 0 ? {} : { embeddedChunkIds }),
+    };
+  });
+  const pageCount: number | undefined = [
+    manifest.processing?.pageCount,
+    manifest.statistics?.totalPages,
+  ].find(
+    (value): value is number =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+  );
+  return {
+    revisionKey,
+    chunkCount: chunks.length,
+    typeCounts,
+    pageCount: pageCount ?? null,
+    pageNumbers: [...new Set(chunks.flatMap((chunk) => chunk.pageNumbers))].sort(
+      (left, right) => left - right,
+    ),
+    hasPageAssets,
+    hasNativePageContent,
+    chunks,
+  };
+}
+
+function parseDocumentMetadata(
+  manifestPayload: unknown,
+  chunksPayload: unknown,
+  revisionKey: string | null,
+  shouldValidate: boolean = true,
+): ParsedDocumentMetadata {
+  if (
+    shouldValidate &&
+    (!isRecord(manifestPayload) ||
+      !readRecordString(manifestPayload, 'sourceFileName', 'source_file_name'))
+  )
+    throw new ValidationError('Parsed snapshot manifest is missing a source file name');
+  const values: readonly unknown[] | null = toUnknownArray(
+    isRecord(chunksPayload) ? chunksPayload.chunks : chunksPayload,
+  );
+  if (
+    shouldValidate &&
+    (values === null ||
+      !values.every(
+        (record): record is Record<string, unknown> =>
+          isRecord(record) && Boolean(readRecordString(record, 'chunkId', 'chunk_id')),
+      ))
+  )
+    throw new ValidationError('Parsed snapshot chunks must be an array of chunk records with IDs');
+  const manifest: Manifest = keysToCamel<Manifest>(manifestPayload);
+  const records: readonly Record<string, unknown>[] = extractStoredChunkRecords(chunksPayload);
+  return {
+    manifest,
+    records,
+    documentSummary: summarizeStoredRecords(records, manifest, revisionKey),
+  };
+}
+
+function validateStoredMetadataCertificate(
+  commit: ParsedDocumentCommit | null,
+  readable: ParsedDocumentReadableSnapshot | null,
+  manifestPayload: unknown,
+  objects: readonly ParsedDocumentObject[],
+): void {
+  if (
+    commit &&
+    (commit.version !== 1 ||
+      (commit.snapshotId !== undefined && commit.snapshotId !== commit.revisionKey) ||
+      (commit.stage !== undefined && commit.stage !== 'baseline' && commit.stage !== 'final'))
+  )
+    throw new ValidationError('Invalid full-copy parsed snapshot metadata certificate');
+  if (!isRecord(manifestPayload))
+    throw new ValidationError('Invalid parsed snapshot manifest metadata');
+  const jobResultId: string | undefined = readRecordString(
+    manifestPayload,
+    'jobResultId',
+    'job_result_id',
+  );
+  if (
+    (commit?.jobResultId !== undefined &&
+      jobResultId !== undefined &&
+      commit.jobResultId !== jobResultId) ||
+    (readable &&
+      (readRecordString(manifestPayload, 'jobId', 'job_id') !== readable.jobId ||
+        (jobResultId !== undefined && jobResultId !== readable.jobResultId)))
+  )
+    throw new ValidationError('Parsed snapshot manifest metadata differs from its pinned identity');
+  if (!readable) return;
+  for (const object of objects) {
+    const entry = readable.objects.find((candidate): boolean => candidate.path === object.path);
+    if (
+      !entry ||
+      object.body.byteLength !== entry.sizeBytes ||
+      createHash('sha256').update(object.body).digest('hex') !== entry.checksumSha256
+    )
+      throw new ValidationError(`Parsed snapshot metadata integrity check failed: ${object.path}`);
+  }
+}
+
+function matchesDescriptorScope(
+  chunk: KnowledgeChunkDescriptor,
+  params: KnowledgeReadParams | undefined,
+): boolean {
+  if (params === undefined) return true;
+  return (
+    (!params.chunkId || chunk.chunkId === params.chunkId) &&
+    (!params.chunkType || chunk.chunkType === params.chunkType) &&
+    (!params.sectionPath || isInSection(chunk.sectionPath, params.sectionPath)) &&
+    (params.sourcePageNumber === undefined || chunk.pageNumbers.includes(params.sourcePageNumber))
+  );
+}
+
+function selectReadDescriptors(
+  chunks: readonly KnowledgeChunkDescriptor[],
+  params: KnowledgeReadParams,
+  limit: number,
+): readonly KnowledgeChunkDescriptor[] {
+  if (params.sourcePageNumber !== undefined && !hasScanReadFilters(params)) {
+    const page = getReadPageParams(params);
+    return chunks.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+  }
+  if (params.chunkId) return chunks.slice(0, limit);
+  return chunks
+    .filter(
+      (chunk) =>
+        chunk.position >= (params.startChunk ?? 1) &&
+        chunk.position <= (params.endChunk ?? Number.MAX_SAFE_INTEGER),
+    )
+    .slice(0, limit);
+}
+
+function narrowReadChunkPage(
+  chunk: IndexedKnowledgeChunk,
+  sourcePageNumber: number | undefined,
+): IndexedKnowledgeChunk {
+  if (sourcePageNumber === undefined) return chunk;
+  const metadata: Record<string, unknown> = { ...chunk.metadata };
+  const pageNumbers: number[] = chunk.pageNumbers ?? readPhysicalPageNumbers(chunk.metadata);
+  if (Array.isArray(metadata.pageAssets) || Array.isArray(metadata.page_assets)) {
+    metadata.pageAssets = readRawPageAssets(metadata).filter(
+      (asset) =>
+        readAssetPageNumber(asset) === sourcePageNumber ||
+        (readAssetPageNumber(asset) === undefined &&
+          pageNumbers.length === 1 &&
+          pageNumbers[0] === sourcePageNumber),
+    );
+    delete metadata.page_assets;
+  }
+  return {
+    ...chunk,
+    metadata,
+    pageNumbers,
+  };
 }
 
 function parseStoredResultChunks(params: {
@@ -2000,51 +2462,49 @@ function matchesRemoteReadScope(chunk: DocumentChunk, params: KnowledgeReadParam
   return matchesReadScope(toIndexedRemoteChunk(chunk), params);
 }
 
-function getNextChunkPosition(
-  chunks: readonly IndexedKnowledgeChunk[],
-  selected: readonly IndexedKnowledgeChunk[],
-): number | undefined {
-  const lastSelected = selected[selected.length - 1];
-  if (!lastSelected || selected.length >= chunks.length) {
-    return undefined;
-  }
-  return chunks[chunks.indexOf(lastSelected) + 1]?.position;
-}
-
 async function applyStoredAssetUrlsToReadChunks(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly chunks: readonly KnowledgeReadChunk[];
+  readonly resolveObjectUrls: (
+    paths: readonly string[],
+  ) => Promise<Readonly<Record<string, string | null>>>;
 }): Promise<KnowledgeReadChunk[]> {
+  const paths: Set<string> = new Set();
+  for (const chunk of params.chunks) {
+    if (chunk.filePath) paths.add(chunk.filePath);
+    for (const asset of getStoredPageAssets(chunk.metadata) ?? []) {
+      if (!isRecord(asset)) continue;
+      const artifactRef: string | undefined = readRecordString(
+        asset,
+        'artifactRef',
+        'artifact_ref',
+      );
+      if (artifactRef) paths.add(artifactRef);
+    }
+  }
+  const urls: Readonly<Record<string, string | null>> = await params.resolveObjectUrls([...paths]);
   return Promise.all(
     params.chunks.map((chunk) =>
       applyStoredAssetUrlsToReadChunk({
-        ...params,
         chunk,
+        resolveObjectUrl: (path: string): Promise<string | null> =>
+          Promise.resolve(urls[path] ?? null),
       }),
     ),
   );
 }
 
 async function applyStoredAssetUrlsToReadChunk(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly chunk: KnowledgeReadChunk;
+  readonly resolveObjectUrl: (path: string) => Promise<string | null>;
 }): Promise<KnowledgeReadChunk> {
   const metadata = cloneMetadata(params.chunk.metadata);
   const storedAssetUrl = await getStoredObjectUrl({
-    storageConfig: params.storageConfig,
-    documentId: params.documentId,
-    revisionKey: params.revisionKey,
     path: params.chunk.filePath,
+    resolveObjectUrl: params.resolveObjectUrl,
   });
   const pageAssets = await applyStoredPageAssetUrls({
-    storageConfig: params.storageConfig,
-    documentId: params.documentId,
-    revisionKey: params.revisionKey,
     metadata,
+    resolveObjectUrl: params.resolveObjectUrl,
   });
   if (pageAssets) {
     metadata.pageAssets = pageAssets;
@@ -2059,10 +2519,8 @@ async function applyStoredAssetUrlsToReadChunk(params: {
 }
 
 async function applyStoredPageAssetUrls(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly metadata: Record<string, unknown>;
+  readonly resolveObjectUrl: (path: string) => Promise<string | null>;
 }): Promise<unknown[] | undefined> {
   const pageAssets = getStoredPageAssets(params.metadata);
   if (!pageAssets) {
@@ -2081,10 +2539,8 @@ async function applyStoredPageAssetUrls(params: {
       }
 
       const storedAssetUrl = await getStoredObjectUrl({
-        storageConfig: params.storageConfig,
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
         path: artifactRef,
+        resolveObjectUrl: params.resolveObjectUrl,
       });
       if (storedAssetUrl) {
         return {
@@ -2129,22 +2585,14 @@ function normalizeStoredPageAsset(pageAsset: unknown): unknown {
 }
 
 async function getStoredObjectUrl(params: {
-  readonly storageConfig: ParsedDocumentStorageConfig;
-  readonly documentId: string;
-  readonly revisionKey: string;
   readonly path: string | undefined;
+  readonly resolveObjectUrl: (path: string) => Promise<string | null>;
 }): Promise<string | undefined> {
   if (!params.path) {
     return undefined;
   }
 
-  return (
-    (await params.storageConfig.storage.getObjectUrl?.({
-      documentId: params.documentId,
-      revisionKey: params.revisionKey,
-      path: params.path,
-    })) ?? undefined
-  );
+  return (await params.resolveObjectUrl(params.path)) ?? undefined;
 }
 
 function countRemoteChunkTypes(
@@ -2503,22 +2951,6 @@ function matchesReadScope(chunk: IndexedKnowledgeChunk, params: KnowledgeReadPar
     return false;
   }
   return true;
-}
-
-function selectReadWindow(
-  chunks: IndexedKnowledgeChunk[],
-  params: KnowledgeReadParams,
-  limit: number,
-): IndexedKnowledgeChunk[] {
-  if (params.chunkId) {
-    return chunks.slice(0, limit);
-  }
-
-  const startChunk = params.startChunk ?? chunks[0]?.position ?? 1;
-  const endChunk = params.endChunk ?? Number.MAX_SAFE_INTEGER;
-  return chunks
-    .filter((chunk) => chunk.position >= startChunk && chunk.position <= endChunk)
-    .slice(0, limit);
 }
 
 function toReadChunk(chunk: IndexedKnowledgeChunk): KnowledgeReadChunk {

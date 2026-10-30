@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 import { Knowledge } from '../knowledge.js';
+import { ValidationError } from '../../errors/index.js';
 import type { Knowhere } from '../../client.js';
 import type {
   Chunk,
@@ -36,6 +37,164 @@ describe('Knowledge', () => {
     );
     tempDirectories.length = 0;
   });
+
+  it('rejects remote-only physical page reads without requesting unselected asset URLs', async (): Promise<void> => {
+    const cacheDirectory: string = await createTempDirectory();
+    const { client, documentsListChunks } = createClient(createParseResult());
+    const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    await expect(
+      knowledge.readChunks({ documentId: 'doc_remote', sourcePageNumber: 5 }),
+    ).rejects.toThrow(/complete local or stored parsed snapshot/);
+    expect(documentsListChunks).not.toHaveBeenCalled();
+    const normalRead = await knowledge.readChunks({ documentId: 'doc_remote', page: 1 });
+    expect(normalRead.documentSummary).toBeUndefined();
+    expect(documentsListChunks).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['doc_remote', { documentId: 'doc_remote' }, { jobId: 'job-remote' }])(
+    'rejects a remote-only document summary without scanning or importing: %j',
+    async (reference): Promise<void> => {
+      const cacheDirectory: string = await createTempDirectory();
+      const { client, documentsListChunks, jobsGet, jobsLoad } = createClient(createParseResult());
+      const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+      await expect(knowledge.getDocumentSummary(reference)).rejects.toBeInstanceOf(ValidationError);
+      expect(documentsListChunks).not.toHaveBeenCalled();
+      expect(jobsGet).not.toHaveBeenCalled();
+      expect(jobsLoad).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reads local summary metadata without table files or rich result construction', async (): Promise<void> => {
+    const cacheDirectory: string = await createTempDirectory();
+    const result: ParseResult = createParseResult();
+    result.chunks[0].metadata = {
+      page_nums: [1],
+      connect_to: [{ target: 'chunk-table', relation: 'embeds' }],
+    };
+    result.chunks[1].metadata = { page_nums: [5] };
+    result.manifest.processing = { pageCount: 9 };
+    const { client, documentsListChunks, jobsLoad } = createClient(result);
+    const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    await knowledge.parseToLocalCache({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-summary',
+    });
+    await rm(path.join(cacheDirectory, 'documents/local-summary/tables'), { recursive: true });
+    await writeFile(
+      path.join(cacheDirectory, 'documents/local-summary/doc_nav.json'),
+      'malformed navigation',
+    );
+    const freshKnowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    const summary = await freshKnowledge.getDocumentSummary({
+      localDocumentId: 'local-summary',
+      revisionKey: 'foreign-requested-snapshot',
+    });
+    expect(summary).toMatchObject({
+      revisionKey: null,
+      chunkCount: 3,
+      typeCounts: { text: 2, image: 0, table: 1, page: 0 },
+      pageCount: 9,
+      pageNumbers: [1, 5],
+      hasNativePageContent: true,
+    });
+    expect(summary.chunks[0]?.embeddedChunkIds).toEqual(['chunk-table']);
+    expect(summary.chunks[1]).toMatchObject({
+      chunkId: 'chunk-table',
+      filePath: 'tables/revenue.html',
+    });
+    expect(JSON.stringify(summary)).not.toContain('Alpha revenue');
+    expect(JSON.stringify(summary)).not.toContain('https://assets');
+    expect(documentsListChunks).not.toHaveBeenCalled();
+    expect(jobsLoad).not.toHaveBeenCalled();
+    expect(await freshKnowledge.getDocumentSummary('local-summary')).toEqual(summary);
+  });
+
+  it('rejects malformed local chunk metadata without importing a remote replacement', async (): Promise<void> => {
+    const cacheDirectory: string = await createTempDirectory();
+    const { client, jobsLoad } = createClient(createParseResult());
+    const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    await knowledge.parseToLocalCache({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'local-summary',
+    });
+    await writeFile(
+      path.join(cacheDirectory, 'documents/local-summary/chunks.json'),
+      JSON.stringify({ chunks: [null] }),
+    );
+    await expect(knowledge.getDocumentSummary('local-summary')).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(jobsLoad).not.toHaveBeenCalled();
+  });
+
+  it('returns full local snapshot descriptors while paging sparse physical-page matches', async (): Promise<void> => {
+    const cacheDirectory: string = await createTempDirectory();
+    const result: ParseResult = createParseResult();
+    result.chunks = result.chunks.map((chunk, index) => ({
+      ...chunk,
+      metadata: { ...chunk.metadata, page_nums: [index === 0 ? 1 : 5] },
+    }));
+    result.manifest.processing = { pageCount: 9 };
+    const { client } = createClient(result);
+    const knowledge: Knowledge = new Knowledge(client, { cacheDirectory });
+    await knowledge.parseToLocalCache({
+      url: 'https://example.com/report.md',
+      localDocumentId: 'physical-local',
+    });
+    const read = await knowledge.readChunks({
+      localDocumentId: 'physical-local',
+      sourcePageNumber: 5,
+      page: 2,
+      pageSize: 1,
+    });
+    expect(read.chunks.map((chunk) => [chunk.chunkId, chunk.position])).toEqual([
+      ['chunk-margin', 3],
+    ]);
+    expect(read.totalChunks).toBe(2);
+    expect(read.page).toBe(2);
+    expect(read.totalPages).toBe(2);
+    expect(read.documentSummary).toMatchObject({
+      revisionKey: null,
+      chunkCount: 3,
+      pageNumbers: [1, 5],
+      pageCount: 9,
+      hasNativePageContent: true,
+    });
+    expect(read.documentSummary?.chunks.map((chunk) => chunk.chunkId)).toEqual([
+      'chunk-intro',
+      'chunk-table',
+      'chunk-margin',
+    ]);
+  });
+
+  it('does not certify a requested snapshot revision for an unversioned local cache', async (): Promise<void> => {
+    const knowledge: Knowledge = await createKnowledgeWithCachedResult();
+    const read = await knowledge.readChunks({
+      localDocumentId: 'local-report',
+      revisionKey: 'foreign-requested-snapshot',
+      limit: 1,
+    });
+    expect(read.document.jobId).toBe('job-1');
+    expect(read.chunks[0]?.chunkId).toBe('chunk-intro');
+    expect(read.documentSummary?.revisionKey).toBeNull();
+  });
+
+  it.each([
+    { page: 1, pageSize: 2 },
+    { sectionPath: 'Intro', limit: 5 },
+  ])(
+    'forwards explicit metadata-only reads to the documents API: %j',
+    async (window): Promise<void> => {
+      const cacheDirectory = await createTempDirectory();
+      const { client, documentsListChunks } = createClient(createParseResult());
+      const knowledge = new Knowledge(client, { cacheDirectory });
+      await knowledge.readChunks({ documentId: 'doc_remote', ...window, includeAssetUrls: false });
+      expect(documentsListChunks).toHaveBeenCalledWith(
+        'doc_remote',
+        expect.objectContaining({ includeAssetUrls: false }),
+      );
+    },
+  );
 
   it('should parse through the SDK and store a local document copy', async () => {
     const cacheDirectory = await createTempDirectory();
