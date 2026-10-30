@@ -1,6 +1,8 @@
 import { BaseResource } from './base.js';
 import type {
   Document,
+  DocumentDirectoryParams,
+  DocumentDirectoryResponse,
   DocumentChunkGetParams,
   DocumentChunkListParams,
   DocumentChunkListResponse,
@@ -37,6 +39,20 @@ export class Documents extends BaseResource {
    */
   async get(documentId: string): Promise<Document> {
     return this.httpClient.get<Document>(this.endpoint(`/documents/${documentId}`));
+  }
+
+  /** Read the initial chapter directory without downloading assets or triggering Fine. */
+  async getStructure(
+    documentId: string,
+    params?: DocumentDirectoryParams,
+  ): Promise<DocumentDirectoryResponse> {
+    const queryParams: Record<string, string> = {};
+    if (params?.jobResultId !== undefined) queryParams.job_result_id = params.jobResultId;
+    if (params?.namespace !== undefined) queryParams.namespace = params.namespace;
+    return this.httpClient.get<DocumentDirectoryResponse>(
+      this.endpoint(`/documents/${encodeURIComponent(documentId)}/structure`),
+      Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined,
+    );
   }
 
   /**

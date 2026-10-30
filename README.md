@@ -300,6 +300,14 @@ if (!documentId) {
 
 console.log(documentId);
 
+// Read all initially recognized chapters without waiting for Fine or copying assets.
+const directory = await client.documents.getStructure(documentId, {
+  namespace: 'support-center',
+});
+if (directory.directoryVersion === 1) {
+  console.log(directory.sections); // physical pageNums are 1-based
+}
+
 // Agentic mode (LLM navigation + answer synthesis)
 const response = await client.retrieval.query({
   namespace: 'support-center',
@@ -394,6 +402,16 @@ if (chunks.chunks[0]) {
 }
 console.log(archived.status);
 ```
+
+Progressive parsing delivers `job.document.directory_ready` once logically per
+parsed revision, independently of baseline and final completion. Retries retain
+the same `event_id`; consumers should apply them idempotently and pass the
+event's `job_result_id` and `namespace` to `getStructure`. Version zero means
+the directory is pending. Version one includes every recognized descendant,
+including an empty directory when no hierarchy was found. A structure read
+does not trigger Fine or download page images. Raw webhook types are exported
+as `DocumentDirectoryReadyEvent`; SDK responses use camelCase and parse the
+directory timestamp into a `Date`.
 
 ### Local Knowledge Tools
 

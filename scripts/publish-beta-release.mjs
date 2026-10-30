@@ -31,6 +31,9 @@ if (!version.includes(`-${distTag}.`)) {
   throw new Error(`Beta publish expected ${version} to include prerelease tag ${distTag}`);
 }
 
+// Embed the assigned snapshot version rather than the workflow's earlier build version.
+releaseUtils.runCommand('pnpm', ['run', 'build:all']);
+
 // npm provenance is disabled while this repository is private.
 // Re-enable `--provenance` when the source repository becomes public.
 releaseUtils.publishWorkspacePackages({ tag: distTag });

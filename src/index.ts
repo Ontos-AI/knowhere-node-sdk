@@ -27,6 +27,10 @@ export type {
   JobSnapshotObjectAccessBatch,
   // Document types
   Document,
+  DocumentDirectoryParams,
+  DocumentDirectoryReadyEvent,
+  DocumentDirectoryResponse,
+  DocumentDirectorySection,
   DocumentChunk,
   DocumentChunkGetParams,
   DocumentChunkListParams,

@@ -60,6 +60,49 @@ export interface DocumentListResponse {
   pagination: DocumentListPagination;
 }
 
+/** A revision-fenced read of the initial directory; this never triggers refinement. */
+export interface DocumentDirectoryParams {
+  readonly jobResultId?: string;
+  readonly namespace?: string;
+}
+
+/** One recognized chapter, including descendants available before Fine. */
+export interface DocumentDirectorySection {
+  readonly sectionId: string;
+  readonly parentSectionId: string | null;
+  readonly sectionPath: string;
+  readonly sectionTitle: string | null;
+  readonly sectionLevel: number;
+  readonly sortOrder: number;
+  /** Physical source pages, starting at one. */
+  readonly pageNums: readonly number[];
+}
+
+/** Immutable initial directory. Version zero explicitly means not ready yet. */
+export interface DocumentDirectoryResponse {
+  readonly documentId: string;
+  readonly jobId: string;
+  readonly jobResultId: string;
+  readonly namespace: string;
+  readonly directoryVersion: 0 | 1;
+  readonly directoryCommittedAt: Date | null;
+  readonly sections: readonly DocumentDirectorySection[];
+}
+
+/** Raw webhook JSON, delivered independently of parse completion and Fine. */
+export interface DocumentDirectoryReadyEvent {
+  readonly event: 'job.document.directory_ready';
+  readonly event_id: string;
+  readonly status: 'completed';
+  readonly job_id: string;
+  readonly document_id: string;
+  readonly job_result_id: string;
+  readonly namespace: string;
+  readonly directory_version: 1;
+  readonly directory_committed_at: string;
+  readonly completed_at: string;
+}
+
 /**
  * Document chunk types supported by document chunk endpoints.
  */
