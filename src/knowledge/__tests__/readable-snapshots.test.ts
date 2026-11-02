@@ -1289,6 +1289,40 @@ describe('readable snapshot storage boundary', (): void => {
     expect(fixture.requests).toHaveLength(requestsBeforeRepeat + 1);
   });
 
+  it.each([
+    ['images/image-[1] Revenue Chart.png', 'brackets'],
+    ['images/chart-[1[2]].png', 'brackets'],
+    ['images/chart (draft).png', 'link'],
+    ['images/chart (draft (two)).png', 'link'],
+  ] as const)(
+    'prepares pinned assets with balanced delimiters in %s',
+    async (path, form): Promise<void> => {
+      const fixture: ReadableFixture = await createFixture();
+      updateOriginObject(fixture, path, Buffer.from('pinned-image'));
+      updateOriginObject(
+        fixture,
+        'chunks.json',
+        Buffer.from(
+          JSON.stringify({
+            chunks: [
+              {
+                chunk_id: 'image_1',
+                type: 'image',
+                path,
+                content: form === 'brackets' ? `[${path}]` : `[Chart](${path})`,
+              },
+            ],
+          }),
+        ),
+      );
+      await expect(fixture.knowledge.prepareReadableSnapshot(reference)).resolves.toMatchObject({
+        readable: { snapshotId: 'snapshot_baseline' },
+      });
+      expect(fixture.objects.has('snapshot_baseline/.knowhere-sdk/readable.json')).toBe(true);
+      expect(fixture.objects.has(`snapshot_baseline/${path}`)).toBe(false);
+    },
+  );
+
   it('rejects missing image references and corrupt essential bytes before readability', async (): Promise<void> => {
     const missing: ReadableFixture = await createFixture();
     missing.inventory.splice(
