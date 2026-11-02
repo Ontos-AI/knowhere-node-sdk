@@ -1,5 +1,5 @@
 import type { ReadableStreamReadResult } from 'node:stream/web';
-import { createHash } from 'crypto';
+import { createHash, type Hash } from 'crypto';
 import type { JobSnapshot } from '../types/job.js';
 import { ValidationError } from '../errors/index.js';
 import { ArchiveCacheTransportError } from './archive-cache-transport-error.js';
@@ -78,9 +78,12 @@ export async function syncRemoteResultArchive(
   const checkpointFileInterval: number = params.limits?.checkpointFileInterval ?? 1;
   const checkpointIntervalMs: number = params.limits?.checkpointIntervalMs ?? 2_000;
   const controller: AbortController = new AbortController();
-  const signal: AbortSignal = params.signal
-    ? AbortSignal.any([params.signal, controller.signal])
-    : controller.signal;
+  const deadline: AbortSignal = AbortSignal.timeout(deadlineMs);
+  const signal: AbortSignal = AbortSignal.any([
+    controller.signal,
+    deadline,
+    ...(params.signal ? [params.signal] : []),
+  ]);
   const openingParams: StreamedSyncParams = { ...params, signal };
   const previous: ParsedDocumentSyncProgress | null = await params.storage.readSyncProgress(params);
   const openedSource: ArchiveSource = await openArchive(openingParams, previous);
@@ -316,6 +319,21 @@ export async function syncRemoteResultArchive(
     const hasCacheTransportFailure: boolean =
       isArchiveCacheTransportFailure(error) || isArchiveCacheTransportFailure(failure);
     if (hasCacheTransportFailure) archiveCacheBypassed = true;
+    const hasReachedSegmentDeadline: boolean =
+      deadline.aborted &&
+      !params.signal?.aborted &&
+      (failure === deadline.reason || error === deadline.reason);
+    if (hasReachedSegmentDeadline) {
+      // Active writers have settled. Persist only their contiguous prefix before
+      // handing off; a failed checkpoint remains an error rather than success.
+      await flushProgress(true, true);
+      return {
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        snapshot: params.snapshot,
+        completed: false,
+      };
+    }
     await flushProgress(true, true).catch((): void => undefined);
     if (hasCacheTransportFailure) {
       await persistArchiveCacheBypass(
@@ -587,6 +605,10 @@ async function openArchiveTransport(
         ),
       )
       .digest('hex');
+    const canonicalFiles: readonly FileEntry[] = await deduplicateArchiveEntries(
+      files,
+      rangeSignal,
+    );
     return {
       signal: rangeSignal,
       identity: previous?.archiveIdentity === identity ? identity : archiveIdentity,
@@ -605,7 +627,7 @@ async function openArchiveTransport(
         : undefined,
       canSkipEntries: previous?.archiveIdentity !== identity,
       entries: (function* (): Generator<ArchiveEntry> {
-        for (const entry of files) {
+        for (const entry of canonicalFiles) {
           let entryRead: RangeEntryRead | undefined;
           yield {
             path: normalizeResultPath(entry.filename),
@@ -629,6 +651,48 @@ async function openArchiveTransport(
     await reader.close();
     throw error;
   }
+}
+
+/** Repeated ZIP names are safe only after their decoded bytes match. Preserve
+ * the original directory identity so prefixes saved before the duplicate resume. */
+async function deduplicateArchiveEntries(
+  entries: readonly FileEntry[],
+  signal: AbortSignal,
+): Promise<readonly FileEntry[]> {
+  const canonical: Map<string, FileEntry> = new Map();
+  const hashes: Map<FileEntry, string> = new Map();
+  const readHash = async (entry: FileEntry): Promise<string> => {
+    const existing: string | undefined = hashes.get(entry);
+    if (existing !== undefined) return existing;
+    const hash: Hash = createHash('sha256');
+    await entry.getData(
+      new WritableStream<Uint8Array>({
+        write(chunk): void {
+          signal.throwIfAborted();
+          hash.update(chunk);
+        },
+      }),
+      { signal, checkCrc32: true, useWebWorkers: false },
+    );
+    const result: string = hash.digest('hex');
+    hashes.set(entry, result);
+    return result;
+  };
+  for (const entry of entries) {
+    signal.throwIfAborted();
+    const path: string = normalizeResultPath(entry.filename);
+    const existing: FileEntry | undefined = canonical.get(path);
+    if (existing === undefined) {
+      canonical.set(path, entry);
+      continue;
+    }
+    if (
+      existing.uncompressedSize !== entry.uncompressedSize ||
+      (await readHash(existing)) !== (await readHash(entry))
+    )
+      throw new Error(`Duplicate parsed result path: ${path}`);
+  }
+  return [...canonical.values()];
 }
 
 function readRangeEntry(
@@ -752,6 +816,7 @@ async function verifyArchiveChecksum(
   const { openSequentialArchive } = await import('./sequential-parsed-document-archive.js');
   const source: ArchiveSource = await openSequentialArchive(params, identity, validateResponse);
   let entryIndex: number = 0;
+  const verifiedEntryHashes: Map<string, string> = new Map();
   try {
     for await (const entry of source.entries) {
       const hash = createHash('sha256');
@@ -763,10 +828,17 @@ async function verifyArchiveChecksum(
         .update(entry.path)
         .update(hash.digest())
         .digest('hex');
+      const existingHash: string | undefined = verifiedEntryHashes.get(entry.path);
+      if (existingHash !== undefined) {
+        if (existingHash !== entryHash)
+          throw new Error(`Duplicate parsed result path: ${entry.path}`);
+        continue;
+      }
       if (expectedEntryHashes[entryIndex] !== entryHash)
         throw new Error(
           'Parsed snapshot archive entry changed between extraction and checksum verification.',
         );
+      verifiedEntryHashes.set(entry.path, entryHash);
       entryIndex += 1;
     }
     if (entryIndex !== expectedEntryHashes.length)

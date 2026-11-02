@@ -18,6 +18,11 @@ import {
   type StreamedSyncParams,
 } from './streamed-parsed-document-sync.js';
 
+interface SequentialEntryChecksum {
+  readonly checksum: number;
+  readonly size: number;
+}
+
 export async function openSequentialArchive(
   params: StreamedSyncParams,
   identity: string,
@@ -54,7 +59,8 @@ export async function openSequentialArchive(
   }
   const input: Readable = Readable.fromWeb(body);
   const parser = Parse({ forceStream: true });
-  const checksums: Map<string, { readonly checksum: number; readonly size: number }> = new Map();
+  const checksums: Map<string, SequentialEntryChecksum[]> = new Map();
+  let decodedEntryCount: number = 0;
   let archiveSize: number = 0;
   const archiveHash = createHash('sha256');
   // unzipper extracts sequentially, but does not verify CRCs. Spool compressed bytes to disk
@@ -124,7 +130,10 @@ export async function openSequentialArchive(
                   controller.enqueue(chunk);
                 },
                 flush(): void {
-                  checksums.set(path, { checksum, size });
+                  const entries: SequentialEntryChecksum[] = checksums.get(path) ?? [];
+                  entries.push({ checksum, size });
+                  checksums.set(path, entries);
+                  decodedEntryCount += 1;
                 },
               }),
             );
@@ -141,16 +150,20 @@ export async function openSequentialArchive(
         const files = (await reader.getEntries()).filter(
           (entry): entry is FileEntry => !entry.directory && isSnapshotPath(entry.filename),
         );
-        if (files.length !== checksums.size)
+        if (files.length !== decodedEntryCount)
           throw new Error('Parsed result ZIP directory does not match sequential entries.');
         for (const entry of files) {
-          const actual = checksums.get(normalizeResultPath(entry.filename));
-          if (
-            !actual ||
-            actual.checksum !== entry.signature ||
-            actual.size !== entry.uncompressedSize
-          )
+          const candidates: SequentialEntryChecksum[] | undefined = checksums.get(
+            normalizeResultPath(entry.filename),
+          );
+          const index: number =
+            candidates?.findIndex(
+              (actual: SequentialEntryChecksum): boolean =>
+                actual.checksum === entry.signature && actual.size === entry.uncompressedSize,
+            ) ?? -1;
+          if (index < 0)
             throw new Error(`Invalid parsed result ZIP checksum or size: ${entry.filename}`);
+          candidates?.splice(index, 1);
         }
       } finally {
         await reader.close();
