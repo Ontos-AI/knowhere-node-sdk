@@ -210,7 +210,7 @@ function createSegmentDeadline(): AbortController {
   const createTimeout: typeof AbortSignal.timeout = AbortSignal.timeout.bind(AbortSignal);
   vi.spyOn(AbortSignal, 'timeout').mockImplementation(
     (milliseconds: number): AbortSignal =>
-      milliseconds === 25 ? controller.signal : createTimeout(milliseconds),
+      milliseconds === 60_000 ? controller.signal : createTimeout(milliseconds),
   );
   return controller;
 }
@@ -299,9 +299,10 @@ describe('bounded parsed archive concurrency', () => {
     fixture.storage.writeSyncProgress = (): Promise<void> => Promise.reject(checkpointFailure);
     const pending: Promise<KnowledgeSyncParsedDocumentResponse> = fixture.sync(
       {
-        archiveSyncDeadlineMs: 25,
+        archiveSyncDeadlineMs: 60_000,
         maxConcurrentFiles: 3,
         checkpointFileInterval: 100,
+        checkpointIntervalMs: 60_000,
       },
       AbortSignal.timeout(2_000),
     );
@@ -340,7 +341,12 @@ describe('bounded parsed archive concurrency', () => {
       return write(params);
     };
     const pending: Promise<KnowledgeSyncParsedDocumentResponse> = fixture.sync(
-      { archiveSyncDeadlineMs: 25, maxConcurrentFiles: 3, checkpointFileInterval: 10 },
+      {
+        archiveSyncDeadlineMs: 60_000,
+        maxConcurrentFiles: 3,
+        checkpointFileInterval: 10,
+        checkpointIntervalMs: 60_000,
+      },
       AbortSignal.timeout(2_000),
     );
     await vi.waitFor(() => {
