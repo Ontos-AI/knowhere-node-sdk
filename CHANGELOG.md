@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.8.1
+
+### Patch Changes
+
+- [#144](https://github.com/Ontos-AI/knowhere-node-sdk/pull/144) [`6a1c3ae`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/6a1c3aec38c54aa155c36c72c7738ae3d1a46abb) Thanks [@suguanYang](https://github.com/suguanYang)! - Interrupt active archive transfers at the segment deadline, persist the contiguous completed prefix, and return a resumable pending result. Caller cancellation and checkpoint failures remain errors.
+
+  Validate duplicate ZIP resource names before starting uploads. Reuse byte-identical resources after SHA-256 verification and reject conflicting resources without partial writes.
+
+  Keep canonical resource hashes consistent during immutable snapshot checksum verification while validating every physical ZIP entry's CRC and size.
+
+- [#146](https://github.com/Ontos-AI/knowhere-node-sdk/pull/146) [`4f92970`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/4f929704a1e7ea401403d4774465a76bcdf91b92) Thanks [@suguanYang](https://github.com/suguanYang)! - Preserve complete pinned asset paths when DOCX image names contain nested brackets or Markdown link targets contain parentheses. Keep missing-origin and integrity validation in place before publishing a readable snapshot.
+
+  Persist the archive identity and zero-entry checkpoint before the first resource starts, so a first-entry deadline retains its immutable generation for the next invocation.
+
 ## 2.8.0
 
 ### Minor Changes
