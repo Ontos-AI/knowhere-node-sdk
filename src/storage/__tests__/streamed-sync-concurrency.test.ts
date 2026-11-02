@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { ZipReader, configure, type FileEntry } from '@zip.js/zip.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Knowledge } from '../../knowledge/knowledge.js';
+import type { KnowledgeSyncParsedDocumentResponse } from '../../knowledge/types.js';
 import type { Knowhere } from '../../client.js';
 import type {
   ParsedDocumentObject,
@@ -26,7 +27,10 @@ interface Fixture {
   readonly finished: string[];
   readonly lengths: Map<string, number | undefined>;
   readonly fetch: ReturnType<typeof vi.fn>;
-  readonly sync: (limits?: ParsedDocumentStorageLimits, signal?: AbortSignal) => Promise<unknown>;
+  readonly sync: (
+    limits?: ParsedDocumentStorageLimits,
+    signal?: AbortSignal,
+  ) => Promise<KnowledgeSyncParsedDocumentResponse>;
   readonly getPeak: () => number;
 }
 
@@ -42,6 +46,7 @@ async function createFixture(
     readonly wrapErrors?: boolean;
     readonly onStart?: (path: string) => void;
     readonly delays?: Readonly<Record<string, number>>;
+    readonly duplicateEntry?: 'identical' | 'conflicting';
   } = {},
 ): Promise<Fixture> {
   const zip: JSZip = new JSZip();
@@ -56,10 +61,28 @@ async function createFixture(
           ? `body-${index}`.repeat(262144)
           : `body-${index}`,
     );
+  if (options.duplicateEntry) {
+    zip.file('images/first.png', 'original-image');
+    zip.file(
+      'images/other.png',
+      options.duplicateEntry === 'identical' ? 'original-image' : 'modified-image',
+    );
+  }
   const archive: Uint8Array = await zip.generateAsync({
     type: 'uint8array',
     compression: 'DEFLATE',
   });
+  if (options.duplicateEntry) {
+    const buffer: Buffer = Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength);
+    const originalName: Buffer = Buffer.from('images/other.png');
+    const repeatedName: Buffer = Buffer.from('images/first.png');
+    for (
+      let offset: number = buffer.indexOf(originalName);
+      offset !== -1;
+      offset = buffer.indexOf(originalName, offset + repeatedName.length)
+    )
+      buffer.set(repeatedName, offset);
+  }
   const fetchMock: ReturnType<typeof vi.fn> = vi.fn(
     (input: unknown, init?: RequestInit): Promise<Response> => {
       const range: string | null = new Headers(init?.headers).get('range');
@@ -159,7 +182,7 @@ async function createFixture(
     lengths,
     fetch: fetchMock,
     getPeak: (): number => peak,
-    sync: (limits, signal): Promise<unknown> =>
+    sync: (limits, signal): Promise<KnowledgeSyncParsedDocumentResponse> =>
       syncRemoteResultArchive({
         documentId: 'document',
         revisionKey: 'revision',
@@ -177,7 +200,135 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function readCancellationReason(signal: AbortSignal | undefined): Error {
+  const reason: unknown = signal?.reason;
+  return reason instanceof Error ? reason : new Error('Fixture transfer cancelled');
+}
+
+function createSegmentDeadline(): AbortController {
+  const controller: AbortController = new AbortController();
+  const createTimeout: typeof AbortSignal.timeout = AbortSignal.timeout.bind(AbortSignal);
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation(
+    (milliseconds: number): AbortSignal =>
+      milliseconds === 25 ? controller.signal : createTimeout(milliseconds),
+  );
+  return controller;
+}
+
 describe('bounded parsed archive concurrency', () => {
+  it('continues across byte-identical duplicate archive resources', async () => {
+    const fixture: Fixture = await createFixture({ fileCount: 0, duplicateEntry: 'identical' });
+    for (let segment: number = 0; segment < 4; segment += 1) {
+      const result: KnowledgeSyncParsedDocumentResponse = await fixture.sync({
+        maxEntriesPerSync: 1,
+      });
+      if (result.completed) break;
+    }
+    expect(fixture.progress.at(-1)).toMatchObject({ status: 'completed', nextArchiveEntry: 3 });
+    expect(
+      fixture.started.filter((path: string): boolean => path === 'images/first.png'),
+    ).toHaveLength(1);
+    expect(Buffer.from(fixture.objects.get('images/first.png') ?? []).toString()).toBe(
+      'original-image',
+    );
+  });
+
+  it('rejects conflicting duplicate paths before starting uploads', async () => {
+    const fixture: Fixture = await createFixture({ fileCount: 0, duplicateEntry: 'conflicting' });
+    await expect(fixture.sync()).rejects.toThrow('Duplicate parsed result path');
+    expect(fixture.started).toHaveLength(0);
+    expect(fixture.progress).toHaveLength(0);
+  });
+
+  it('reports checkpoint failure instead of acknowledging a deadline handoff', async () => {
+    const fixture: Fixture = await createFixture();
+    const deadline: AbortController = createSegmentDeadline();
+    let hasHeldEntry: boolean = false;
+    const checkpointFailure: Error = new Error('Checkpoint persistence unavailable');
+    const write = fixture.storage.writeObjectStream?.bind(fixture.storage);
+    if (!write) throw new Error('Fixture requires streaming storage.');
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'file-1.txt') {
+        hasHeldEntry = true;
+        await new Promise<void>((_resolve, reject) => {
+          params.signal?.addEventListener(
+            'abort',
+            () => reject(readCancellationReason(params.signal)),
+            {
+              once: true,
+            },
+          );
+        });
+      }
+      return write(params);
+    };
+    fixture.storage.writeSyncProgress = (): Promise<void> => Promise.reject(checkpointFailure);
+    const pending: Promise<KnowledgeSyncParsedDocumentResponse> = fixture.sync(
+      {
+        archiveSyncDeadlineMs: 25,
+        maxConcurrentFiles: 3,
+        checkpointFileInterval: 100,
+      },
+      AbortSignal.timeout(2_000),
+    );
+    await vi.waitFor(() => {
+      expect(hasHeldEntry).toBe(true);
+      expect(fixture.finished).toContain('file-0.txt');
+    });
+    deadline.abort(new DOMException('Segment budget expired', 'TimeoutError'));
+    await expect(pending).rejects.toBe(checkpointFailure);
+    expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+  });
+
+  it('checkpoints the contiguous prefix when an active entry reaches the segment deadline and resumes', async () => {
+    const fixture: Fixture = await createFixture();
+    const deadline: AbortController = createSegmentDeadline();
+    let hasHeldEntry: boolean = false;
+    const write = fixture.storage.writeObjectStream?.bind(fixture.storage);
+    if (!write) throw new Error('Fixture requires streaming storage.');
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'file-1.txt') {
+        hasHeldEntry = true;
+        await new Promise<void>((_resolve, reject) => {
+          if (params.signal?.aborted) reject(readCancellationReason(params.signal));
+          else
+            params.signal?.addEventListener(
+              'abort',
+              () => reject(readCancellationReason(params.signal)),
+              {
+                once: true,
+              },
+            );
+        });
+      }
+      return write(params);
+    };
+    const pending: Promise<KnowledgeSyncParsedDocumentResponse> = fixture.sync(
+      { archiveSyncDeadlineMs: 25, maxConcurrentFiles: 3, checkpointFileInterval: 10 },
+      AbortSignal.timeout(2_000),
+    );
+    await vi.waitFor(() => {
+      expect(hasHeldEntry).toBe(true);
+      expect(fixture.finished).toContain('file-0.txt');
+    });
+    deadline.abort(new DOMException('Segment budget expired', 'TimeoutError'));
+    await expect(pending).resolves.toMatchObject({ completed: false, revisionKey: 'revision' });
+    expect(fixture.progress.at(-1)).toMatchObject({ status: 'running', nextArchiveEntry: 3 });
+    expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
+    const alreadyCopied: string[] = fixture.finished.slice(0, 3);
+    fixture.storage.writeObjectStream = write;
+    await expect(fixture.sync()).resolves.toMatchObject({ completed: true });
+    expect(fixture.progress.at(-1)).toMatchObject({ status: 'completed', nextArchiveEntry: 10 });
+    for (const path of alreadyCopied)
+      expect(
+        fixture.finished.filter((finished: string): boolean => finished === path),
+      ).toHaveLength(1);
+  });
+
   it('copies Range entries concurrently and provides the expected uncompressed length', async () => {
     const fixture: Fixture = await createFixture({ delays: { 'manifest.json': 20 } });
     await fixture.sync({ maxConcurrentFiles: 3, checkpointFileInterval: 4 });

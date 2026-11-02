@@ -163,7 +163,7 @@ export interface ParsedDocumentStorageLimits {
   readonly checkpointFileInterval?: number;
   /** Maximum scheduling interval between checkpoints (default 2000ms). */
   readonly checkpointIntervalMs?: number;
-  /** ZIP copy budget checked between entries (default 120000ms). */
+  /** ZIP copy budget including active transfers; expiry checkpoints and yields (default 120000ms). */
   readonly archiveSyncDeadlineMs?: number;
   readonly remotePageSize?: number;
   readonly maxPagesPerSync?: number;
