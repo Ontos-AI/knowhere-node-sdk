@@ -515,13 +515,35 @@ function collectReferences(value: unknown, references: Set<string>): void {
       if (key === 'path' && /^(?:images|tables|page_pdfs)\//.test(child))
         references.add(validateObjectPath(child));
       if (['ref', 'content', 'summary'].includes(key)) {
-        for (const match of child.matchAll(/\[((?:images|tables)\/[^\]\r\n]+)\]/g))
-          references.add(validateObjectPath(match[1]));
-        for (const match of child.matchAll(/\]\(((?:images|tables)\/[^)\r\n]+)\)/g))
-          references.add(validateObjectPath(match[1]));
+        for (const path of readInlineResourcePaths(child)) references.add(validateObjectPath(path));
       }
     } else collectReferences(child, references);
   }
+}
+
+/** Asset names may contain nested brackets or parentheses inside their outer reference. */
+function readInlineResourcePaths(content: string): readonly string[] {
+  const paths: string[] = [];
+  const starts: RegExp = /\[(?=(?:images|tables)\/)|\]\((?=(?:images|tables)\/)/g;
+  let match: RegExpExecArray | null;
+  while ((match = starts.exec(content)) !== null) {
+    const opening: string = match[0].endsWith('(') ? '(' : '[';
+    const closing: string = opening === '(' ? ')' : ']';
+    const start: number = match.index + match[0].length;
+    let depth: number = 1;
+    let index: number = start;
+    for (; index < content.length; index += 1) {
+      const character: string = content[index];
+      if (character === '\r' || character === '\n') break;
+      if (character === opening) depth += 1;
+      if (character === closing) depth -= 1;
+      if (depth !== 0) continue;
+      paths.push(content.slice(start, index));
+      break;
+    }
+    starts.lastIndex = index + 1;
+  }
+  return paths;
 }
 
 function isImagePath(path: string): boolean {

@@ -272,6 +272,49 @@ describe('bounded parsed archive concurrency', () => {
     expect(fixture.progress).toHaveLength(0);
   });
 
+  it('pins the archive before a first-entry timeout and resumes in a new invocation', async () => {
+    const fixture: Fixture = await createFixture();
+    const deadline: AbortController = createSegmentDeadline();
+    let hasHeldEntry: boolean = false;
+    const write = fixture.storage.writeObjectStream?.bind(fixture.storage);
+    if (!write) throw new Error('Fixture requires streaming storage.');
+    fixture.storage.writeObjectStream = async (
+      params: ParsedDocumentWriteObjectStreamParams,
+    ): Promise<ParsedDocumentWriteObjectResult> => {
+      if (params.path === 'manifest.json') {
+        hasHeldEntry = true;
+        await new Promise<void>((_resolve, reject) => {
+          params.signal?.addEventListener(
+            'abort',
+            () => reject(readCancellationReason(params.signal)),
+            {
+              once: true,
+            },
+          );
+        });
+      }
+      return write(params);
+    };
+    const pending: Promise<KnowledgeSyncParsedDocumentResponse> = fixture.sync(
+      { archiveSyncDeadlineMs: 60_000, maxConcurrentFiles: 1 },
+      AbortSignal.timeout(2_000),
+    );
+    await vi.waitFor(() => expect(hasHeldEntry).toBe(true));
+    const pin: ParsedDocumentSyncProgress | undefined = fixture.progress.at(-1);
+    deadline.abort(new DOMException('Segment budget expired', 'TimeoutError'));
+    await expect(pending).resolves.toMatchObject({ completed: false, revisionKey: 'revision' });
+    expect(pin).toMatchObject({
+      pinnedRevisionKey: 'revision',
+      nextArchiveEntry: 0,
+      archiveEntryHashes: [],
+      status: 'running',
+    });
+    expect(pin?.archiveIdentity).toEqual(expect.any(String));
+    fixture.storage.writeObjectStream = write;
+    await expect(fixture.sync()).resolves.toMatchObject({ completed: true });
+    expect(fixture.progress.at(-1)).toMatchObject({ nextArchiveEntry: 10, status: 'completed' });
+  });
+
   it('reports checkpoint failure instead of acknowledging a deadline handoff', async () => {
     const fixture: Fixture = await createFixture();
     const deadline: AbortController = createSegmentDeadline();
@@ -296,7 +339,9 @@ describe('bounded parsed archive concurrency', () => {
       }
       return write(params);
     };
-    fixture.storage.writeSyncProgress = (): Promise<void> => Promise.reject(checkpointFailure);
+    const writeProgress = fixture.storage.writeSyncProgress.bind(fixture.storage);
+    fixture.storage.writeSyncProgress = (progress): Promise<void> =>
+      progress.nextArchiveEntry === 0 ? writeProgress(progress) : Promise.reject(checkpointFailure);
     const pending: Promise<KnowledgeSyncParsedDocumentResponse> = fixture.sync(
       {
         archiveSyncDeadlineMs: 60_000,
@@ -387,7 +432,7 @@ describe('bounded parsed archive concurrency', () => {
     });
     fixture.storage.writeSyncProgress = async (value): Promise<void> => {
       fixture.progress.push(value);
-      if (fixture.progress.length === 1) {
+      if ((value.nextArchiveEntry ?? 0) > 0 && fixture.progress.length === 2) {
         markCheckpoint?.();
         await checkpointGate;
       }
@@ -403,7 +448,7 @@ describe('bounded parsed archive concurrency', () => {
     releaseCheckpoint?.();
     await sync;
     const running: ParsedDocumentSyncProgress[] = fixture.progress.filter(
-      (value) => value.status === 'running',
+      (value) => value.status === 'running' && (value.nextArchiveEntry ?? 0) > 0,
     );
     expect(running.length).toBeLessThan(10);
     expect(running[0].nextArchiveEntry).toBeGreaterThanOrEqual(4);
@@ -916,7 +961,8 @@ describe('bounded parsed archive concurrency', () => {
       { ...entry, filename: 'chunks.json' },
     ]);
     await expect(fixture.sync({ maxEntriesPerSync: 1 })).rejects.toThrow('Late producer failed');
-    expect(fixture.progress).toHaveLength(0);
+    expect(fixture.progress).toHaveLength(1);
+    expect(fixture.progress[0].nextArchiveEntry).toBe(0);
     expect(fixture.objects.has('.knowhere-sdk/commit.json')).toBe(false);
   });
 
@@ -962,7 +1008,8 @@ describe('bounded parsed archive concurrency', () => {
       ]);
       expect(state).toBe('waiting');
       expect(hasCleanedProducer).toBe(false);
-      expect(fixture.progress).toHaveLength(0);
+      expect(fixture.progress).toHaveLength(1);
+      expect(fixture.progress[0].nextArchiveEntry).toBe(0);
     } finally {
       releaseCleanup?.();
       await sync;
@@ -1008,7 +1055,9 @@ describe('bounded parsed archive concurrency', () => {
       checkpointFileInterval: 50,
       checkpointIntervalMs: 3,
     });
-    expect(fixture.progress[0].nextArchiveEntry).toBe(2);
+    expect(
+      fixture.progress.find((value) => (value.nextArchiveEntry ?? 0) > 0)?.nextArchiveEntry,
+    ).toBe(2);
     expect(fixture.progress.filter((value) => value.status === 'running').length).toBeGreaterThan(
       1,
     );

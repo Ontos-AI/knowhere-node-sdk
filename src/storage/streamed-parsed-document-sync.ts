@@ -116,6 +116,10 @@ export async function syncRemoteResultArchive(
   let successfulEntries: number = 0;
   let checkpointEntry: number = nextEntry;
   let checkpointAt: number = Date.now();
+  let hasPersistedCheckpoint: boolean =
+    previous?.status === 'running' &&
+    previous.archiveIdentity === source.identity &&
+    previous.pinnedRevisionKey === params.revisionKey;
   let failure: Error | undefined;
   let archiveCacheBypassed: boolean | undefined = source.archiveCacheBypassed;
 
@@ -128,7 +132,8 @@ export async function syncRemoteResultArchive(
       entryHashes[contiguousEntry] = successfulHashes.get(contiguousEntry)!;
       contiguousEntry += 1;
     }
-    if (contiguousEntry === checkpointEntry) return;
+    if (contiguousEntry === checkpointEntry && (checkpointEntry > 0 || hasPersistedCheckpoint))
+      return;
     await params.storage.writeSyncProgress(
       {
         documentId: params.documentId,
@@ -151,6 +156,7 @@ export async function syncRemoteResultArchive(
     checkpointEntry = contiguousEntry;
     successfulEntries = successfulHashes.size;
     checkpointAt = Date.now();
+    hasPersistedCheckpoint = true;
   }
 
   function startEntry(entry: ArchiveEntry, index: number): void {
@@ -214,6 +220,9 @@ export async function syncRemoteResultArchive(
         };
       }
     }
+    // Pin identity before the first potentially large entry starts. A timeout
+    // with zero completed entries must still hand off a durable generation.
+    await flushProgress(true);
     for await (const entry of source.entries) {
       if (failure !== undefined) throw failure;
       signal.throwIfAborted();
