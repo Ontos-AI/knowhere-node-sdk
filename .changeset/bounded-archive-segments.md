@@ -5,3 +5,5 @@
 Interrupt active archive transfers at the segment deadline, persist the contiguous completed prefix, and return a resumable pending result. Caller cancellation and checkpoint failures remain errors.
 
 Validate duplicate ZIP resource names before starting uploads. Reuse byte-identical resources after SHA-256 verification and reject conflicting resources without partial writes.
+
+Keep canonical resource hashes consistent during immutable snapshot checksum verification while validating every physical ZIP entry's CRC and size.

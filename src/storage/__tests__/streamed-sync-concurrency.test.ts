@@ -216,6 +216,38 @@ function createSegmentDeadline(): AbortController {
 }
 
 describe('bounded parsed archive concurrency', () => {
+  it.each([false, true])(
+    'verifies an immutable snapshot containing byte-identical repeated resources with cache %s',
+    async (cache: boolean) => {
+      const fixture: Fixture = await createFixture({
+        fileCount: 0,
+        duplicateEntry: 'identical',
+        cache,
+      });
+      const synchronize = (): Promise<KnowledgeSyncParsedDocumentResponse> =>
+        syncRemoteResultArchive({
+          documentId: 'document',
+          revisionKey: 'snapshot',
+          jobId: 'job',
+          resultUrl: 'https://archive.example/result.zip',
+          storage: fixture.storage,
+          cacheResultArchive: cache,
+          snapshot: {
+            snapshotId: 'snapshot',
+            stage: 'final',
+            jobId: 'job',
+            jobResultId: 'result',
+            documentId: 'document',
+            checksum: createHash('sha256').update(fixture.archive).digest('hex'),
+            resultUrl: 'https://archive.example/result.zip',
+            resultUrlExpiresAt: new Date('2030-01-01'),
+          },
+        });
+      await expect(synchronize()).resolves.toMatchObject({ completed: true });
+      await expect(synchronize()).resolves.toMatchObject({ completed: true });
+    },
+  );
+
   it('continues across byte-identical duplicate archive resources', async () => {
     const fixture: Fixture = await createFixture({ fileCount: 0, duplicateEntry: 'identical' });
     for (let segment: number = 0; segment < 4; segment += 1) {

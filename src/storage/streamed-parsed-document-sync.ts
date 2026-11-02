@@ -816,6 +816,7 @@ async function verifyArchiveChecksum(
   const { openSequentialArchive } = await import('./sequential-parsed-document-archive.js');
   const source: ArchiveSource = await openSequentialArchive(params, identity, validateResponse);
   let entryIndex: number = 0;
+  const verifiedEntryHashes: Map<string, string> = new Map();
   try {
     for await (const entry of source.entries) {
       const hash = createHash('sha256');
@@ -827,10 +828,17 @@ async function verifyArchiveChecksum(
         .update(entry.path)
         .update(hash.digest())
         .digest('hex');
+      const existingHash: string | undefined = verifiedEntryHashes.get(entry.path);
+      if (existingHash !== undefined) {
+        if (existingHash !== entryHash)
+          throw new Error(`Duplicate parsed result path: ${entry.path}`);
+        continue;
+      }
       if (expectedEntryHashes[entryIndex] !== entryHash)
         throw new Error(
           'Parsed snapshot archive entry changed between extraction and checksum verification.',
         );
+      verifiedEntryHashes.set(entry.path, entryHash);
       entryIndex += 1;
     }
     if (entryIndex !== expectedEntryHashes.length)
