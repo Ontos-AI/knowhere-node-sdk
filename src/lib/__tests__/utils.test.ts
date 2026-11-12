@@ -40,6 +40,25 @@ describe('utils', () => {
   });
 
   describe('keysToCamel', () => {
+    it('should keep audio/video time_ranges citations as timeRanges', () => {
+      const input = {
+        referenced_chunks: [
+          {
+            chunk_id: 'chunk_1',
+            time_ranges: [{ start_ms: 723000, end_ms: 860000 }],
+          },
+        ],
+      };
+      expect(keysToCamel(input)).toEqual({
+        referencedChunks: [
+          {
+            chunkId: 'chunk_1',
+            timeRanges: [{ startMs: 723000, endMs: 860000 }],
+          },
+        ],
+      });
+    });
+
     it('should convert object keys from snake_case to camelCase', () => {
       const input = {
         first_name: 'John',

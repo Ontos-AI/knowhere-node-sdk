@@ -73,6 +73,14 @@ export interface RetrievalQueryParams {
 }
 
 /**
+ * Audio/video time span in milliseconds from the start of the recording.
+ */
+export interface TimeRange {
+  startMs: number;
+  endMs: number;
+}
+
+/**
  * Caller-facing source reference attached to a retrieval result.
  */
 export interface RetrievalSource {
@@ -86,6 +94,8 @@ export interface RetrievalSource {
   pageNums?: number[];
   /** Original ingestion revision, shared by its baseline and final snapshots. */
   jobResultId?: string | null;
+  /** Audio/video transcript time spans */
+  timeRanges?: TimeRange[] | null;
 }
 
 /**
@@ -154,6 +164,8 @@ export interface RetrievalReferencedChunk {
   pageNums?: number[];
   /** Presigned asset URL for media chunks when available */
   assetUrl?: string | null;
+  /** Audio/video transcript time spans */
+  timeRanges?: TimeRange[] | null;
   /** Chunk metadata returned by the API */
   metadata?: Record<string, unknown>;
 }
