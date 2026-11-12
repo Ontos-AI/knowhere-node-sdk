@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.9.0
+
+### Minor Changes
+
+- [#147](https://github.com/Ontos-AI/knowhere-node-sdk/pull/147) [`d76ac72`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/d76ac72228894a1668903cdc954626d04288544e) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Type audio/video time-range citations: `TimeRange` and optional `timeRanges` on retrieval sources and referenced chunks, plus transcript chunk metadata (`timeRanges`, `speakers`, `media`, `sourceKind`).
+
 ## 2.8.1
 
 ### Patch Changes
