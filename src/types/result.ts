@@ -1,3 +1,5 @@
+import type { TimeRange } from './retrieval.js';
+
 /**
  * Statistics about the parsed document
  */
@@ -155,6 +157,14 @@ export interface ChunkMetadata {
   originalName?: string;
   tableType?: string;
   documentTopSummary?: string;
+  /** Audio/video transcript time spans */
+  timeRanges?: TimeRange[];
+  /** Speaker labels in an audio/video transcript chunk, e.g. S1 */
+  speakers?: string[];
+  /** Audio/video source facts: kind (audio or video) and durationMs */
+  media?: { kind?: string; durationMs?: number | null };
+  /** How the chunk text was produced, e.g. asr */
+  sourceKind?: string;
   /** Allow forward-compatible access to unknown fields. */
   [key: string]: unknown;
 }

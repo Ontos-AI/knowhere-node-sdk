@@ -49,6 +49,7 @@ export type {
   RetrievalSectionExclusion,
   RetrievalQueryParams,
   RetrievalSource,
+  TimeRange,
   RetrievalEvidencePart,
   RetrievalResult,
   RetrievalReferencedChunk,

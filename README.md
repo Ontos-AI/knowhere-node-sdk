@@ -346,6 +346,7 @@ result.metadata;
 result.source.documentId;
 result.source.sourceFileName;
 result.source.sectionPath;
+result.source.timeRanges; // audio/video only: [{ startMs, endMs }]
 ```
 
 Agentic references expose the current retrieval citation fields:
@@ -361,8 +362,12 @@ reference.sectionPath;
 reference.filePath;
 reference.jobId;
 reference.assetUrl;
+reference.timeRanges; // audio/video only: [{ startMs, endMs }]
 reference.metadata;
 ```
+
+Audio and video documents are speech transcripts; their citations carry
+`timeRanges` in milliseconds so you can seek the recording.
 
 Use `documentId` to update or archive a document:
 
