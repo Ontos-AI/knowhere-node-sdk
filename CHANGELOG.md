@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.0
+
+### Major Changes
+
+- [#149](https://github.com/Ontos-AI/knowhere-node-sdk/pull/149) [`b56d01c`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/b56d01c3a51cf4cbc66b861f953965daf2bcc88d) Thanks [@suguanYang](https://github.com/suguanYang)! - Remove `jobs.retryEnhancement`. New ingestion jobs complete once their initial result is searchable. Progressive PDF and PPTX jobs expose one frozen baseline snapshot. Historical baseline and final snapshots remain readable by ID.
+
+  Use `replacesDocumentId` to submit a private replacement job with a new document ID. Read integer directory versions through `documents.getStructure` and explicitly select `job.enrichment.failed` in `webhook.events` to receive per-attempt failure notifications.
+
+### Minor Changes
+
+- [#147](https://github.com/Ontos-AI/knowhere-node-sdk/pull/147) [`d76ac72`](https://github.com/Ontos-AI/knowhere-node-sdk/commit/d76ac72228894a1668903cdc954626d04288544e) Thanks [@EricNGOntos](https://github.com/EricNGOntos)! - Type audio/video time-range citations: `TimeRange` and optional `timeRanges` on retrieval sources and referenced chunks, plus transcript chunk metadata (`timeRanges`, `speakers`, `media`, `sourceKind`).
+
 ## 2.8.1
 
 ### Patch Changes
