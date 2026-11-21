@@ -2,7 +2,6 @@ import { BaseResource } from './base.js';
 import type {
   Job,
   JobResult,
-  JobEnhancementRetryResult,
   JobSnapshotDelivery,
   JobSnapshotObjectAccess,
   JobSnapshotObjectAccessBatch,
@@ -112,13 +111,6 @@ export class Jobs extends BaseResource {
     return this.httpClient.download(access.downloadUrl, { signal: options?.signal });
   }
 
-  /** Renew unfinished enhancement without creating another ingestion. */
-  async retryEnhancement(jobId: string): Promise<JobEnhancementRetryResult> {
-    return this.httpClient.post<JobEnhancementRetryResult>(
-      this.endpoint(`/jobs/${jobId}/enrichment/retry`),
-    );
-  }
-
   /**
    * Upload file for a job
    */
@@ -142,7 +134,7 @@ export class Jobs extends BaseResource {
   }
 
   /**
-   * Wait for job completion
+   * Wait until the initial parsed result is searchable or the job fails.
    */
   async wait(jobId: string, options?: WaitOptions): Promise<JobResult> {
     return pollJobStatus(this.httpClient, jobId, options);

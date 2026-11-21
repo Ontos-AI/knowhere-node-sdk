@@ -41,7 +41,7 @@ export class Documents extends BaseResource {
     return this.httpClient.get<Document>(this.endpoint(`/documents/${documentId}`));
   }
 
-  /** Read the initial chapter directory without downloading assets or triggering Fine. */
+  /** Read the latest published directory without downloading assets or triggering enrichment. */
   async getStructure(
     documentId: string,
     params?: DocumentDirectoryParams,

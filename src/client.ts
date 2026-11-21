@@ -191,6 +191,7 @@ export class Knowhere {
       dataId: params.dataId,
       namespace: params.namespace,
       documentId: params.documentId,
+      replacesDocumentId: params.replacesDocumentId,
       documentMetadata: params.documentMetadata,
       parsingParams: buildParsingParams(params),
       llmConfig: params.llmConfig,

@@ -1,5 +1,7 @@
 import type { ReadStream } from 'fs';
 import type { KnowhereAssetStorageOptions } from './storage.js';
+import type { DocumentDirectoryReadyEvent } from './document.js';
+import type { JobEnrichmentFailedEvent } from './job.js';
 
 /**
  * Parsing model options
@@ -36,11 +38,24 @@ export interface ParsingParams {
 }
 
 /**
+ * Webhook events accepted by the job creation API, including legacy notifications.
+ */
+export type WebhookEventType =
+  | 'job.parsed'
+  | 'job.completed'
+  | 'job.failed'
+  | 'job.enrichment.completed'
+  | DocumentDirectoryReadyEvent['event']
+  | JobEnrichmentFailedEvent['event'];
+
+/**
  * Webhook configuration
  */
 export interface WebhookConfig {
-  /** Webhook URL to notify on job completion */
+  /** Webhook URL for job notifications */
   url: string;
+  /** Select a nonempty list to override the server's default notifications. */
+  events?: readonly WebhookEventType[];
 }
 
 /**
@@ -106,8 +121,10 @@ export interface CreateJobParams {
   dataId?: string;
   /** Retrieval namespace for the canonical document */
   namespace?: string;
-  /** Existing document identifier when updating a published document */
+  /** Existing document identifier for Demo Catalog and legacy publishers. */
   documentId?: string;
+  /** Existing document exempted from duplicate admission when creating its replacement. */
+  replacesDocumentId?: string;
   /** Display metadata to copy onto the published document */
   documentMetadata?: DocumentMetadata;
   /** Parsing configuration */
@@ -180,8 +197,10 @@ export interface ParseParams {
   dataId?: string;
   /** Retrieval namespace for the canonical document */
   namespace?: string;
-  /** Existing document identifier when updating a published document */
+  /** Existing document identifier for Demo Catalog and legacy publishers. */
   documentId?: string;
+  /** Existing document exempted from duplicate admission when creating its replacement. */
+  replacesDocumentId?: string;
   /** Display metadata to copy onto the published document */
   documentMetadata?: DocumentMetadata;
   /** Additional fragment description */

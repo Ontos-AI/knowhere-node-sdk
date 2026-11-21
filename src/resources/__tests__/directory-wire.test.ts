@@ -1,11 +1,22 @@
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
-import { expect, it } from 'vitest';
+import { expect, expectTypeOf, it } from 'vitest';
 import { Knowhere } from '../../index.js';
 
-it('decodes directory wire fields and dates while sending revision and namespace fences', async () => {
+it.each([0, 1, 3])('reads pinned directory version %i', async (version: number): Promise<void> => {
   let receivedUrl: string | undefined;
   let authorization: string | undefined;
+  const wireSections = [
+    {
+      section_id: 'section-one',
+      parent_section_id: null,
+      section_path: 'Chapter',
+      section_title: null,
+      section_level: 1,
+      sort_order: 0,
+      page_nums: [1, 2],
+    },
+  ] as const;
   const server: Server = createServer((request, response): void => {
     receivedUrl = request.url;
     authorization = request.headers.authorization;
@@ -16,19 +27,9 @@ it('decodes directory wire fields and dates while sending revision and namespace
         job_id: 'job-one',
         job_result_id: 'result-one',
         namespace: 'project/one',
-        directory_version: 1,
-        directory_committed_at: '2026-10-29T17:00:00+00:00',
-        sections: [
-          {
-            section_id: 'section-one',
-            parent_section_id: null,
-            section_path: 'Chapter',
-            section_title: null,
-            section_level: 1,
-            sort_order: 0,
-            page_nums: [1, 2],
-          },
-        ],
+        directory_version: version,
+        directory_committed_at: version > 0 ? '2026-10-29T17:00:00+00:00' : null,
+        sections: version > 0 ? wireSections : [],
       }),
     );
   });
@@ -46,10 +47,17 @@ it('decodes directory wire fields and dates while sending revision and namespace
       jobResultId: 'result-one',
       namespace: 'project/one',
     });
+    expectTypeOf(directory.directoryVersion).toEqualTypeOf<number>();
+    expect(directory.directoryVersion).toBe(version);
     expect(receivedUrl).toBe(
       '/v2/documents/doc-one/structure?job_result_id=result-one&namespace=project%2Fone',
     );
     expect(authorization).toBe('Bearer test-key');
+    if (version === 0) {
+      expect(directory.directoryCommittedAt).toBeNull();
+      expect(directory.sections).toEqual([]);
+      return;
+    }
     expect(directory.directoryCommittedAt).toEqual(new Date('2026-10-29T17:00:00Z'));
     expect(directory.sections[0]).toEqual({
       sectionId: 'section-one',

@@ -60,13 +60,13 @@ export interface DocumentListResponse {
   pagination: DocumentListPagination;
 }
 
-/** A revision-fenced read of the initial directory; this never triggers refinement. */
+/** A revision-fenced read of the latest published directory. */
 export interface DocumentDirectoryParams {
   readonly jobResultId?: string;
   readonly namespace?: string;
 }
 
-/** One recognized chapter, including descendants available before Fine. */
+/** One section in the published directory. */
 export interface DocumentDirectorySection {
   readonly sectionId: string;
   readonly parentSectionId: string | null;
@@ -78,18 +78,18 @@ export interface DocumentDirectorySection {
   readonly pageNums: readonly number[];
 }
 
-/** Immutable initial directory. Version zero explicitly means not ready yet. */
+/** The latest published directory. Version zero means the initial directory is pending. */
 export interface DocumentDirectoryResponse {
   readonly documentId: string;
   readonly jobId: string;
   readonly jobResultId: string;
   readonly namespace: string;
-  readonly directoryVersion: 0 | 1;
+  readonly directoryVersion: number;
   readonly directoryCommittedAt: Date | null;
   readonly sections: readonly DocumentDirectorySection[];
 }
 
-/** Raw webhook JSON, delivered independently of parse completion and Fine. */
+/** Raw webhook JSON for the first published directory, delivered independently of job completion. */
 export interface DocumentDirectoryReadyEvent {
   readonly event: 'job.document.directory_ready';
   readonly event_id: string;
