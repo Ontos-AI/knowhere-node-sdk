@@ -182,14 +182,19 @@ allocations, and garbage-collection/native-allocation variance; they do not
 establish a safe concurrency limit for a deployed application. Storage adapters
 must preserve stream backpressure for the same memory behavior.
 
-## Progressive ingestion snapshots
+## Initial result and historical snapshots
 
-Progressive Jobs add `enhancement`, `snapshots`, and `currentSnapshotId`. Each
-`JobSnapshot` contains an opaque `snapshotId`, `stage`, real upstream
-`jobResultId`, document/job identity, SHA-256 `checksum`, `resultUrl`, and
-`resultUrlExpiresAt`. Baseline and final may share one upstream Job Result.
-`jobs.retryEnhancement(jobId)` calls the authenticated bodyless enrichment retry
-command and returns `{ jobId, enhancement }`; it does not create an ingestion.
+On the new ingestion contract, `jobs.wait(jobId)` returns when the initial
+result is searchable. For progressive PDF and PPTX jobs, `currentSnapshotId`
+pins the baseline snapshot for that ingestion. Its archive stays fixed as
+enrichment adds searchable content. Full ingestion completes with its full
+result package.
+
+Each `JobSnapshot` contains an opaque `snapshotId`, `stage`, upstream
+`jobResultId`, document and job identity, SHA-256 `checksum`, `resultUrl`,
+and `resultUrlExpiresAt`. Legacy progressive responses may include
+`enhancement` and separate baseline and final descriptors. Those descriptors
+can share one upstream Job Result.
 
 ```typescript
 const copied = await knowledge.syncParsedDocument({ jobId, documentId });
@@ -213,19 +218,21 @@ with a separate sequential spool whose exact ZIP bytes pass SHA-256 validation.
 This adds one archive download on a completing Range invocation, with bounded
 memory and temporary disk usage proportional to the compressed archive. It does
 not rely on HTTP validators proving that two downloads contain the same bytes.
-Completed progressive copies validate remote entry hashes and checksum without
+Completed pinned copies validate remote entry hashes and checksum without
 rewriting committed content. A later `retainResultArchive` request can repair a
 missing optional archive; retained ZIP bytes come from that verified spool.
 Legacy/full copies retain the explicit rebuild behavior described above.
 
-After a current snapshot commits, ordinary local read/grep/outline operations use
-its durable reader pointer. An incomplete or failed final copy leaves baseline
-current. A late baseline completion cannot supersede a committed final snapshot
-of the same upstream revision. Explicit `revisionKey` reads retain their selected
-content and assets; a missing pinned local snapshot cannot fall back to live
-content, including before the first progressive copy completes. Sync the retained
-snapshot before reading it. A later committed full-mode reparse also advances the
-ordinary reader pointer while explicit historical snapshot reads stay pinned. Keep the storage objects and checkpoint keys for both stages.
+After a current snapshot commits, ordinary local read, grep, and outline
+operations use its durable reader pointer. Explicit `revisionKey` reads use the
+selected local content and assets. Sync the retained snapshot before reading
+it. Keep the storage objects and checkpoint keys for historical revisions.
+
+When syncing a legacy response with both baseline and final snapshots, the
+baseline remains current while the final copy is incomplete. Once the final
+copy commits, it remains current for that upstream revision even if a late
+baseline copy finishes afterward. A later published full-mode revision can also
+advance the reader pointer while historical snapshot reads stay pinned.
 
 Commits remain version 1 and add optional `snapshotId`, `jobResultId`, `checksum`,
 and `stage`. Checkpoints add `snapshotChecksum` and `upstreamJobResultId`; adapters
@@ -238,9 +245,8 @@ revision; adapters should treat all revision/path keys as SDK-owned opaque keys.
 
 Historical Job synchronization retains an immutable, explicitly pinned snapshot and
 only advances ordinary reads when that Job still owns the published document.
-A completed baseline remains locally readable while final synchronization is pending,
-even if the upstream final archive is already available. Reads with a revision key
-remain pinned and do not change the ordinary reader selection.
+Reads with a revision key use the selected snapshot without changing the
+ordinary reader selection.
 
 Current-pointer writes are serialized per document across Knowledge clients sharing
 the same storage adapter instance. The generic adapter exposes unconditional object

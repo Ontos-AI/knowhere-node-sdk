@@ -47,8 +47,11 @@ export interface JobError {
  * Job status response with full details
  */
 export interface JobResult {
+  /** Legacy document-wide enhancement state, when returned by an older publisher. */
   enhancement?: JobEnhancement;
+  /** Retained immutable result snapshots, including historical generations. */
   snapshots?: readonly JobSnapshot[];
+  /** The published snapshot. New progressive PDF and PPTX jobs keep their baseline pin. */
   currentSnapshotId?: string;
   /** Unique job identifier */
   jobId: string;
@@ -95,7 +98,7 @@ export interface JobResult {
   readonly isFailed: boolean;
 }
 
-/** Background work does not change an already completed ingestion job. */
+/** Legacy public state for document-wide enhancement. */
 export interface JobEnhancement {
   readonly status: 'pending' | 'running' | 'complete' | 'failed';
   readonly canRetry: boolean;
@@ -145,7 +148,18 @@ export interface JobSnapshotObjectAccessBatch extends Omit<JobSnapshotDelivery, 
   readonly objects: readonly Pick<JobSnapshotObjectAccess, 'path' | 'downloadUrl' | 'expiresAt'>[];
 }
 
-export interface JobEnhancementRetryResult {
-  readonly jobId: string;
-  readonly enhancement: JobEnhancement;
+/** Raw webhook JSON for one failed enrichment attempt after ingestion completion. */
+export interface JobEnrichmentFailedEvent {
+  readonly event: 'job.enrichment.failed';
+  readonly event_id: string;
+  readonly job_id: string;
+  readonly document_id: string;
+  readonly job_result_id: string;
+  readonly unit_id: string;
+  readonly attempt: number;
+  readonly can_retry: boolean;
+  readonly error: {
+    readonly code: string;
+    readonly message?: string;
+  };
 }

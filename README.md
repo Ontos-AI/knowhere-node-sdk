@@ -278,7 +278,7 @@ const result = await client.jobs.load(jobResult);
 Published documents are queryable through the retrieval API after a job
 finishes. `client.jobs.create(...)` may return a planned `documentId`; persist
 `jobResult.documentId` after publication as the canonical value if you need to
-update or archive the same document later.
+read, replace, or archive the document.
 
 ```typescript
 const job = await client.jobs.create({
@@ -300,11 +300,11 @@ if (!documentId) {
 
 console.log(documentId);
 
-// Read all initially recognized chapters without waiting for Fine or copying assets.
+// Read the latest published directory without copying assets or starting enrichment.
 const directory = await client.documents.getStructure(documentId, {
   namespace: 'support-center',
 });
-if (directory.directoryVersion === 1) {
+if (directory.directoryVersion > 0) {
   console.log(directory.sections); // physical pageNums are 1-based
 }
 
@@ -369,15 +369,24 @@ reference.metadata;
 Audio and video documents are speech transcripts; their citations carry
 `timeRanges` in milliseconds so you can seek the recording.
 
-Use `documentId` to update or archive a document:
+To reparse a private document, use `replacesDocumentId` when creating the job.
+Knowhere uses that ID to allow the same original in the same authorized
+namespace. The job publishes a new document. Synchronize its result and adopt
+its new `documentId` before archiving the previous document. The job creation
+parameter `documentId` remains available for Demo Catalog and legacy servers.
 
 ```typescript
-const updateJob = await client.jobs.create({
+const replacementJob = await client.jobs.create({
   sourceType: 'url',
-  sourceUrl: 'https://example.com/manual-v2.pdf',
-  documentId,
+  sourceUrl: 'https://example.com/manual.pdf',
+  namespace: 'support-center',
+  replacesDocumentId: documentId,
 });
+const replacement = await client.jobs.wait(replacementJob.jobId);
+// Synchronize the result and persist replacement.documentId before archiving documentId.
+```
 
+```typescript
 const documents = await client.documents.list({
   namespace: 'support-center',
   page: 1,
@@ -408,15 +417,32 @@ if (chunks.chunks[0]) {
 console.log(archived.status);
 ```
 
-Progressive parsing delivers `job.document.directory_ready` once logically per
-parsed revision, independently of baseline and final completion. Retries retain
-the same `event_id`; consumers should apply them idempotently and pass the
-event's `job_result_id` and `namespace` to `getStructure`. Version zero means
-the directory is pending. Version one includes every recognized descendant,
-including an empty directory when no hierarchy was found. A structure read
-does not trigger Fine or download page images. Raw webhook types are exported
-as `DocumentDirectoryReadyEvent`; SDK responses use camelCase and parse the
-directory timestamp into a `Date`.
+Progressive parsing delivers `job.document.directory_ready` for the first
+directory, independently of `job.completed`. Redelivery preserves `event_id`.
+Pass the event's `job_result_id` and `namespace` to `getStructure` to read the
+latest directory for that revision. Version zero means the initial directory
+is pending. Version one is the first published tree. Higher integer versions
+identify updated trees. SDK responses use camelCase and parse the directory
+timestamp into a `Date`.
+
+Set `webhook.events` when you want an explicit subscription. On servers with
+the new ingestion contract, include `job.enrichment.failed` to receive failed
+enrichment attempts alongside the ingestion and first-directory notifications.
+
+```typescript
+await client.startParse({
+  url: 'https://example.com/manual.pdf',
+  webhook: {
+    url: 'https://example.com/knowhere-callback',
+    events: ['job.completed', 'job.failed', 'job.document.directory_ready', 'job.enrichment.failed'],
+  },
+});
+```
+
+The SDK exports `DocumentDirectoryReadyEvent` and `JobEnrichmentFailedEvent`
+for the raw callback JSON. A failure event identifies the affected unit and
+attempt. Use `event_id` to deduplicate redelivery. The ingestion remains complete
+when a later enrichment attempt fails.
 
 ### Local Knowledge Tools
 
